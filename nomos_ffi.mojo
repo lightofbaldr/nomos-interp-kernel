@@ -39,6 +39,7 @@ from lib.engine_prefill import prefill_batch_impl
 from lib.engine_readout import (
     readout_configure, readout_begin_turn, readout_project_rows_debug,
     ro_layers_from_host, ro_finite_host, ro_unit_rows_host,
+    readout_commit, readout_topk_debug, readout_stage_debug,
 )
 from lib.eagle3_drafter import (
     Eagle3Drafter,
@@ -2949,6 +2950,7 @@ def nomos_dflash_verify_fused(
             var held = List[Int]()   # prefill_batch_impl empties live_tokens on entry; hold it out of its reach
             if in_step:
                 swap(held, engine_ptr[0].live_tokens)
+            engine_ptr[0].ro_stage_verify = True
             prefill_batch_impl(
                 engine_ptr[0],
                 tokens,
@@ -2957,6 +2959,7 @@ def nomos_dflash_verify_fused(
                 Int(n_rows) - 1,
                 Int(n_rows),
             )
+            engine_ptr[0].ro_stage_verify = False
             if in_step:
                 # Mirror the KV just written: rows [start_pos, start_pos + n_rows) hold `tokens`.
                 while len(held) > Int(start_pos):
@@ -2970,6 +2973,7 @@ def nomos_dflash_verify_fused(
                 engine_ptr[0].live_desync = True
         return Int32(0)
     except e:
+        engine_ptr[0].ro_stage_verify = False
         if HAS_LINEAR_ATTENTION and engine_ptr[0].dflash_verify_pending:
             try:
                 engine_ptr[0].gdn_state.restore_verify_snapshot()
@@ -4184,6 +4188,59 @@ def nomos_readout_project_rows(handle: Int64, rows_ptr: Int64, n: Int32, slot: I
         return Int32(0)
     except err:
         print("[nomos_readout_project_rows EXC]", err)
+        return Int32(-99)
+
+
+@export
+def nomos_readout_workspace_commit(handle: Int64, row0: Int32, nrows: Int32) -> Int32:
+    """Readout spine: J-lens top-k for the last staged forward's rows [row0, row0 + nrows), after the host's keep
+    decision. 0 ok, -1 a range outside what the last forward staged, -2 workspace not configured, -99 exception."""
+    if handle == 0:
+        return Int32(-1)
+    try:
+        var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+        if not engine[0].ro_active or len(engine[0].ro_ws_layers) == 0:
+            return Int32(-2)
+        if row0 < 0 or nrows < 1 or Int(row0) + Int(nrows) > len(engine[0].ro_stage_pos):
+            return Int32(-1)
+        readout_commit(engine[0], Int(row0), Int(nrows))
+        return Int32(0)
+    except err:
+        print("[nomos_readout_workspace_commit EXC]", err)
+        return Int32(-99)
+
+
+@export
+def nomos_readout_debug_topk(handle: Int64, logits_ptr: Int64, k: Int32, ids_ptr: Int64, scores_ptr: Int64) -> Int32:
+    """Test hook: the readout top-k kernel on host logits [VOCAB]. 0 ok, -1 bad argument, -99 exception."""
+    if handle == 0 or logits_ptr == 0 or ids_ptr == 0 or scores_ptr == 0 or k < 1 or k > 16:
+        return Int32(-1)
+    try:
+        var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+        readout_topk_debug(engine[0], UInt64(logits_ptr), Int(k), UInt64(ids_ptr), UInt64(scores_ptr))
+        return Int32(0)
+    except err:
+        print("[nomos_readout_debug_topk EXC]", err)
+        return Int32(-99)
+
+
+@export
+def nomos_readout_debug_stage(handle: Int64, out_ptr: Int64) -> Int32:
+    """Test hook: the number of rows the last forward staged (n >= 0). When out_ptr is non-null, it also copies the
+    rows as [n_ws, n, D], slot-major like the staging buffer. -1 null handle, -2 workspace not configured,
+    -99 exception."""
+    if handle == 0:
+        return Int32(-1)
+    try:
+        var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+        if not engine[0].ro_active or len(engine[0].ro_ws_layers) == 0:
+            return Int32(-2)
+        var n = len(engine[0].ro_stage_pos)
+        if out_ptr != 0 and n > 0:
+            readout_stage_debug(engine[0], UInt64(out_ptr), n)
+        return Int32(n)
+    except err:
+        print("[nomos_readout_debug_stage EXC]", err)
         return Int32(-99)
 
 

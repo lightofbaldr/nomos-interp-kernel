@@ -8,6 +8,7 @@ The CPU-only classes (BitOracle, BenchGate) never load the library.
 """
 import contextlib
 import ctypes
+import functools
 import hashlib
 import json
 import os
@@ -449,6 +450,142 @@ class EmotionHooks(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertTrue(r["emo_valid"][:150].all())
         self.assertFalse(r["emo_valid"][150:].any())
+
+
+FIXTURE = (
+    "Portugal is a country located in southwestern Europe, on the Iberian Peninsula. It shares its only land border "
+    "with Spain to the east and north, and is bordered by the Atlantic Ocean to the west and south. Its territory "
+    "also includes the Atlantic archipelagos of the Azores and Madeira, both autonomous regions with their own "
+    "governments. The capital and largest city is Lisbon, which sits on the estuary of the Tagus River. Porto, the "
+    "second largest city, gave its name to the fortified wine shipped from its harbour. Portugal has been a republic "
+    "since 1910 and joined the European Union in 1986. Its official language, Portuguese, is spoken by more than two "
+    "hundred million people around the world, most of them in Brazil. In the fifteenth and sixteenth centuries "
+    "Portuguese navigators charted much of the African coast, reached India by sea and founded trading posts across "
+    "Asia and South America. Today the economy rests on services, tourism, manufacturing and agriculture, and the "
+    "cork oak forests of the Alentejo supply about half of the world's cork."
+)
+ANCHOR_WORDS = (" located", " Peninsula", " bordered")   # the 08-27 validation contexts at layer 44
+
+
+@functools.lru_cache(maxsize=None)
+def tokenizer():
+    from transformers import AutoTokenizer
+    return AutoTokenizer.from_pretrained(T.TOK_DIR)
+
+
+def fixture_ids():
+    """BOS followed by the tokenized FIXTURE, int32."""
+    return np.asarray([T.BOS] + tokenizer()(FIXTURE, add_special_tokens=False).input_ids, np.int32)
+
+
+def lens_assets():
+    man = json.load(open(os.path.join(ASSETS, "manifest.json")))
+    lens = np.stack([np.fromfile(os.path.join(ASSETS, man["layers"][str(layer)]["file"]), np.float32).reshape(D, D)
+                     for layer in WS])
+    norm_w = np.fromfile(os.path.join(ASSETS, man["norm"]["file"]), np.float32)
+    return np.ascontiguousarray(lens), np.ascontiguousarray(norm_w)
+
+
+def staged_rows(k):
+    """The last forward's staged rows as [n, n_ws, D]. nomos_readout_debug_stage copies them slot-major."""
+    n = k.lib.nomos_readout_debug_stage(k.h, 0)
+    assert n >= 0, f"nomos_readout_debug_stage rc={n}"
+    buf = np.zeros((len(WS), n, D), np.float32)
+    assert k.lib.nomos_readout_debug_stage(k.h, buf.ctypes.data) == n
+    return buf.transpose(1, 0, 2)
+
+
+class TopK(unittest.TestCase):
+    def test_topk_matches_a_stable_descending_sort(self):
+        k = kernel()
+        logits = np.random.default_rng(5).standard_normal(T.VOCAB).astype(np.float32)
+        logits[[7, 9000, 150000]] = logits.max() + 1.0          # a three-way tie at the top
+        logits[[11, 12]] = np.float32(2.5)                      # a tie further down
+        for kk in (1, 8, 16):
+            ids, sc = np.zeros(kk, np.int32), np.zeros(kk, np.float32)
+            self.assertEqual(k.lib.nomos_readout_debug_topk(k.h, logits.ctypes.data, kk, ids.ctypes.data,
+                                                            sc.ctypes.data), 0)
+            want = np.lexsort((np.arange(T.VOCAB), -logits))[:kk]
+            np.testing.assert_array_equal(ids, want)
+            assert_bits_equal(sc, logits[want], f"top-{kk} scores")
+        ids, sc = np.zeros(17, np.int32), np.zeros(17, np.float32)
+        self.assertEqual(k.lib.nomos_readout_debug_topk(k.h, logits.ctypes.data, 17, ids.ctypes.data,
+                                                        sc.ctypes.data), -1)
+
+
+class Workspace(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.lens, cls.norm_w = lens_assets()
+
+    def setUp(self):
+        self.k = kernel()
+        self.k.lib.nomos_clear_steer(self.k.h)
+        self.assertEqual(configure(self.k, ws=WS, lens=self.lens, norm_w=self.norm_w), 0)
+        self.assertEqual(self.k.lib.nomos_readout_begin_turn(self.k.h), 0)
+
+    def test_commit_refuses_what_was_not_staged(self):
+        k = self.k
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 1), -1)   # nothing staged this turn
+        k.prefill(np.asarray([T.BOS, 1000, 1001], np.int32))                    # the decode loop stages 1 row
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 2), -1)
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 0), -1)
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, -1, 1), -1)
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 1), 0)
+        offline_rows(k, PROMPT[:8], EMO)                                         # an unstaged forward (ruling R8)
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 1), -1)
+        self.assertEqual(configure(k), 0)                                        # emotion only
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 1), -2)
+
+    def test_workspace_matches_the_host_reference_on_the_staged_rows(self):
+        """Ruling R4. Positions 1-100 come from decode steps (one staged row each); positions 101-200 from
+        teacher-forced verify blocks (up to 8 rows, so up to 32 (row, layer) pairs per commit). The host reference
+        applies the lens and the final RMS norm in float64, then the float32 lm-head, to the same staged rows."""
+        k = self.k
+        ensure_drafter(k)
+        ids = fixture_ids()[:201]
+        self.assertEqual(len(ids), 201, "the fixture must give at least 200 tokens")
+        staged = np.zeros((len(ids), len(WS), D), np.float32)
+
+        def take(p, n):
+            staged[p:p + n] = staged_rows(k)
+            self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, n), 0)
+
+        k.prefill(ids[:1])
+        take(0, 1)
+        for p in range(1, 101):
+            k.step(int(ids[p]))
+            take(p, 1)
+        vlog = np.zeros((8, T.VOCAB), np.float32)
+        for p in range(101, len(ids), 8):
+            blk = np.ascontiguousarray(ids[p:p + 8])
+            self.assertEqual(k.lib.nomos_dflash_verify_fused(k.h, blk.ctypes.data, len(blk), p, vlog.ctypes.data), 0)
+            take(p, len(blk))
+        rc, r = read(k, 0, len(ids), n_ws=len(WS))
+        self.assertEqual(rc, 0)
+        self.assertTrue(r["ws_valid"].all())
+        anchors = {}
+        for word in ANCHOR_WORDS:
+            prefix = tokenizer()(FIXTURE[:FIXTURE.index(word)], add_special_tokens=False).input_ids
+            self.assertEqual(ids[1:1 + len(prefix)].tolist(), prefix, f"the fixture's tokens must extend {word!r}'s context")
+            anchors[word] = len(prefix)          # the position of the context's last token (BOS is position 0)
+        W_U = np.memmap(os.path.join(T.WEIGHTS, "lm_head_weight.bin"), np.float32, "r", shape=(T.VOCAB, D))
+        for slot, layer in enumerate(WS):
+            lensed = staged[1:, slot, :].astype(np.float64) @ self.lens[slot].astype(np.float64).T
+            normed = lensed / np.sqrt((lensed ** 2).mean(-1, keepdims=True) + 1e-5) * self.norm_w
+            logits = np.asarray(normed.astype(np.float32) @ W_U.T)      # [200, VOCAB]: positions 1..200
+            ref = np.argsort(-logits, axis=1, kind="stable")[:, :K]
+            got = r["ids"][1:, slot, :]
+            overlap = np.mean([len(set(a) & set(b)) / K for a, b in zip(ref.tolist(), got.tolist())])
+            shifted = np.mean([len(set(a) & set(b)) / K for a, b in zip(ref[:-1].tolist(), got[1:].tolist())])
+            print(f"layer {layer}: mean top-{K} overlap {overlap:.4f}, position-shifted control {shifted:.4f}")
+            self.assertGreaterEqual(overlap, 7 / 8, f"layer {layer}")
+            self.assertLess(shifted, overlap, f"layer {layer}")
+            if layer == 44:
+                for word, p in anchors.items():
+                    self.assertEqual(int(got[p - 1, 0]), int(ref[p - 1, 0]), f"top-1 at the {word!r} context")
+                    self.assertIn(word, [tokenizer().decode([int(t)]) for t in ref[p - 1, :3]],
+                                  f"the reference lens at the {word!r} context")
 
 
 if __name__ == "__main__":
