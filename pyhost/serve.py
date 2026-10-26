@@ -18,11 +18,13 @@ with env: NOMOS_WEIGHT_NVFP4=0 NOMOS_PRECISION_BITS=4 NOMOS_KV_SWA=0 NOMOS_MAX_S
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import threading
 import time
 from contextlib import ExitStack, asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 import anyio
@@ -37,6 +39,7 @@ from host import KernelLM, H, SESSION_OPEN_UNSUPPORTED, _store_requested   # noq
 from grammar import ToolGrammar        # noqa: E402
 from agent import parse_call           # noqa: E402  (Gemma <|"|>-arg parser → (name, dict))
 from serve_protocol import atem_exact_fields, load_serve_protocol  # noqa: E402
+import readout  # noqa: E402  (readout spine: the asset registry and the record assembly)
 # Prompt-length ceiling. With NOMOS_BATCHED_PREFILL=1 the engine fully materialises the causal
 # attention scores — lib/engine_prefill.mojo:145, NH * S * S * 4 bytes, plus a bf16 copy at :150
 # (NH * S * S * 2). That is QUADRATIC in prompt length: ~192 bytes * S^2, i.e. 768 MiB at 2k
@@ -165,6 +168,24 @@ class Engine:
         self.kvstore = _open_kvstore(self.lm)
         print(f"[serve] kvstore {self.kvstore['status']}" + (f" dir={self.kvstore['dir']}" if self.kvstore["dir"] else ""),
               flush=True)
+        # Readout spine (glimmer-emotions docs/superpowers/specs/2026-10-20-readout-spine-design.md, section 3): whether this
+        # engine serves readouts, and what this serve has armed on it. A request without a nomos block clears what an
+        # earlier one armed (_arm). The engine daemon outlives a serve restart, and so does whatever an earlier serve
+        # armed on it (review ruling R4). So this handshake resets the daemon and takes the local state from that reset,
+        # never from an optimistic default:
+        # - readout_supported() sends OP_READOUT_OFF, which turns readouts off. A daemon older than the opcode answers -1,
+        #   one whose kernel lacks the exports -2: no readouts, and no steering either (OP_STEER_SET needs the exports).
+        # - A capable daemon then gets OP_STEER_CLEAR, unconditionally. nomos_clear_steer disarms steering and marks the
+        #   live KV untracked only when steering was armed (nomos_ffi.mojo:4024-4037), so no plain request runs steered
+        #   or reuses steered KV.
+        # A transport failure here fails the startup, as model_id() does above: a serve that cannot learn the daemon's
+        # state must not serve plain requests on it.
+        self.readout_ok = bool(self.lm.readout_supported())
+        self.ro_active = None
+        if self.readout_ok:
+            self.lm.steer_clear()
+        self.steer_armed = False
+        print(f"[serve] readouts {'available; steering cleared' if self.readout_ok else 'unavailable'}", flush=True)
         self.stop = self.protocol.stop_ids
         self.lock = threading.Lock()
 
@@ -199,6 +220,9 @@ class ChatReq(BaseModel):
     max_tokens: int = Field(default=2048, ge=1)
     stream: bool = False
     enable_thinking: bool = True
+    # Readout spine: readouts and steering for this request (spec section 3), validated by _resolve_nomos. Untyped here,
+    # so a malformed block is the spec's 400, not pydantic's 422.
+    nomos: Any = None
 
 
 def _rep_penalty(req: "ChatReq", eng) -> float:
@@ -291,17 +315,20 @@ def health():
                             content={"status": "starting", "model": "loading", "ready": False})
     if not eng.lock.acquire(blocking=False):
         return {"status": "ok", "model": eng.model_name, "ready": True,
-                "engine": "busy", "spec": eng.spec_loaded, "kvstore": eng.kvstore}
+                "engine": "busy", "spec": eng.spec_loaded, "kvstore": eng.kvstore,
+                "readout": _readout_health(eng)}
     try:
         eng.lm.cache_len()
     except Exception as e:  # noqa: BLE001
         return JSONResponse(status_code=503,
                             content={"status": "error", "model": eng.model_name, "ready": False,
-                                     "detail": f"engine unreachable: {e}", "kvstore": eng.kvstore})
+                                     "detail": f"engine unreachable: {e}", "kvstore": eng.kvstore,
+                                     "readout": _readout_health(eng)})
     finally:
         eng.lock.release()
     return {"status": "ok", "model": eng.model_name, "ready": True,
-            "engine": "ok", "spec": eng.spec_loaded, "kvstore": eng.kvstore}
+            "engine": "ok", "spec": eng.spec_loaded, "kvstore": eng.kvstore,
+            "readout": _readout_health(eng)}
 
 
 _KVSTORE_STATS = ["prepares", "prompt_tokens", "reused_tokens", "restores_ram", "restores_nvme", "forks",
@@ -472,15 +499,189 @@ def _use_spec(req: ChatReq, eng: "Engine", gram) -> bool:
     return bool(eng.spec_loaded and req.temperature <= 0 and gram is None)
 
 
-def _sse(cid: str, created: int, model: str, delta: dict, finish=None) -> str:
-    """One OpenAI chat.completion.chunk as an SSE `data:` line."""
+@dataclass
+class NomosPlan:
+    """A request's validated `nomos` block (spec section 3)."""
+    readout: dict | None        # emo_layers, directions, ws_layers, lens, k
+    steer: dict | None          # layer, directions, direction, strength, from_pos
+    fresh: bool                 # "prompt": "all"
+    layout: "readout.Layout | None"
+    header: dict                # the turn header; its response_id is set per turn
+
+
+def _nomos_400(msg: str) -> HTTPException:
+    return HTTPException(status_code=400, detail=f"nomos: {msg}")
+
+
+def _fields(obj, keys: set, what: str) -> dict:
+    if not isinstance(obj, dict) or set(obj) != keys:
+        raise _nomos_400(f"{what} must be an object with exactly {sorted(keys)}")
+    return obj
+
+
+def _asset(reg, asset_id, kind: str, what: str) -> dict:
+    if not isinstance(asset_id, str) or asset_id not in reg.assets or reg.assets[asset_id]["kind"] != kind:
+        raise _nomos_400(f"{what} {asset_id!r} is not a known {kind} asset")
+    return reg.assets[asset_id]
+
+
+def _int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _layer_list(v, allowed, what: str) -> list:
+    if not isinstance(v, list) or not v or not all(_int(x) for x in v):
+        raise _nomos_400(f"{what} must be a non-empty list of integers")
+    if len(set(v)) != len(v):
+        raise _nomos_400(f"{what} repeats a layer")
+    bad = [x for x in v if x not in allowed]
+    if bad:
+        raise _nomos_400(f"{what} {bad} are not layers of the asset")
+    return list(v)
+
+
+def _resolve_nomos(eng, nomos, n_prompt: int) -> "NomosPlan | None":
+    """Validate a request's `nomos` block against the asset registry (spec section 3). Every invalid field is a 400."""
+    if nomos is None:
+        return None
+    if not isinstance(nomos, dict):
+        raise _nomos_400("must be an object")
+    unknown = set(nomos) - {"readout", "steer", "conversation", "turn"}
+    if unknown:
+        raise _nomos_400(f"unknown fields {sorted(unknown)}")
+    if eng.protocol.kind != "atem":
+        raise _nomos_400("readouts and steering are served for Muse-Glimmer only")
+    if not eng.readout_ok:
+        raise _nomos_400("this engine's kernel has no readouts")
+    try:
+        reg = readout.AssetRegistry()         # per request (ruling P2-R12)
+    except (OSError, ValueError, KeyError) as exc:
+        raise _nomos_400(f"no readout asset registry ({exc})") from exc
+    conversation, turn = nomos.get("conversation"), nomos.get("turn")
+    if conversation is not None and (not isinstance(conversation, str) or len(conversation) > 256):
+        raise _nomos_400("conversation must be a string of at most 256 characters")
+    if turn is not None and (not _int(turn) or turn < 0):
+        raise _nomos_400("turn must be a non-negative integer")
+    ro = layout = settings = None
+    fresh = False
+    r = nomos.get("readout")
+    if r is not None:
+        if not isinstance(r, dict) or set(r) - {"emotion", "workspace", "prompt"} or "emotion" not in r:
+            raise _nomos_400("readout must be an object with emotion and, optionally, workspace and prompt")
+        emo = _fields(r["emotion"], {"layers", "directions"}, "readout.emotion")
+        dset = _asset(reg, emo["directions"], "directions", "readout.emotion.directions")
+        emo_layers = _layer_list(emo["layers"], dset["layers"], "readout.emotion.layers")
+        ws_layers, lens_id, k = [], "", 0
+        if r.get("workspace") is not None:
+            ws = _fields(r["workspace"], {"layers", "lens", "k"}, "readout.workspace")
+            lset = _asset(reg, ws["lens"], "lens", "readout.workspace.lens")
+            ws_layers = _layer_list(ws["layers"], lset["layers"], "readout.workspace.layers")
+            k = ws["k"]
+            if not _int(k) or not 1 <= k <= 16:
+                raise _nomos_400("readout.workspace.k must be an integer in [1, 16]")
+            lens_id = ws["lens"]
+        prompt = r.get("prompt", "new")
+        if prompt not in ("new", "all"):
+            raise _nomos_400('readout.prompt must be "new" or "all"')
+        fresh = prompt == "all"
+        ro = {"emo_layers": emo_layers, "directions": emo["directions"], "ws_layers": ws_layers, "lens": lens_id, "k": k}
+        layout = readout.Layout(len(emo_layers), dset["E"], len(ws_layers), k)
+        settings = {"emotion": {"layers": emo_layers, "directions": emo["directions"], "names": dset["names"]},
+                    "workspace": {"layers": ws_layers, "lens": lens_id, "k": k} if ws_layers else None,
+                    "prompt": prompt}
+    steer = None
+    s = nomos.get("steer")
+    if s is not None:
+        s = _fields(s, {"layer", "directions", "direction", "strength"}, "steer")
+        dset = _asset(reg, s["directions"], "directions", "steer.directions")
+        if not _int(s["layer"]) or s["layer"] not in dset["layers"]:
+            raise _nomos_400(f"steer.layer {s['layer']!r} is not a layer of the direction set")
+        if s["direction"] not in dset["names"]:
+            raise _nomos_400(f"steer.direction {s['direction']!r} is not in the direction set")
+        st = s["strength"]
+        if (isinstance(st, bool) or not isinstance(st, (int, float)) or not math.isfinite(st)
+                or not -readout.MAX_STRENGTH <= st <= readout.MAX_STRENGTH):
+            raise _nomos_400(f"steer.strength must be a finite number in [-{readout.MAX_STRENGTH}, {readout.MAX_STRENGTH}] "
+                             "(ruling P2-R7)")
+        steer = {"layer": s["layer"], "directions": s["directions"], "direction": s["direction"],
+                 "strength": float(st), "from_pos": n_prompt - 1}         # ruling P2-R8: the last prompt token
+    header = {"v": readout.V, "conversation": conversation, "turn": turn, "response_id": None,
+              "settings": settings, "steer": steer}
+    return NomosPlan(ro, steer, fresh, layout, header)
+
+
+def _arm(eng, plan, n_prompt: int) -> None:
+    """Set this request's steering and readouts on the engine, inside the lock and before generation (spec section 3).
+    A request without them clears what an earlier request armed, so it runs as it would have without readouts."""
+    steer = plan.steer if plan is not None else None
+    if steer is not None:
+        eng.lm.steer_set(steer["layer"], steer["directions"], steer["direction"], steer["strength"], steer["from_pos"])
+        eng.steer_armed = True
+    elif eng.steer_armed:
+        eng.lm.steer_clear()
+        eng.steer_armed = False
+    ro = plan.readout if plan is not None else None
+    if ro is not None:
+        eng.lm.readout_config(ro["emo_layers"], ro["directions"], ro["ws_layers"], ro["lens"], ro["k"])
+        eng.ro_active = {"directions": ro["directions"], "lens": ro["lens"] or None}
+    elif eng.ro_active:
+        eng.lm.readout_off()
+        eng.ro_active = None
+
+
+def _atem_channel(parser, tok: int) -> str:
+    """A generated token's record channel, from the ATEM parser's state before it takes the token. Header, message-start
+    and terminator tokens are "template"; body tokens are "reasoning" (to=self), "answer" (to=user), or "tool" for any
+    other recipient (ruling P2-R5)."""
+    proto = parser.protocol
+    if parser.recipient is None or tok == proto.eom_id or tok in proto.stop_ids:
+        return "template"
+    return {"self": "reasoning", "user": "answer"}.get(parser.recipient, "tool")
+
+
+def _readout_turn(eng, plan, ids, response_id: str, spec: bool) -> "readout.ReadoutTurn":
+    """The turn's summary builder and record assembly. With readouts off (steering or metadata only), a turn that only
+    summarizes (review ruling R2). Otherwise the base path takes each record between steps and the speculative stream
+    pushes them; both take the turn's origin from the engine's KV (review ruling R9)."""
+    header = dict(plan.header, response_id=response_id)
+    if plan.readout is None:
+        return readout.ReadoutTurn.off(header)
+    return readout.ReadoutTurn(plan.layout, header, ids, take=None if spec else eng.lm.readout_take,
+                               kv_len=eng.lm.cache_len)
+
+
+def _readout_source(req, eng, ids, gram, plan, ro, spec: bool):
+    """The token source of a turn with readouts: the speculative stream with the record sink, or base decode."""
+    if spec:
+        return eng.lm.spec_generate_stream(ids, max_new_tokens=req.max_tokens, stop_ids=eng.stop, vb=eng.spec_vb,
+                                           readout_sink=ro.add, fresh=plan.fresh)
+    extra = {"fresh": True} if plan.fresh else {}
+    return eng.lm.generate_stream(ids, max_new_tokens=req.max_tokens, stop_ids=eng.stop,
+                                  temperature=req.temperature, top_p=req.top_p, top_k=req.top_k, processor=gram,
+                                  rep_penalty=_rep_penalty(req, eng), **extra)
+
+
+def _readout_health(eng) -> dict:
+    """/health's `readout`: whether the kernel serves readouts, the registry's asset IDs, and what is armed now."""
+    try:
+        assets = sorted(readout.AssetRegistry().assets)
+    except (OSError, ValueError, KeyError):
+        assets = []
+    return {"supported": eng.readout_ok, "assets": assets, "active": eng.ro_active, "steering": eng.steer_armed}
+
+
+def _sse(cid: str, created: int, model: str, delta: dict, finish=None, nomos=None) -> str:
+    """One OpenAI chat.completion.chunk as an SSE `data:` line. `nomos` (readout spine) is added only when given, so a
+    request without readouts streams byte for byte as before."""
     payload = {"id": cid, "object": "chat.completion.chunk", "created": created,
                "model": model, "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+    if nomos is not None:
+        payload["nomos"] = nomos
     return "data: " + json.dumps(payload) + "\n\n"
 
 
 def _stream(req: ChatReq, eng: "Engine", ids: list, gram, thinking: bool = True,
-            mm_feats=None, mm_nvis: int = 0):
+            mm_feats=None, mm_nvis: int = 0, plan=None):
     """SSE generator. Streams the Gemma thinking channel as `reasoning_content` and visible
     content token-by-token; a tool call is buffered (grammar-completed) then emitted as one
     tool_calls delta. Holds the engine lock for the whole generation (serial kernel)."""
@@ -489,6 +690,10 @@ def _stream(req: ChatReq, eng: "Engine", ids: list, gram, thinking: bool = True,
     with eng.lock, ExitStack() as turn:
         if gram:
             gram.reset()
+        _arm(eng, plan, len(ids))
+        spec = mm_feats is None and _use_spec(req, eng, gram)
+        ro = _readout_turn(eng, plan, ids, cid, spec) if plan is not None else None
+        recording = ro is not None and ro.layout is not None     # readouts on; ro alone may be an off turn (R2)
         yield _sse(cid, created, model, {"role": "assistant"})
         # Thinking opener is pre-filled when enable_thinking → generation starts INSIDE the
         # thought channel; suppress until <channel|>. Else it starts at the answer.
@@ -507,7 +712,9 @@ def _stream(req: ChatReq, eng: "Engine", ids: list, gram, thinking: bool = True,
                 temperature=req.temperature, top_p=req.top_p, top_k=req.top_k,
                 processor=gram, mm_features=mm_feats, mm_nvis=mm_nvis,
                 rep_penalty=_rep_penalty(req, eng))
-        elif _use_spec(req, eng, gram):
+        elif recording:
+            token_source = _readout_source(req, eng, ids, gram, plan, ro, spec)
+        elif spec:
             token_source = eng.lm.spec_generate_stream(
                 ids, max_new_tokens=req.max_tokens, stop_ids=eng.stop, vb=eng.spec_vb)
         else:
@@ -524,21 +731,31 @@ def _stream(req: ChatReq, eng: "Engine", ids: list, gram, thinking: bool = True,
         if eng.protocol.kind == "atem":
             parser = eng.protocol.stream_parser(eng.tok)
             for tok in token_source:
-                for field, delta in parser.feed(tok):
-                    if delta:
-                        yield _sse(cid, created, model, {field: delta})
+                if ro is not None:
+                    ro.note_token(tok, _atem_channel(parser, tok))
+                deltas = [(field, delta) for field, delta in parser.feed(tok) if delta]
+                extra = ro.payload() if ro is not None else None
+                for i, (field, delta) in enumerate(deltas):
+                    yield _sse(cid, created, model, {field: delta}, nomos=extra if i == 0 else None)
+                if extra is not None and not deltas:
+                    yield _sse(cid, created, model, {}, nomos=extra)
                 if parser.saw_stop:
                     break
             if parser.saw_stop:
                 # After the stop token a source has nothing left to hand out: resume it once, so it ends on its own (from
                 # the daemon, its end frame) and a turn that ends normally keeps its daemon connection. Closing it instead
                 # would close a speculative stream mid-way, which drops the socket, and the next request reconnects. The
-                # ExitStack's close stays for a client that goes away mid-stream, and for a drain that fails: the reply is
-                # complete by now.
+                # ExitStack's close stays for a client that goes away mid-stream, and for a drain that fails: a plain
+                # reply is complete by now. A reply with a nomos block is not: its summary would certify a turn whose
+                # source failed, so the failure ends its stream without one (review ruling A3, Codex's re-review F3).
                 try:
                     next(token_source, None)
                 except Exception as e:  # noqa: BLE001
                     print(f"[serve] the token source failed after the stop token: {e}", flush=True)
+                    if ro is not None:
+                        raise
+            elif ro is not None:
+                ro.end()     # the source ran out on its budget: on the base path its last step fed the last token
             parsed, residual = parser.finish()
             for field, delta in residual:
                 if delta:
@@ -554,7 +771,8 @@ def _stream(req: ChatReq, eng: "Engine", ids: list, gram, thinking: bool = True,
                 finish = "tool_calls"
             else:
                 finish = "stop" if parser.saw_stop else "length"
-            yield _sse(cid, created, model, {}, finish=finish)
+            yield _sse(cid, created, model, {}, finish=finish,
+                       nomos=ro.final(parser.saw_stop) if ro is not None else None)
             yield "data: [DONE]\n\n"
             return
         for tok in token_source:
@@ -619,7 +837,7 @@ def _next_or_none(gen):
 
 
 async def _astream(req: ChatReq, eng: "Engine", ids: list, gram, thinking: bool, request: Request,
-                   mm_feats=None, mm_nvis: int = 0):
+                   mm_feats=None, mm_nvis: int = 0, plan=None):
     """Drive _stream() while watching for client disconnect.
 
     Starlette iterates a sync generator in a threadpool and, when the client goes away,
@@ -633,7 +851,7 @@ async def _astream(req: ChatReq, eng: "Engine", ids: list, gram, thinking: bool,
     `with eng.lock` and frees the engine. The close is shielded so cancellation — the very
     thing that gets us here — cannot skip the cleanup.
     """
-    gen = _stream(req, eng, ids, gram, thinking, mm_feats, mm_nvis)
+    gen = _stream(req, eng, ids, gram, thinking, mm_feats, mm_nvis, plan)
     try:
         while True:
             chunk = await anyio.to_thread.run_sync(_next_or_none, gen)
@@ -658,6 +876,9 @@ def chat(req: ChatReq, request: Request):
         gram, thinking = None, False
     else:
         ids, gram, thinking = _build_inputs(req, eng)
+    plan = _resolve_nomos(eng, req.nomos, len(ids))
+    if plan is not None and mm_feats is not None:
+        raise _nomos_400("readouts and steering are not served for image requests")
     # One line per request naming the decoder actually chosen, and the three inputs that
     # choose it. Whether spec decode was engaged was twice inferred from a stack trace and
     # once inferred wrongly; base decode is a plausible-looking number, so a silent fallback
@@ -667,22 +888,47 @@ def chat(req: ChatReq, request: Request):
           f"protocol={eng.protocol.kind} grammar={gram is not None} "
           f"spec_loaded={eng.spec_loaded} -> decoder="
           f"{'DFLASH-SPEC' if _use_spec(req, eng, gram) else 'base'} "
-          f"prompt_tokens={len(ids)} max_tokens={req.max_tokens}", flush=True)
+          f"prompt_tokens={len(ids)} max_tokens={req.max_tokens}" f" nomos={req.nomos is not None}", flush=True)
     req.max_tokens = _fit_request(len(ids), req.max_tokens)
     if req.stream:
-        return StreamingResponse(_astream(req, eng, ids, gram, thinking, request, mm_feats, mm_nvis),
+        return StreamingResponse(_astream(req, eng, ids, gram, thinking, request, mm_feats, mm_nvis, plan),
                                  media_type="text/event-stream")
+    ro, saw_stop, nomos = None, False, None
     with eng.lock:
         if gram:
             gram.reset()
+        _arm(eng, plan, len(ids))
         t0 = time.time()
+        rid = f"chatcmpl-{int(t0 * 1000)}"
+        spec = mm_feats is None and _use_spec(req, eng, gram)
         if mm_feats is not None:
             # Vision: base decode with spliced image features (spec decode is not mm-compatible).
             out = eng.lm.generate(ids, max_new_tokens=req.max_tokens, stop_ids=eng.stop,
                                   temperature=req.temperature, top_p=req.top_p, top_k=req.top_k,
                                   processor=None, mm_features=mm_feats, mm_nvis=mm_nvis,
                                   rep_penalty=_rep_penalty(req, eng))
-        elif _use_spec(req, eng, gram):
+        elif plan is not None and plan.readout is not None:
+            # Ruling P2-R10: the streaming sources, so the base path can take each record between steps. The tokens are
+            # the ones generate() would return.
+            ro = _readout_turn(eng, plan, ids, rid, spec)
+            src = _readout_source(req, eng, ids, gram, plan, ro, spec)
+            parser = eng.protocol.stream_parser(eng.tok)
+            out = []
+            try:
+                for tok in src:
+                    ro.note_token(tok, _atem_channel(parser, tok))
+                    parser.feed(tok)
+                    out.append(tok)
+                    if parser.saw_stop:
+                        break
+                if parser.saw_stop:
+                    next(src, None)
+                else:
+                    ro.end()
+            finally:
+                src.close()
+            saw_stop = parser.saw_stop
+        elif spec:
             # Same token convention as generate(): the stop token is emitted, then the
             # generator returns — so finish_reason/decoding below are unaffected.
             out = list(eng.lm.spec_generate_stream(
@@ -692,6 +938,13 @@ def chat(req: ChatReq, request: Request):
                                   temperature=req.temperature, top_p=req.top_p, top_k=req.top_k,
                                   processor=gram, rep_penalty=_rep_penalty(req, eng))
         dt = time.time() - t0
+        if plan is not None:
+            # The reply's nomos object, built before the lock is released: a turn without records reads its origin from
+            # the KV, which the next request may change the moment it holds the lock (Codex's re-review F4). With readouts
+            # off (review ruling R2) the turn only summarizes, and its summary says readout_off.
+            if ro is None:
+                ro, saw_stop = _readout_turn(eng, plan, ids, rid, spec), bool(out) and out[-1] in eng.stop
+            nomos = ro.complete(saw_stop)
     raw = eng.tok.decode(out, skip_special_tokens=False)
 
     # The fields a streaming client would join, unstripped (Task 10b): the history it sends back must re-render to
@@ -729,8 +982,8 @@ def chat(req: ChatReq, request: Request):
             message["reasoning_content"] = thought
         finish = "stop" if (out and out[-1] in eng.stop) else "length"
 
-    return {
-        "id": f"chatcmpl-{int(t0 * 1000)}",
+    response = {
+        "id": rid,
         "object": "chat.completion",
         "created": int(t0),
         "model": req.model or eng.model_name,
@@ -743,6 +996,9 @@ def chat(req: ChatReq, request: Request):
         "debug_prompt_tail": eng.tok.decode(ids[-40:], skip_special_tokens=False)
                              if os.environ.get("NOMOS_DEBUG_RAW") else None,
     }
+    if nomos is not None:
+        response["nomos"] = nomos
+    return response
 
 
 if __name__ == "__main__":

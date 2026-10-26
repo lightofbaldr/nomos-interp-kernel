@@ -168,6 +168,9 @@ def _fake_muse_engine(tokenizer, raw: str):
         "proc": None,                  # no vision image processor: chat() reads it on every request
         "rep_penalty_default": 1.0,    # the serve's default repetition penalty (Engine.rep_penalty_default)
         "kvstore": {"status": "off", "dir": None},   # Engine.kvstore, which /health reports
+        "readout_ok": False,            # Engine.readout_ok, ro_active and steer_armed (readout spine), which chat() and /health read
+        "ro_active": None,
+        "steer_armed": False,
     })()
 
 

@@ -112,7 +112,8 @@ def engine(kind, stop_after=3, lock=None, delay=0.0):
         lock=lock, lm=Backend(lock, stop_after, delay), stop={STOP}, model_name="fake", spec_loaded=False,
         rep_penalty_default=1.0, tok=SimpleNamespace(decode=lambda ids, **kw: "x" * len(ids)),
         protocol=SimpleNamespace(kind=kind, stream_parser=lambda tok: Parser(),
-                                 channel_end_id=-1, tool_open_id=-2, tool_close_id=-3))
+                                 channel_end_id=-1, tool_open_id=-2, tool_close_id=-3),
+        readout_ok=False, ro_active=None, steer_armed=False)   # Engine's readout state (readout spine), read by _stream's _arm
 
 
 def stream(eng):

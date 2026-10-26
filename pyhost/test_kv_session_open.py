@@ -177,6 +177,13 @@ class ServeTest(unittest.TestCase):
                         order.append("session_open")
                         return 1, "/kv/muse-1"
 
+                    def readout_supported(self):               # OP_READOUT_OFF (readout spine, review ruling R4)
+                        order.append("readout_off")
+                        return drafter_loads                  # a capable daemon in one subtest, one without readouts in the other
+
+                    def steer_clear(self):
+                        order.append("steer_clear")
+
                 protocol = SimpleNamespace(kind="atem", default_model_name="muse", stop_ids=[7])
                 env = {"NOMOS_ENGINE_SOCKET": "/nonexistent.sock", "NOMOS_SERVE_SPEC": "1", "DFLASH_DIR": "/drafter",
                        "NOMOS_KVSTORE": "1"}
@@ -185,7 +192,9 @@ class ServeTest(unittest.TestCase):
                         mock.patch("kernel_client.KernelClient", Client), \
                         contextlib.redirect_stdout(io.StringIO()) as out:
                     eng = serve.Engine()
-                self.assertEqual(order, ["connect", "model_id", "dflash_load", "session_open"])
+                self.assertEqual(order, ["connect", "model_id", "dflash_load", "session_open", "readout_off"]
+                                 + (["steer_clear"] if drafter_loads else []))
+                self.assertEqual((eng.readout_ok, eng.ro_active, eng.steer_armed), (drafter_loads, None, False))
                 self.assertEqual(eng.kvstore, {"status": "open", "dir": "/kv/muse-1"})
                 self.assertIn("[serve] kvstore open dir=/kv/muse-1", out.getvalue())
                 self.assertIn("[serve] NOMOS_MAX_SEQ=", out.getvalue())
@@ -193,7 +202,8 @@ class ServeTest(unittest.TestCase):
     def test_health_reports_the_store(self):
         kv = {"status": "open", "dir": "/kv/muse-1"}
         eng = SimpleNamespace(lock=threading.Lock(), model_name="muse", spec_loaded=True, kvstore=kv,
-                              lm=SimpleNamespace(cache_len=lambda: 0))
+                              lm=SimpleNamespace(cache_len=lambda: 0),
+                              readout_ok=False, ro_active=None, steer_armed=False)   # /health reports them (readout spine)
         previous = getattr(serve.app.state, "engine", None)
         serve.app.state.engine = eng
         try:
