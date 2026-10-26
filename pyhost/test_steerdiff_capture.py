@@ -392,6 +392,16 @@ class LieScenarioBuilder(unittest.TestCase):
         self.assertEqual(replay["source"]["sha256"], answer["source"]["sha256"])
         self.assertEqual(replay["source"]["label"], "lie")
 
+    def test_the_reason_scenario_starts_at_the_recorded_prompt_and_reasons_freely(self):
+        import steerdiff_scenarios as S
+        path = "/home/adam/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json"
+        with open(path) as f:
+            kv = json.load(f)["kv"]
+        sc = S.reason_scenario(path, "TATHUGA", max_new=4096)
+        self.assertEqual((sc["key"], sc["modes"], sc["onset"], sc["reference"]), ("TATHUGA-reason", ["free"], 73, None))
+        self.assertEqual(sc["prompt_ids"], kv[:74])                        # only the recorded prompt: every arm reasons
+        self.assertEqual((sc["max_new"], sc["source"]["label"], sc["source"]["prompt_len"]), (4096, "lie", 74))
+
 
 
 class ReportMatchedOnly(unittest.TestCase):
