@@ -336,5 +336,83 @@ class Export(unittest.TestCase):
         self.assertEqual(got["text"]["steered"]["answer"], "<5><5><6><5><5><5><5><5>")
 
 
+
+class Scenarios(unittest.TestCase):
+    """Lie scenarios (Adam 10-26: joy, calm, sadness, fear, anger, steered and counter-steered, on the known lies)."""
+
+    NAMES = ["desperate", "afraid", "angry", "joyful", "calm", "sad"]
+
+    def test_the_emotion_aliases_and_counter_steering(self):
+        p = lambda n: C.parse_arm(n, self.NAMES)            # noqa: E731
+        self.assertEqual(p("fear_0.5")["kind"], "afraid")
+        self.assertEqual((p("anger_-0.5")["kind"], p("anger_-0.5")["s"]), ("angry", -0.5))
+        self.assertEqual(p("sadness_0.5")["kind"], "sad")
+        self.assertEqual(p("joy_-0.5"), {"name": "joy_-0.5", "kind": "joyful", "s": -0.5})
+
+    def test_a_matched_only_capture_gates_its_matched_runs(self):
+        lm = FakeLM({3: 4, 4: 5, 5: 9})
+        ref = [4, 5, 6]
+        matched = {"base": run(lm, reference=ref), "base_repeat": run(lm, reference=ref),
+                   "zero": run(lm, reference=ref, steer=0.0, from_pos=2),
+                   "joy": run(lm, reference=ref, steer=0.5, from_pos=2)}
+        g = C.gates({}, matched, LAYOUT, 3, 2, STEER_INDEX)
+        self.assertEqual(sorted(g), ["G1_repeat", "G2_armed_zero", "G3_pre_onset", "G4_upstream_invariance",
+                                     "G7_delivered"])
+        self.assertTrue(all(v["pass"] for v in g.values()), g)
+        matched["base_repeat"] = run(lm, reference=ref, steer=0.25, from_pos=4)
+        self.assertFalse(C.gates({}, matched, LAYOUT, 3, 2, STEER_INDEX)["G1_repeat"]["pass"])
+
+    def test_a_free_only_capture_has_no_upstream_gate(self):
+        lm = FakeLM({3: 4, 4: 5, 5: 9})
+        free = {"base": run(lm), "joy": run(lm, steer=0.5, from_pos=2)}
+        self.assertNotIn("G4_upstream_invariance", C.gates(free, {}, LAYOUT, 3, 2, STEER_INDEX))
+
+
+@unittest.skipUnless(os.path.exists("/home/adam/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json"),
+                     "the recorded lie episodes are absent")
+class LieScenarioBuilder(unittest.TestCase):
+    def test_the_replay_and_answer_scenarios_split_the_recorded_ids_at_the_answer(self):
+        from transformers import AutoTokenizer
+        import serve
+        from serve_protocol import load_serve_protocol
+        import steerdiff_scenarios as S
+        tok = AutoTokenizer.from_pretrained(os.path.expanduser("~/nomos_data/muse-glimmer-tokenizer"))
+        protocol = load_serve_protocol(tok, 2)
+        path = "/home/adam/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json"
+        with open(path) as f:
+            ep = json.load(f)
+        replay, answer = S.lie_scenarios(path, "TATHUGA", tok, protocol, serve._atem_channel, tail=256)
+        kv, P = ep["kv"], 74
+        self.assertEqual((replay["key"], replay["modes"], replay["onset"]), ("TATHUGA-replay", ["matched"], P - 1))
+        self.assertEqual(replay["prompt_ids"] + replay["reference"], kv)          # every recorded id, nothing else
+        self.assertEqual(len(replay["reference"]), 256 + 748)                     # the thinking tail and the whole answer
+        self.assertEqual((answer["key"], answer["modes"], answer["onset"]), ("TATHUGA-answer", ["free"], P - 1))
+        self.assertEqual(answer["prompt_ids"], kv[:P + 2135])                     # the prompt and the whole thinking
+        self.assertIsNone(answer["reference"])
+        self.assertEqual(replay["source"]["sha256"], answer["source"]["sha256"])
+        self.assertEqual(replay["source"]["label"], "lie")
+
+
+
+class ReportMatchedOnly(unittest.TestCase):
+    def test_a_matched_only_scenario_still_reports_its_replay(self):
+        import tempfile
+        import steerdiff_report as R
+        with tempfile.TemporaryDirectory() as out:
+            synthetic_capture(out)
+            for arm in ("base", "joy_0.5"):
+                os.remove(os.path.join(out, "S1", "runs", f"{arm}.free.json"))
+            text = R.report(out, ExportTok(), display_k=2)
+        self.assertNotIn("### Free generation", text)
+        self.assertIn("### Matched input replay", text)
+        self.assertIn("consumed the same reference ids (S1.base.free)", text)
+        self.assertIn("- L36 up: '<11>' +2 (8)", text)
+
+
+class ExportTok:
+    def decode(self, ids, skip_special_tokens=False):
+        return "".join(f"<{i}>" for i in ids)
+
+
 if __name__ == "__main__":
     unittest.main()

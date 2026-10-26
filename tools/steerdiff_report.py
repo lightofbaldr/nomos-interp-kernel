@@ -52,7 +52,8 @@ def report(out: str, tok, display_k: int = DISPLAY_K) -> str:
     L = ["# Workspace steering diff: " + os.path.basename(os.path.normpath(out)), "",
          "Descriptive only. Workspace scores are the kernel's J-lens readouts (lens, final norm, exact NVFP4 head), not "
          "probabilities, and not calibrated across layers. A changed readout does not show that its concept caused the "
-         "reply. Matched input replay feeds every arm the base arm's own reply; free generation lets each arm write its own.",
+         "reply. Matched input replay feeds every arm the same token ids (base's own reply, or a recorded episode); free "
+         "generation lets each arm write its own.",
          "",
          f"- Library {idn['library_sha256'][:16]}... (build id {idn['library_build_id']}), directions "
          f"{idn['directions'][:12]}..., lens {idn['lens'][:12]}..., tokenizer {idn['tokenizer_sha256'][:12]}...",
@@ -74,25 +75,24 @@ def report(out: str, tok, display_k: int = DISPLAY_K) -> str:
                                            for k, v in g.items()) + ".")
             L.append("")
         base = runs.get((prompt, "base", "free"))
-        if base is None:
-            continue
-        L += ["### Free generation", "", "| arm | first difference from base | stop | answer (first 420 chars) |",
-              "|---|---|---|---|"]
-        for arm in ident["arms"]:
-            doc = runs.get((prompt, arm["name"], "free"))
-            if doc is None:
-                continue
-            if arm["name"] == "base":
-                div = "-"
-            else:
-                c = steerdiff.compare(base, doc, display_k)
-                d = c["divergence"]
-                div = "identical" if d is None else (
-                    f"token {d['index']}: {label(tok, d['baseline_token']) if d['baseline_token'] is not None else 'end'}"
-                    f" -> {label(tok, d['steered_token']) if d['steered_token'] is not None else 'end'}")
-            ans = channel_text(tok, doc, "answer") or "(no answer within the budget) reasoning: " + channel_text(
-                tok, doc, "reasoning")
-            L.append(f"| {arm['name']} | {div} | {doc['saw_stop']} | {ans.replace('|', '/')} |")
+        if base is not None:                     # a matched-only scenario has no free table
+            L += ["### Free generation", "", "| arm | first difference from base | stop | answer (first 420 chars) |",
+                  "|---|---|---|---|"]
+            for arm in ident["arms"]:
+                doc = runs.get((prompt, arm["name"], "free"))
+                if doc is None:
+                    continue
+                if arm["name"] == "base":
+                    div = "-"
+                else:
+                    c = steerdiff.compare(base, doc, display_k)
+                    d = c["divergence"]
+                    div = "identical" if d is None else (
+                        f"token {d['index']}: {label(tok, d['baseline_token']) if d['baseline_token'] is not None else 'end'}"
+                        f" -> {label(tok, d['steered_token']) if d['steered_token'] is not None else 'end'}")
+                ans = channel_text(tok, doc, "answer") or "(no answer within the budget) reasoning: " + channel_text(
+                    tok, doc, "reasoning")
+                L.append(f"| {arm['name']} | {div} | {doc['saw_stop']} | {ans.replace('|', '/')} |")
         L += ["", "### Lexicons (positions whose displayed top 8 holds a lexicon word / positions with a workspace)", "",
               "| arm | mode | " + " | ".join(f"{lex} L{l}" for lex in ident["lexicons"] for l in show) + " |",
               "|---|---|" + "---|" * (len(ident["lexicons"]) * len(show))]
@@ -108,7 +108,7 @@ def report(out: str, tok, display_k: int = DISPLAY_K) -> str:
         ref = runs.get((prompt, "base", "matched"))
         if ref is None:
             continue
-        L += ["", "### Matched input replay against base (every arm consumed base's reply)", ""]
+        L += ["", f"### Matched input replay (every arm consumed the same reference ids ({ref['reference']}))", ""]
         for arm in ident["arms"]:
             doc = runs.get((prompt, arm["name"], "matched"))
             if doc is None or arm["name"] == "base" or arm["kind"] in (None, "zero"):

@@ -50,11 +50,21 @@ LEXICONS = {
     "practical_help": [" practice", " lessons", " instructor", " examiner", " plan", " route", " mistakes",
                        " feedback", " schedule", " tips", " steps", " retake"],
 }
+# For the known-lie scenarios (Prime's call, 10-26): doubt or checking words, and the compliance words the 10-25
+# exploration saw dominating the thinking tail. Very common words (' not', ' no') are left out so they don't swamp
+# the counts. Only single-token words count; the capture records the ones dropped.
+LIE_LEXICONS = {
+    "doubt_checking": [" can't", " cannot", " unable", " unsure", " uncertain", " unclear", " unknown",
+                       " verify", " verified", " verification", " citation", " cite", " DOI", " fictional",
+                       " fabricated", " fabricate", " hallucination", " caveat", " disclaimer", " obscure"],
+    "compliance": [" answer", " respond", " response", " reply", " comply", " provide", " summary",
+                   " summarize", " describe", " explain"],
+}
 EMO_LAYERS = [20, 24, 29, 36, 44, 51]
 WS_LAYERS = [36, 40, 44, 48]
 K = 16
 STEER_LAYER = 24
-ALIASES = {"joy": "joyful", "rand": "random1"}
+ALIASES = {"joy": "joyful", "rand": "random1", "fear": "afraid", "anger": "angry", "sadness": "sad"}
 RANDOM_SEEDS = {"random1": 1, "random2": 2}      # glimmer-emotions sp1/steer.py
 ROUTE_KEYS = ("NOMOS_MODEL", "NOMOS_WEIGHT_NVFP4", "NOMOS_W4A4", "NOMOS_PRECISION_BITS", "NOMOS_KV_QUANT", "NOMOS_KV_INT4",
               "NOMOS_KV_I4_BLOCK", "NOMOS_KV_SWA", "NOMOS_KVSTORE", "NOMOS_MAX_SEQ", "NOMOS_PREFILL_CHUNK",
@@ -151,7 +161,8 @@ def gates(free: dict, matched: dict, layout, P: int, from_pos: int, steer_index:
     invariance in matched replay (emotion layers before the steering layer), G7 delivery (each nonzero arm changes the
     steering layer's readout at the onset)."""
     out = {}
-    base = free["base"]
+    primary = free if free else matched          # G1-G3 and G7 read free generation when the capture has it
+    base = primary["base"]
 
     def same(name, other):
         if other["tokens"] != base["tokens"]:
@@ -159,11 +170,11 @@ def gates(free: dict, matched: dict, layout, P: int, from_pos: int, steer_index:
         p = _first_difference(base["raws"], other["raws"])
         return {"pass": p is None, "detail": f"{name}: first differing record at {p}" if p is not None else ""}
 
-    if "base_repeat" in free:
-        out["G1_repeat"] = same("base_repeat", free["base_repeat"])
-    if "zero" in free:
-        out["G2_armed_zero"] = same("zero", free["zero"])
-    pre = [(name, _first_difference(base["raws"], r["raws"], range(from_pos))) for name, r in free.items()]
+    if "base_repeat" in primary:
+        out["G1_repeat"] = same("base_repeat", primary["base_repeat"])
+    if "zero" in primary:
+        out["G2_armed_zero"] = same("zero", primary["zero"])
+    pre = [(name, _first_difference(base["raws"], r["raws"], range(from_pos))) for name, r in primary.items()]
     bad = [f"{name} at {p}" for name, p in pre if p is not None]
     out["G3_pre_onset"] = {"pass": not bad, "detail": "; ".join(bad)}
     if matched:
@@ -182,7 +193,7 @@ def gates(free: dict, matched: dict, layout, P: int, from_pos: int, steer_index:
                 bad.append(f"{name} at {p}")
         out["G4_upstream_invariance"] = {"pass": not bad, "detail": "; ".join(bad)}
     delivered = []
-    for name, r in free.items():
+    for name, r in primary.items():
         if name in ("base", "base_repeat", "zero"):
             continue
         a = np.frombuffer(base["raws"][from_pos], dtype=layout.dtype)[0]["emo"][steer_index]
@@ -223,6 +234,8 @@ def main(argv=None) -> int:
     ap.add_argument("--arms", default=",".join(ARMS))
     ap.add_argument("--max-new", type=int, default=256)
     ap.add_argument("--system", default=SYSTEM, help="the system message; empty for the template's default")
+    ap.add_argument("--scenarios", help="a JSON list of scenarios (tools/steerdiff_scenarios.py) instead of --prompts")
+    ap.add_argument("--lexicons", choices=("default", "lies"), default="default")
     args = ap.parse_args(argv)
     if os.environ.get("STEERDIFF_ROUTE") != "1":       # the launcher's environment must be in place before host loads
         os.execve(sys.executable, [sys.executable] + sys.argv, {**os.environ, **_launcher_env()})
@@ -261,15 +274,25 @@ def main(argv=None) -> int:
                 "route": {k: os.environ.get(k) for k in ROUTE_KEYS}, "steer_layer": STEER_LAYER,
                 "schedule": "fresh prefill, then one M=1 decode step per token; no DFlash, no KV store"}
     lex_ids, lex_dropped = {}, {}
-    for name, words in LEXICONS.items():
+    for name, words in (LIE_LEXICONS if args.lexicons == "lies" else LEXICONS).items():
         ids = {w: tok.encode(w, add_special_tokens=False) for w in words}
         lex_ids[name] = sorted({v[0] for v in ids.values() if len(v) == 1})
         lex_dropped[name] = sorted(w for w, v in ids.items() if len(v) != 1)
+    if args.scenarios:                              # exact recorded ids: prompt (and prefix), onset, modes, reference
+        with open(os.path.expanduser(args.scenarios)) as f:
+            scenarios = json.load(f)
+    else:
+        scenarios = [{"key": p, "title": PROMPTS[p], "prompt_ids": build_prompt(serve, eng, PROMPTS[p], args.system or None),
+                      "onset": None, "reference": None, "modes": ["free", "matched"], "max_new": args.max_new,
+                      "source": None} for p in args.prompts.split(",")]
     commit = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     driver = subprocess.run(["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
                             capture_output=True, text=True).stdout.strip()
     _write(os.path.join(out, "identity.json"), {
-        "identity": identity, "settings": settings, "arms": arms, "prompts": {p: PROMPTS[p] for p in args.prompts.split(",")},
+        "identity": identity, "settings": settings, "arms": arms, "prompts": {sc["key"]: sc["title"] for sc in scenarios},
+        "scenarios": [{"key": sc["key"], "onset": sc["onset"], "modes": sc["modes"], "max_new": sc["max_new"],
+                       "P": len(sc["prompt_ids"]), "reference_len": None if sc["reference"] is None else len(sc["reference"]),
+                       "source": sc["source"]} for sc in scenarios],
         "max_new": args.max_new, "system": args.system or None, "lexicons": lex_ids,
         "lexicon_words_not_single_tokens": lex_dropped,
         "provenance": {"commit": commit, "driver": driver, "uname_r": platform.release(),
@@ -277,15 +300,17 @@ def main(argv=None) -> int:
     stop_ids = list(protocol.stop_ids)
     all_gates, failed = {}, False
     try:
-        for pkey in args.prompts.split(","):
-            prompt_ids = build_prompt(serve, eng, PROMPTS[pkey], args.system or None)
+        for sc in scenarios:
+            pkey, prompt_ids = sc["key"], [int(t) for t in sc["prompt_ids"]]
             P = len(prompt_ids)
-            from_pos = P - 1                                  # ruling P2-R8: steering starts at the last prompt token
+            # ruling P2-R8: steering starts at the last prompt token; a scenario whose prefix extends past the prompt
+            # names the original prompt's last token as its onset
+            from_pos = P - 1 if sc["onset"] is None else int(sc["onset"])
             free, matched = {}, {}
-            for mode in ("free", "matched"):
+            for mode in sc["modes"]:
                 for arm in arms:
-                    if mode == "matched" and arm["name"] == "base_repeat":
-                        continue                              # G1 is a free-generation check
+                    if mode == "matched" and arm["name"] == "base_repeat" and "free" in sc["modes"]:
+                        continue                              # G1 reads free generation when there is some
                     vec = vectors[arm["name"]]
 
                     def arm_fn(vec=vec):
@@ -311,10 +336,12 @@ def main(argv=None) -> int:
                     header = {"v": readout.V, "conversation": pkey, "turn": None, "response_id": run_id,
                               "settings": settings, "steer": steer}
                     ref = None
-                    if mode == "matched":
+                    if mode == "matched" and sc["reference"] is not None:
+                        ref = [int(t) for t in sc["reference"]]
+                    elif mode == "matched":
                         ref = free["base"]["tokens"][:len(free["base"]["tokens"]) - int(free["base"]["saw_stop"])]
                     try:
-                        cap = capture(lm, prompt_ids, layout, header, arm_fn, channel_of, stop_ids, args.max_new,
+                        cap = capture(lm, prompt_ids, layout, header, arm_fn, channel_of, stop_ids, sc["max_new"] or args.max_new,
                                       reference=ref)
                     finally:
                         lm.lib.nomos_clear_steer(lm.h)
@@ -322,7 +349,8 @@ def main(argv=None) -> int:
                         raise SystemExit(f"{run_id}: G6 the replay did not consume its reference's ids")
                     (free if mode == "free" else matched)[arm["name"]] = cap
                     doc = steerdiff.run_doc(run_id=run_id, arm={"name": arm["name"], "steer": steer}, mode=mode,
-                                            reference=f"{pkey}.base.free" if mode == "matched" else None,
+                                            reference=((sc["source"] or {}).get("path") if sc["reference"] is not None
+                                                       else f"{pkey}.base.free") if mode == "matched" else None,
                                             prompt_ids=prompt_ids, tokens=cap["tokens"], records=cap["records"],
                                             settings=settings, identity=identity)
                     doc.update(saw_stop=cap["saw_stop"], summary=cap["summary"],
