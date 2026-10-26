@@ -39,3 +39,8 @@ Implementation and verification evidence will be appended per task. GPU work is 
 
 - Extension tests observed RED before implementation, then GREEN. All 44 CPU tests and typecheck pass.
 - Includes the reviewed finalization barrier, one-transaction terminal/state update, inherited-batch reconciliation, retry/abort/restart, post-summary failures, and close-during-write-ahead admission race. Implementation required no API changes.
+
+### Task 5
+
+- Bridge tests observed RED before implementation, then GREEN. All 51 CPU tests and typecheck pass.
+- Ordered snapshot/events/settings delivery, bounded backpressure and stop behavior, and fork-aware report traversal follow the reviewed plan. No API changes needed.
