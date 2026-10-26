@@ -19,13 +19,20 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wire                       # noqa: E402
 from host import KernelLM         # noqa: E402
+import readout                    # noqa: E402
 
 
 _NEXT = struct.pack("<B", wire.OP_SPEC_NEXT)
 _END = object()
 
 
-def _spec_pull(conn: socket.socket, lm: KernelLM, ids, max_tokens, stop_ids, vb) -> bool:
+class ClientGone(Exception):
+    """A readout frame could not be sent: the client is gone (readout spine review ruling R5). _spec_pull's sink raises it
+    inside the speculative loop, before the loop hands out another token, so the loop's finally keeps rows only through
+    the last delivered position. A transport cancel, never an engine error: no error frame follows it."""
+
+
+def _spec_pull(conn: socket.socket, lm: KernelLM, ids, max_tokens, stop_ids, vb, with_readout=False, fresh=False) -> bool:
     """Serve one speculative stream, PULL-driven (ledger R56; wire.py has the exchange): one token per frame, and the loop
     advances only when the client asks for the next token. While the client works the loop is parked at its yield.
 
@@ -33,14 +40,41 @@ def _spec_pull(conn: socket.socket, lm: KernelLM, ids, max_tokens, stop_ids, vb)
     client never saw. The KV session store settles each turn to the tokens its loop handed out (R55), so a loop that ran ahead
     leaves rows the client never saw; the next turn diverges inside them and forks, which rewrites the whole conversation.
 
-    Returns True when the stream ended with its end frame; the loop's finally (the KV settle and the commit) has run by then.
+    With with_readout (OP_SPEC_PULL_RO, readout spine), the loop's records go out as readout frames through its sink, each
+    before the token frame that follows it. A generated position is delivered once its token frame and its record frame
+    have both gone out, and the loop keeps rows only through the last delivered position (review ruling R5; the plan's
+    Global Constraints map it onto the frame order). So a record that cannot be sent raises ClientGone inside the loop,
+    before it hands out another token: the loop's finally (the settle and the commit) runs inside that next(), and the
+    stream ends like any stream whose client left. A readout.ReadoutError raised by the loop keeps its own code (review
+    ruling R6): after the loop's finally, the stream ends with that code as its error frame, the reply every readout
+    opcode gives.
+
+    Returns True when the stream ended with its end frame or a readout error frame; the loop's finally has run by then.
     Returns False when the client went away (EOF or a connection error) or sent anything but the next-token message. The loop is
     then closed right here, at the yield of the last token the client took, so its finally has run before the daemon accepts
-    another connection. An error raised by the loop itself is not the client's: it propagates (to _serve_conn, which answers -99)."""
-    gen = lm.spec_generate_stream(ids, max_new_tokens=max_tokens, stop_ids=stop_ids, vb=vb)
+    another connection. Any other error raised by the loop is not the client's: it propagates (to _serve_conn, which answers -99)."""
+
+    def sink(count: int, raw: bytes) -> None:
+        try:
+            wire.send_msg(conn, struct.pack("<ii", 2, count) + raw)
+        except OSError as e:
+            raise ClientGone() from e
+
+    extra = {"readout_sink": sink, "fresh": fresh} if with_readout else {}
+    gen = lm.spec_generate_stream(ids, max_new_tokens=max_tokens, stop_ids=stop_ids, vb=vb, **extra)
     try:
         while True:
-            tok = next(gen, _END)                 # the loop advances here, and only here
+            try:
+                tok = next(gen, _END)             # the loop advances here, and only here
+            except ClientGone:
+                return False                      # the loop already ended, and its finally ran, inside this next()
+            except readout.ReadoutError as e:
+                print(f"[daemon] readout refused in the stream ({e.code}): {e}", flush=True)
+                try:
+                    wire.send_msg(conn, struct.pack("<i", e.code))
+                except OSError:
+                    return False
+                return True
             try:
                 if tok is _END:
                     wire.send_msg(conn, struct.pack("<i", 0))
@@ -52,6 +86,17 @@ def _spec_pull(conn: socket.socket, lm: KernelLM, ids, max_tokens, stop_ids, vb)
                 return False
     finally:
         gen.close()
+
+
+def _readout_rc(call, *args) -> int:
+    """A readout opcode's reply: 0, or the code of the readout.ReadoutError the call raised. Other errors reach
+    _serve_conn's handler (-99)."""
+    try:
+        call(*args)
+        return 0
+    except readout.ReadoutError as e:
+        print(f"[daemon] readout refused ({e.code}): {e}", flush=True)
+        return e.code
 
 
 def _serve_conn(conn: socket.socket, lm: KernelLM) -> None:
@@ -85,18 +130,40 @@ def _serve_conn(conn: socket.socket, lm: KernelLM) -> None:
                 dflash_dir = body[1:].decode()
                 lm.dflash_load(dflash_dir)
                 resp = struct.pack("<i", 0)
-            elif op == wire.OP_SPEC_PULL:
+            elif op in (wire.OP_SPEC_PULL, wire.OP_SPEC_PULL_RO):
                 (n,) = struct.unpack_from("<i", body, 1)
                 ids_end = 5 + 4 * n
                 ids = np.frombuffer(body, dtype=np.int32, count=n, offset=5).tolist()
                 max_tokens, vb, ns = struct.unpack_from("<iii", body, ids_end)
                 stop_ids = np.frombuffer(body, dtype=np.int32, count=ns,
                                          offset=ids_end + 12).tolist()
+                ro = op == wire.OP_SPEC_PULL_RO
+                fresh = ro and struct.unpack_from("<i", body, ids_end + 12 + 4 * ns)[0] != 0
                 # The complete draft/verify/accept loop stays in this GPU-owning process, and the socket is crossed once per
                 # TOKEN, never per FFI call. The loop advances only when the client asks for the next token (_spec_pull).
-                if not _spec_pull(conn, lm, ids, max_tokens, stop_ids, vb):
+                if not _spec_pull(conn, lm, ids, max_tokens, stop_ids, vb, with_readout=ro, fresh=fresh):
                     return          # the client went away (or broke the protocol) mid-stream: this connection is finished
                 continue
+            elif op == wire.OP_READOUT_CONFIG:
+                cfg = wire.unpack_readout_config(body)
+                resp = struct.pack("<i", _readout_rc(lm.readout_config, cfg["emo_layers"], cfg["directions"],
+                                                     cfg["ws_layers"], cfg["lens"], cfg["k"]))
+            elif op == wire.OP_READOUT_OFF:
+                resp = struct.pack("<i", _readout_rc(lm.readout_off))
+            elif op == wire.OP_STEER_SET:
+                st = wire.unpack_steer_set(body)
+                resp = struct.pack("<i", _readout_rc(lm.steer_set, st["layer"], st["directions"], st["name"],
+                                                     st["strength"], st["from_pos"]))
+            elif op == wire.OP_STEER_CLEAR:
+                resp = struct.pack("<i", _readout_rc(lm.steer_clear))
+            elif op == wire.OP_READOUT_TAKE:
+                t = wire.unpack_readout_take(body)
+                try:
+                    count, recs = lm.readout_take(t["pos0"], t["tokens"], t["generated"])
+                    resp = struct.pack("<i", count) + recs
+                except readout.ReadoutError as e:
+                    print(f"[daemon] readout refused ({e.code}): {e}", flush=True)
+                    resp = struct.pack("<i", e.code)
             elif op == wire.OP_SESSION_PREPARE:
                 spec, n = struct.unpack_from("<ii", body, 1)
                 ids = np.frombuffer(body, dtype=np.int32, count=n, offset=9).tolist()

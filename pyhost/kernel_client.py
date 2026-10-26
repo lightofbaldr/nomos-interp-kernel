@@ -14,6 +14,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wire                       # noqa: E402
 from host import _GenMixin, VOCAB  # noqa: E402
+import readout                    # noqa: E402
 
 
 _NEXT = struct.pack("<B", wire.OP_SPEC_NEXT)
@@ -26,6 +27,16 @@ def _rc_error(what: str, rc: int) -> str:
         return (f"{what} rc=-1: the engine daemon predates this serve's protocol: restart the daemon and the serve "
                 "together (RUNBOOK §7)")
     return f"{what} rc={rc}"
+
+
+def _readout_error(what: str, rc: int) -> RuntimeError:
+    """The error for a readout request the daemon refused with rc (review ruling R6). A readout code (-2..-9, readout.py)
+    raises readout.ReadoutError with that code: the exception the in-process backend raises for the same refusal, so the
+    serve sees one readout error in either mode. Any other code (-1 a daemon older than the opcode, -99 the engine raised)
+    stays a RuntimeError."""
+    if readout.NOT_CONFIGURED <= rc <= readout.NO_READOUT:
+        return readout.ReadoutError(rc, _rc_error(what, rc))
+    return RuntimeError(_rc_error(what, rc))
 
 
 class KernelClient(_GenMixin):
@@ -180,17 +191,24 @@ class KernelClient(_GenMixin):
         # Remembered so _reconnect() can restore spec decode on a fresh socket.
         self._dflash_dir = dflash_dir
 
-    def spec_generate_stream(self, prompt_ids, max_new_tokens=1024, stop_ids=(), vb=8):
+    def spec_generate_stream(self, prompt_ids, max_new_tokens=1024, stop_ids=(), vb=8, readout_sink=None, fresh=False):
         """Run the whole DFlash loop daemon-side and yield its accepted tokens, PULLED one at a time (ledger R56; wire.py describes
         the exchange). The daemon parks its loop at each token and advances it only when this generator asks, and it asks only
         after its own consumer has come back for another token. A consumer that takes k tokens and closes leaves the daemon's
-        loop at exactly the kth, so the KV session store settles the turn to what the client took."""
+        loop at exactly the kth, so the KV session store settles the turn to what the client took.
+
+        With readout_sink (readout spine), the request is OP_SPEC_PULL_RO. Its readout frames go to readout_sink(count,
+        records) as they arrive: a token's record before the next token. fresh=True is "prompt": "all". A readout refusal
+        inside the stream raises readout.ReadoutError with its code (review ruling R6)."""
         self._ensure_conn()
         ids = np.asarray(prompt_ids, dtype=np.int32)
         stops = np.asarray(list(stop_ids), dtype=np.int32)
-        body = (struct.pack("<Bi", wire.OP_SPEC_PULL, len(ids)) + ids.tobytes() +
+        op = wire.OP_SPEC_PULL if readout_sink is None else wire.OP_SPEC_PULL_RO
+        body = (struct.pack("<Bi", op, len(ids)) + ids.tobytes() +
                 struct.pack("<iii", int(max_new_tokens), int(vb), len(stops)) +
                 stops.tobytes())
+        if readout_sink is not None:
+            body += struct.pack("<i", 1 if fresh else 0)
         try:
             wire.send_msg(self.sock, body)
             while True:
@@ -199,9 +217,13 @@ class KernelClient(_GenMixin):
                     raise RuntimeError("engine daemon closed the spec stream")
                 (n,) = struct.unpack_from("<i", resp, 0)
                 if n < 0:
-                    raise RuntimeError(_rc_error("engine daemon spec stream", n))
+                    raise _readout_error("engine daemon spec stream", n)
                 if n == 0:
                     return
+                if n == 2 and readout_sink is not None and len(resp) >= 8:
+                    (count,) = struct.unpack_from("<i", resp, 4)
+                    readout_sink(count, resp[8:])
+                    continue
                 if n != 1 or len(resp) != 8:
                     raise RuntimeError(f"malformed spec frame: n={n}, bytes={len(resp)}")
                 (tok,) = struct.unpack_from("<i", resp, 4)
@@ -225,6 +247,44 @@ class KernelClient(_GenMixin):
             except Exception:  # noqa: BLE001
                 pass
             raise
+
+    # -- readout spine (wire opcodes 17-22) ---------------------------------------------------------------------------
+    def readout_supported(self) -> bool:
+        """Whether the daemon and its kernel serve readouts. It sends OP_READOUT_OFF, which also turns them off: a daemon
+        older than the opcode answers -1, and one whose kernel lacks the exports answers -2."""
+        return self._rc_call(struct.pack("<B", wire.OP_READOUT_OFF)) == 0
+
+    def _rc_ok(self, what: str, body: bytes) -> None:
+        rc = self._rc_call(body)
+        if rc != 0:
+            raise _readout_error(what, rc)
+
+    def readout_config(self, emo_layers, directions, ws_layers, lens, k) -> None:
+        self._rc_ok("readout_config", wire.pack_readout_config(emo_layers, directions, ws_layers, lens, k))
+
+    def readout_off(self) -> None:
+        self._rc_ok("readout_off", struct.pack("<B", wire.OP_READOUT_OFF))
+
+    def steer_set(self, layer, directions, name, strength, from_pos) -> None:
+        self._rc_ok("steer_set", wire.pack_steer_set(layer, directions, name, strength, from_pos))
+
+    def steer_clear(self) -> None:
+        self._rc_ok("steer_clear", struct.pack("<B", wire.OP_STEER_CLEAR))
+
+    def readout_take(self, pos0, tokens, generated) -> tuple[int, bytes]:
+        self._ensure_conn()
+        try:
+            wire.send_msg(self.sock, wire.pack_readout_take(pos0, tokens, generated))
+            resp = wire.recv_msg(self.sock)
+            if resp is None:
+                raise RuntimeError("engine daemon closed the connection")
+        except Exception:
+            self._dirty = True
+            raise
+        (count,) = struct.unpack_from("<i", resp, 0)
+        if count < 0:
+            raise _readout_error("readout_take", count)
+        return count, resp[4:]
 
     def shutdown(self) -> None:
         """Close the client socket. Does NOT free the daemon's engine — the daemon persists
