@@ -25,6 +25,7 @@ import numpy as np
 _TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools")
 sys.path.insert(0, _TOOLS)
 import fp4_parity_harness as H  # noqa: E402
+import readout  # noqa: E402
 
 VOCAB = 262144  # maximum supported vocab / historical Gemma wire bound
 # session_open()'s status for a kernel without nomos_session_open (any kernel built before ruling R79, the production
@@ -49,6 +50,19 @@ def _configured_vocab_size() -> int:
     except (OSError, ValueError, TypeError):
         pass
     return VOCAB
+
+
+def _configured_hidden_size() -> int | None:
+    """The model's hidden size, from TOK_DIR's config.json, or None without TOK_DIR. Readout assets must match it: the
+    readout exports take raw pointers that the kernel reads at its own width."""
+    path = os.path.join(H.TOK_DIR, "config.json") if H.TOK_DIR else ""
+    try:
+        with open(path) as f:
+            config = json.load(f)
+        size = config.get("text_config", {}).get("hidden_size", config.get("hidden_size"))
+        return size if isinstance(size, int) and size > 0 else None
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 def _store_requested() -> bool:
@@ -118,13 +132,15 @@ class _GenMixin:
     session_prepare(ids, spec)->cached prefix length, session_commit(), and for multimodal turns
     prefill_mm(ids, features, nvis)->logits."""
 
-    def _start_turn(self, prompt_ids, mm_features=None, mm_nvis=0, spec=False):
+    def _start_turn(self, prompt_ids, mm_features=None, mm_nvis=0, spec=False, fresh=False):
         """Prefill a turn through the KV session store: reuse the longest cached prefix, prefill the rest.
+        fresh=True ("prompt": "all", readout spine ruling P2-R3) recomputes the whole prompt after the store's prepare, so
+        every prompt position has this turn's readout. The store's commit then appends what the KV holds.
         Multimodal turns bypass the store (M-RoPE state is not saved)."""
         if mm_features is not None:
             return self.prefill_mm(prompt_ids, mm_features, mm_nvis)
         c = self.session_prepare(prompt_ids, spec=spec)
-        return self.prefill(prompt_ids) if c == 0 else self.prefill_cont(prompt_ids[c:])
+        return self.prefill(prompt_ids) if (c == 0 or fresh) else self.prefill_cont(prompt_ids[c:])
 
     def _end_turn(self):
         """Persist the turn in the KV session store. Never raises: it runs in `finally` blocks, where an
@@ -136,11 +152,11 @@ class _GenMixin:
 
     def generate(self, prompt_ids, max_new_tokens=1024, stop_ids=(), temperature=0.0,
                  top_p=1.0, top_k=0, processor: LogitsProcessor | None = None,
-                 mm_features=None, mm_nvis: int = 0, rep_penalty: float = 1.0) -> list[int]:
+                 mm_features=None, mm_nvis: int = 0, rep_penalty: float = 1.0, fresh: bool = False) -> list[int]:
         stop = set(int(s) for s in stop_ids)
         # Multimodal: image features (if present) splice at image-token positions on the first
         # prefill via nomos_prefill_mm; decode is identical to text after that.
-        logits = self._start_turn(prompt_ids, mm_features, mm_nvis)
+        logits = self._start_turn(prompt_ids, mm_features, mm_nvis, fresh=fresh)
         out: list[int] = []
         try:
             for i in range(max_new_tokens):
@@ -158,10 +174,10 @@ class _GenMixin:
 
     def generate_stream(self, prompt_ids, max_new_tokens=1024, stop_ids=(), temperature=0.0,
                         top_p=1.0, top_k=0, processor: LogitsProcessor | None = None,
-                        mm_features=None, mm_nvis: int = 0, rep_penalty: float = 1.0):
+                        mm_features=None, mm_nvis: int = 0, rep_penalty: float = 1.0, fresh: bool = False):
         """Yields each token id AS produced. The stop token IS yielded, then return."""
         stop = set(int(s) for s in stop_ids)
-        logits = self._start_turn(prompt_ids, mm_features, mm_nvis)
+        logits = self._start_turn(prompt_ids, mm_features, mm_nvis, fresh=fresh)
         out: list[int] = []
         try:
             for i in range(max_new_tokens):
@@ -245,6 +261,24 @@ class KernelLM(_GenMixin):
             self._dflash_avail = True
         except AttributeError:
             self._dflash_avail = False
+        # Readout spine (glimmer-emotions docs/superpowers/specs/2026-10-20-readout-spine-design.md): optional, like the
+        # store's exports. The steering exports exist in every plan-B kernel; they are bound here because the serve's
+        # steering rides the same opcodes.
+        I32, I64 = ctypes.c_int32, ctypes.c_int64
+        readout_ffi = (("nomos_readout_configure", [I64, I64, I32, I64, I32, I64, I32, I64, I64, I32]),
+                       ("nomos_readout_disable", [I64]),
+                       ("nomos_readout_begin_turn", [I64]),
+                       ("nomos_readout_read", [I64, I32, I32, I64, I64, I64, I64, I64]),
+                       ("nomos_readout_workspace_commit", [I64, I32, I32]),
+                       ("nomos_set_steer", [I64, I32, I64]),
+                       ("nomos_set_steer_from", [I64, I32]),
+                       ("nomos_clear_steer", [I64]))
+        self._readout_ok = all(hasattr(self.lib, name) for name, _ in readout_ffi)
+        if self._readout_ok:
+            for name, args in readout_ffi:
+                getattr(self.lib, name).argtypes = args
+                getattr(self.lib, name).restype = ctypes.c_int32
+        self._ro = None     # the active readout configuration: (key, readout.Layout), or None
         self.h = H.init_engine(self.lib)
         st = self.session_status()
         if st < 0:
@@ -368,7 +402,8 @@ class KernelLM(_GenMixin):
         self._dflash_loaded = True
         self._dflash_dir = dflash_dir
 
-    def spec_generate_stream(self, prompt_ids, max_new_tokens=1024, stop_ids=(), vb=8, trace=None):
+    def spec_generate_stream(self, prompt_ids, max_new_tokens=1024, stop_ids=(), vb=8, trace=None,
+                             readout_sink=None, fresh=False):
         """DFlash block speculative decode — greedy, lossless-by-construction.
 
         Yields accepted token ids AS produced (in bursts of 1..vb per cycle). The
@@ -386,6 +421,17 @@ class KernelLM(_GenMixin):
         the last, so a stop or a close inside a burst leaves nothing the client did not
         see. A turn whose budget ends at the exact M=1 step leaves the last two tokens
         without rows (ledger R54 drops that step's row to keep the drafter level).
+
+        Readout spine (spec section 3): with readout_sink, the turn's records go to readout_sink(count, records) in
+        position order, timed by readout.SpecEmitter. The prompt positions this turn computed go out once the prompt is
+        in; each generated token's record goes out just before the next token is handed out. Each forward's kept rows
+        get their workspace committed right after the keep decision. fresh=True ("prompt": "all") recomputes the whole
+        prompt after the store's prepare (ruling P2-R3).
+
+        Delivery (review ruling R5; the plan's Global Constraints map it): a sink that raises stops the turn inside
+        SpecEmitter, before the next token is handed out, so y still counts only tokens whose frames could go out. The
+        turn's finally then keeps rows only through the last position whose record went out, and commits. The prompt's
+        records go out inside the same try, so a sink that fails on them still commits the prompt.
         """
         if not self._dflash_loaded:
             raise RuntimeError("DFlash drafter not loaded — call dflash_load(dir) first")
@@ -393,8 +439,9 @@ class KernelLM(_GenMixin):
         K = vb - 1
         out15 = np.zeros(15, dtype=np.int32)
         vlogits = np.zeros((vb, self.vocab_size), dtype=np.float32)
+        emit = readout.SpecEmitter(self, prompt_ids, readout_sink) if readout_sink is not None else None
         c = self.session_prepare(prompt_ids, spec=True)
-        if c == 0:
+        if c == 0 or fresh:
             self.lib.nomos_dflash_reset(self.h)
             self.prefill(prompt_ids)                   # resets KV + drafter, fills both and self._logits
         else:
@@ -408,19 +455,32 @@ class KernelLM(_GenMixin):
             print("[kvstore] drafter behind the KV; this turn decodes without speculation", flush=True)
             n = 0
             try:
+                if emit is not None:
+                    emit.start(self.cache_len())
                 tok = int(np.argmax(self._logits))
                 while True:
-                    yield tok; n += 1
+                    if emit is not None:
+                        emit.handed(tok)
+                    n += 1                                 # counted BEFORE the yield, like y: a close lands on one
+                    yield tok
                     if tok in stop or n >= max_new_tokens:
                         return
                     self.step(tok)
+                    if emit is not None:
+                        self._readout_commit(1)
                     tok = int(np.argmax(self._logits))
             finally:
+                if emit is not None:
+                    self._settle_base_turn(emit.P + max(n - 1, 0))    # review ruling R5: emit.P is the prompt's KV length
                 self._end_turn()
         P = self.cache_len()                           # the KV's length once the prompt is in: the turn's rows are counted from it
         y = 0                                          # tokens handed out, counted BEFORE each yield: close() lands on one
         try:
+            if emit is not None:
+                emit.start(P)
             seed = int(np.argmax(self._logits))
+            if emit is not None:
+                emit.handed(seed)
             y += 1; yield seed
             if seed in stop:
                 return
@@ -430,6 +490,8 @@ class KernelLM(_GenMixin):
                 k = min(K, r - 1) if r > 1 else 0
                 if k <= 0:                                 # 1 token budget left -> exact M=1 step
                     self.step(seed)
+                    if emit is not None:
+                        self._readout_commit(1)
                     tok = int(np.argmax(self._logits))
                     # The step wrote seed's KV row, a row the drafter never gets (the decode path captures no taps).
                     # Drop it, so the turn ends with KV and drafter both at L. A turn that ends one row apart makes the
@@ -441,6 +503,8 @@ class KernelLM(_GenMixin):
                         self.set_cache_len(L)
                     except Exception as e:  # noqa: BLE001
                         print(f"[kvstore] could not drop the exact step's row: {e}", flush=True)
+                    if emit is not None:
+                        emit.handed(tok)
                     y += 1; yield tok
                     return
                 vb_eff = k + 1
@@ -463,7 +527,11 @@ class KernelLM(_GenMixin):
                 newcl = self.lib.nomos_dflash_append_verify_context(self.h, 0, num_acc + 1)
                 if newcl <= 0:
                     raise RuntimeError(f"nomos_dflash_append_verify_context rc={newcl}")
+                if emit is not None:
+                    self._readout_commit(num_acc + 1)      # the kept rows' workspace, after the keep decision
                 for tok in drafts[:num_acc] + [nxt]:       # emit accepted prefix + correction
+                    if emit is not None:
+                        emit.handed(tok)
                     y += 1; yield tok
                     if tok in stop or y >= max_new_tokens:
                         return
@@ -489,6 +557,128 @@ class KernelLM(_GenMixin):
                 self.dflash_set_len(t)
             if kv > t:
                 self.set_cache_len(t)
+        except Exception as e:  # noqa: BLE001 (a failed cut costs a fork next turn, and must not fail a reply already sent)
+            print(f"[kvstore] settle failed: {e}", flush=True)
+
+    # -- readout spine (spec section 3): the daemon forwards opcodes 17-22 to these ----------------------------------------
+    def readout_supported(self) -> bool:
+        return self._readout_ok
+
+    def _need_readout(self) -> None:
+        if not self._readout_ok:
+            raise readout.ReadoutError(readout.NO_READOUT, "this kernel has no readout exports: rebuild it")
+
+    def readout_config(self, emo_layers, directions, ws_layers, lens, k) -> None:
+        """OP_READOUT_CONFIG: configure the readouts for the next turn, and clear the last turn's validity. A configuration
+        equal to the active one is not uploaded again (a lens is 0.7 GB)."""
+        self._need_readout()
+        key = (tuple(int(x) for x in emo_layers), directions, tuple(int(x) for x in ws_layers),
+               lens if ws_layers else "", int(k) if ws_layers else 0)
+        if self._ro is None or self._ro[0] != key:
+            self._ro = None
+            reg = readout.AssetRegistry()        # read per configuration: assets can be added while the daemon runs
+            width = _configured_hidden_size()
+            dirs = reg.directions(directions, emo_layers)
+            if width is None or dirs.shape[2] != width:
+                raise readout.ReadoutError(readout.REFUSED,
+                                           f"the direction set is {dirs.shape[2]} wide; the model's hidden size is {width}")
+            emo_a = np.ascontiguousarray(emo_layers, dtype=np.int32)
+            ws_a = np.ascontiguousarray(ws_layers, dtype=np.int32)
+            lens_m = norm_w = None
+            if len(ws_a):
+                lens_m, norm_w = reg.lens(lens, ws_layers)
+                if lens_m.shape[2] != width:
+                    raise readout.ReadoutError(readout.REFUSED,
+                                               f"the lens is {lens_m.shape[2]} wide; the model's hidden size is {width}")
+            rc = self.lib.nomos_readout_configure(
+                self.h, emo_a.ctypes.data, len(emo_a), dirs.ctypes.data, dirs.shape[1],
+                ws_a.ctypes.data if len(ws_a) else 0, len(ws_a),
+                lens_m.ctypes.data if lens_m is not None else 0, norm_w.ctypes.data if norm_w is not None else 0,
+                int(k) if len(ws_a) else 0)
+            if rc != 0:
+                raise readout.ReadoutError(readout.REFUSED, f"nomos_readout_configure rc={rc}")
+            self._ro = (key, readout.Layout(len(emo_a), dirs.shape[1], len(ws_a), int(k)))
+        rc = self.lib.nomos_readout_begin_turn(self.h)
+        if rc != 0:
+            raise readout.ReadoutError(readout.REFUSED, f"nomos_readout_begin_turn rc={rc}")
+
+    def readout_off(self) -> None:
+        """OP_READOUT_OFF: free the readout state; the hooks then do nothing."""
+        self._need_readout()
+        self.lib.nomos_readout_disable(self.h)
+        self._ro = None
+
+    def steer_set(self, layer, directions, name, strength, from_pos) -> None:
+        """OP_STEER_SET: steer `layer` by s x layer_sizes[layer] x the direction, from absolute position from_pos, on every
+        path (plan B). A negative from_pos is refused (ruling P2-R8): DFlash verify refuses steering without one (-4)."""
+        self._need_readout()
+        if int(from_pos) < 0:
+            raise readout.ReadoutError(readout.BAD_STEER, f"steering start {from_pos} must be >= 0")
+        vec = readout.AssetRegistry().steer_vector(directions, int(layer), name, strength)
+        width = _configured_hidden_size()
+        if width is None or vec.shape[0] != width:
+            raise readout.ReadoutError(readout.REFUSED,
+                                       f"the steering vector is {vec.shape[0]} wide; the model's hidden size is {width}")
+        self.lib.nomos_clear_steer(self.h)
+        rc = self.lib.nomos_set_steer(self.h, int(layer), vec.ctypes.data)
+        if rc == 0:
+            rc = self.lib.nomos_set_steer_from(self.h, int(from_pos))
+        if rc != 0:
+            self.lib.nomos_clear_steer(self.h)
+            raise readout.ReadoutError(readout.REFUSED, f"the kernel refused the steering (rc={rc})")
+
+    def steer_clear(self) -> None:
+        """OP_STEER_CLEAR."""
+        self._need_readout()
+        self.lib.nomos_clear_steer(self.h)
+
+    def readout_records(self, pos0, tokens, source) -> tuple[int, bytes]:
+        """(count, records) for the positions [pos0, pos0 + len(tokens)) that hold a valid entry; tokens[i] sits at
+        pos0 + i."""
+        if self._ro is None:
+            raise readout.ReadoutError(readout.NOT_CONFIGURED, "readouts are not configured")
+        lay, n = self._ro[1], len(tokens)
+        if n == 0:
+            return 0, b""
+        emo = np.zeros((n, lay.n_emo, lay.E + 1), dtype=np.float32)
+        ev = np.zeros(n, dtype=np.uint8)
+        ids = sc = wv = None
+        if lay.n_ws:
+            ids = np.zeros((n, lay.n_ws, lay.k), dtype=np.int32)
+            sc = np.zeros((n, lay.n_ws, lay.k), dtype=np.float32)
+            wv = np.zeros(n, dtype=np.uint8)
+        rc = self.lib.nomos_readout_read(self.h, int(pos0), n, emo.ctypes.data, ev.ctypes.data,
+                                         ids.ctypes.data if ids is not None else 0,
+                                         sc.ctypes.data if sc is not None else 0,
+                                         wv.ctypes.data if wv is not None else 0)
+        if rc != 0:
+            raise readout.ReadoutError(readout.REFUSED, f"nomos_readout_read rc={rc}")
+        return readout.pack_records(lay, int(pos0), tokens, source, emo, ev, ids, sc, wv)
+
+    def readout_take(self, pos0, tokens, generated) -> tuple[int, bytes]:
+        """OP_READOUT_TAKE, the base path's pull between steps. For a generated token, first commit the workspace of the
+        row its step staged."""
+        if generated:
+            self._readout_commit(1)
+        return self.readout_records(pos0, tokens, readout.SOURCE_GENERATED if generated else readout.SOURCE_PROMPT)
+
+    def _readout_commit(self, nrows) -> None:
+        if self._ro is not None and self._ro[1].n_ws:
+            rc = self.lib.nomos_readout_workspace_commit(self.h, 0, int(nrows))
+            if rc == -3:    # Codex 10-26 F1: a position whose logits were non-finite stays workspace-invalid; its
+                return      # record then says workspace_unavailable (ruling P2-R6). The kernel printed which positions.
+            if rc != 0:
+                raise readout.ReadoutError(readout.REFUSED, f"nomos_readout_workspace_commit rc={rc}")
+
+    def _settle_base_turn(self, keep: int) -> None:
+        """The drafter-behind fallback's settle (review ruling R5). That path steps a token when its successor is asked for,
+        and the successor's handed() then sends the token's record. A record that cannot be sent ends the turn there, with
+        the token's row in the KV and its record undelivered: cut the KV back to `keep`, every token handed out but the
+        last, as every other end of that path already leaves it. The drafter trails the KV on that path; it is left
+        alone. Never raises: it runs in a finally."""
+        try:
+            if self.cache_len() > keep:
+                self.set_cache_len(keep)
         except Exception as e:  # noqa: BLE001 (a failed cut costs a fork next turn, and must not fail a reply already sent)
             print(f"[kvstore] settle failed: {e}", flush=True)
 
