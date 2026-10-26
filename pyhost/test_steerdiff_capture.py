@@ -258,5 +258,83 @@ class Report(unittest.TestCase):
         self.assertIn("- emotion L24: up joyful +2", text)    # only the capture's own emotion layers
 
 
+
+def synthetic_capture(out):
+    """A two-arm capture directory (base and joy_0.5, free and matched) like tools/steerdiff_capture.py writes."""
+    import steerdiff
+    settings = {"emotion": {"layers": [20, 24], "names": ["joyful", "sad"]}, "workspace": {"layers": [36, 48], "k": 4}}
+    top_a, top_b = [[10, 5.0], [11, 4.0], [12, 3.0], [13, 2.0]], [[11, 6.0], [14, 4.5], [10, 3.5], [15, 1.0]]
+
+    def doc(name, mode, tokens, top, joy):
+        recs = [{"pos": i, "token": t, "source": "prompt", "channel": None, "missing": [],
+                 "emotion": {"proj": [[0.0, 0.0], [0.0, 0.0]], "norm": [1.0, 1.0]}, "workspace": None}
+                for i, t in enumerate([1, 2])]
+        recs += [{"pos": 2 + j, "token": t, "source": "generated", "channel": "answer", "missing": [],
+                  "emotion": {"proj": [[0.0, 0.0], [joy, 0.0]], "norm": [1.0, 1.0]}, "workspace": {"top": [top, top]}}
+                 for j, t in enumerate(tokens)]
+        d = steerdiff.run_doc(run_id=f"S1.{name}.{mode}", arm={"name": name, "steer": None}, mode=mode,
+                              reference="S1.base.free" if mode == "matched" else None, prompt_ids=[1, 2],
+                              tokens=tokens, records=recs, settings=settings, identity={"x": 1})
+        d.update(saw_stop=False, lexicons=steerdiff.lexicon_counts(d, {"celebration": [14]}, display_k=2))
+        return d
+
+    ident = {"identity": {"library_sha256": "c660" * 16, "library_build_id": "b1", "directions": "d" * 64,
+                          "lens": "e" * 64, "tokenizer_sha256": "f" * 64, "steer_layer": 24, "schedule": "M=1",
+                          "route": {}},
+             "settings": settings, "prompts": {"S1": "a prompt"}, "max_new": 8, "system": "s", "provenance": {},
+             "lexicons": {"celebration": [14]},
+             "arms": [{"name": "base", "kind": None, "s": None}, {"name": "joy_0.5", "kind": "joyful", "s": 0.5}]}
+    os.makedirs(os.path.join(out, "S1", "runs"))
+    for name, value in (("identity.json", ident), ("gates.json", {"S1": {"G1_repeat": {"pass": True, "detail": ""}}})):
+        with open(os.path.join(out, name), "w") as f:
+            json.dump(value, f)
+    runs = [doc("base", "free", [5] * 8, top_a, 0.0), doc("joy_0.5", "free", [5, 5, 6] + [5] * 5, top_b, 2.0),
+            doc("base", "matched", [5] * 8, top_a, 0.0), doc("joy_0.5", "matched", [5] * 8, top_b, 2.0)]
+    for d in runs:
+        with open(os.path.join(out, "S1", "runs", f"{d['arm']['name']}.{d['mode']}.json"), "w") as f:
+            json.dump(d, f)
+    return runs
+
+
+class Export(unittest.TestCase):
+    """tools/steerdiff_export.py: the UI bundle. Every comparison is steerdiff.compare's own document, so the view only
+    renders; vocab decodes every id the view can show."""
+
+    class Tok:
+        def decode(self, ids, skip_special_tokens=False):
+            return "".join(f"<{i}>" for i in ids)
+
+    def test_the_bundle_indexes_every_comparison_and_carries_compares_own_document(self):
+        import tempfile
+        import steerdiff
+        import steerdiff_export as X
+        with tempfile.TemporaryDirectory() as out:
+            runs = synthetic_capture(out)
+            X.export(out, self.Tok(), display_k=2)
+            with open(os.path.join(out, "ui", "index.json")) as f:
+                index = json.load(f)
+            self.assertEqual(index["schema"], X.SCHEMA)
+            self.assertEqual([(c["prompt"], c["arm"], c["mode"]) for c in index["comparisons"]],
+                             [("S1", "joy_0.5", "free"), ("S1", "joy_0.5", "matched")])
+            self.assertEqual(index["gates"], {"S1": {"G1_repeat": {"pass": True, "detail": ""}}})
+            with open(os.path.join(out, "ui", index["comparisons"][1]["path"])) as f:
+                got = json.load(f)
+        self.assertEqual(got["comparison"], json.loads(json.dumps(steerdiff.compare(runs[2], runs[3], 2))))
+        self.assertEqual(index["comparisons"][0]["divergence"]["index"], 2)
+
+    def test_vocab_decodes_every_token_and_candidate_the_view_can_show(self):
+        import tempfile
+        import steerdiff_export as X
+        with tempfile.TemporaryDirectory() as out:
+            synthetic_capture(out)
+            X.export(out, self.Tok(), display_k=2)
+            with open(os.path.join(out, "ui", "S1", "joy_0.5.free.json")) as f:
+                got = json.load(f)
+        ids = {str(i) for i in (1, 2, 5, 6, 10, 11, 14)}         # prompt, tokens, and the displayed candidates
+        self.assertTrue(ids <= set(got["vocab"]), sorted(ids - set(got["vocab"])))
+        self.assertEqual(got["vocab"]["14"], "<14>")
+        self.assertEqual(got["text"]["steered"]["answer"], "<5><5><6><5><5><5><5><5>")
+
+
 if __name__ == "__main__":
     unittest.main()
