@@ -44,3 +44,9 @@ Implementation and verification evidence will be appended per task. GPU work is 
 
 - Bridge tests observed RED before implementation, then GREEN. All 51 CPU tests and typecheck pass.
 - Ordered snapshot/events/settings delivery, bounded backpressure and stop behavior, and fork-aware report traversal follow the reviewed plan. No API changes needed.
+
+### Task 6 preparation
+
+- Prime was notified (local-comms 1400) and explicitly released the GPU, with no concurrent CPU-heavy work. The GPU attempt is not yet recorded as passed.
+- Launcher deviation: a fresh exclusively created run directory replaces deletion of the plan's reusable store/database. The shell delegates to a small Python supervisor for checked environment resolution, pinned kernel/library identity, PSI/tmp/port admission, bounded readiness and cleanup of only its own process groups. A separate systemd user unit remains inside with_serve_down, as the brief requires.
+- The conversation retains every plan assertion, including real turn-2 KV reuse; it additionally writes its summary/counts to result.json. CPU witnesses cover bad route, existing run, pressure and failed environment resolution. Full suite: 52/52 plus typecheck.
