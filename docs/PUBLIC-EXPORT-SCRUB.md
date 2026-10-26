@@ -6,6 +6,8 @@ rewrite historical provenance) the following:
 - `docs/import/snapshot.json`: source checkout path, original private remote,
   original status listing and timestamps.
 - `IMPORT.md`: source checkout and local service instructions.
+- `GATES.md` and `MIGRATION-GATES.md`: historical/source and current verification
+  working-directory paths. Their evidence should not be mistaken for portable setup.
 - `scripts/harness.mjs`: personal Chromium executable fallback.
 - `docs/ATTRIBUTION.md` and `docs/assets/PROMPTS.md`: personal image source path.
 - Inherited `README.md`, `project.json`, `scripts/refresh-preview.mjs`, and test
@@ -16,7 +18,8 @@ rewrite historical provenance) the following:
   added on the review branch. Capture bundles must remain external and private.
 
 Review-branch additions with explicit personal paths: `src/lib/server/steering-data.ts`,
-`tests/steering/model.test.ts`, `docs/STEERING-DIFF.md`, and
+`tests/steering/model.test.ts`, `scripts/lab-integration.mjs` (a path-leak
+negative assertion), `docs/STEERING-DIFF.md`, and
 `docs/import/steering-scratch.json`. The browser helpers inherit the existing
 Chromium path from `scripts/harness.mjs`. Runtime responses can include source
 episode paths from the external data, which this source-only checklist does not

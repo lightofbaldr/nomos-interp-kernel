@@ -8,7 +8,10 @@ add persistent Pi sessions or preserve an in-progress conversation across routes
 
 The implementation is ported from the local-only prototype at
 `b3a10582ed479d541c73a6cd2d8ad1f656d4eb3f`. Its source hashes are in
-`docs/import/steering-scratch.json`; no scratch Git history was imported. The
+`docs/import/steering-scratch.json`; its `import_sha256` fields describe the
+initial mechanical port, before the subsequent routing/theme/error-text and
+strict-typecheck adaptations in this branch, not final file pins. No scratch
+Git history was imported. The
 comparison model and four presentation components retain their original bytes.
 Integration changes are routing/navigation, a scoped stylesheet (including the
 portalled dialog), the external data adapter, error wording and test harnesses.
