@@ -13,7 +13,9 @@ import hashlib
 import json
 import os
 import sys
+import types
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -662,6 +664,34 @@ class Speculative(unittest.TestCase):
             for slot in range(len(EMO)):
                 assert_bits_equal(emo[:, slot, :], project_rows(k, off[:, slot, :], slot),
                                   f"the verify rows at {L}, slot {slot}")
+
+
+class BenchGate(unittest.TestCase):
+    """CPU only, on a fake clock: the speculative decode gate times the cycles alone (review R8).
+    - With a 10 s prefill, cycles take 10 s with readouts off and 11 s with emotion readouts, so decode lost 1/11:
+      9.09%, over the 5% gate.
+    - A timer that also covered the prefill would report 1/21 (4.76%) and pass."""
+
+    def test_spec_rate_times_the_cycles_only(self):
+        import bench_readout as B
+        clock, cycles = [0.0], [10.0]
+
+        def fake_prefill(k, ids):
+            clock[0] += 10.0
+            return 0, len(ids)
+
+        def fake_cycles(k, seed, L, n_new, commit=False, check=None, kmax=7):
+            clock[0] += cycles[0]
+            return [0] * n_new, []
+
+        with mock.patch.object(B, "time", types.SimpleNamespace(perf_counter=lambda: clock[0])), \
+                mock.patch.object(B.R, "spec_prefill", fake_prefill), \
+                mock.patch.object(B.R, "spec_cycles", fake_cycles):
+            off = B.spec_rate(None, "off", PROMPT[:4])
+            cycles[0] = 11.0
+            emo = B.spec_rate(None, "emotion", PROMPT[:4])
+        self.assertAlmostEqual(1 - emo / off, 1 / 11)
+        self.assertGreater(1 - emo / off, 0.05)
 
 
 if __name__ == "__main__":
