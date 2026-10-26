@@ -22,3 +22,10 @@ Implementation and verification evidence will be appended per task. GPU work is 
 - Installed all five exact pins and locked transitive dependencies. pi-ai and pi-durable package.json hashes exactly match the audited tarballs; chord is 1.3.0. Reproducible verifier in scripts/verify-vendor.mjs.
 - Three real Pi premise tests pass: mid-run display-only transaction and fork boundary, awaited afterResponse plus session/message identity, and pre-provider abort ownership. TypeScript passes unchanged.
 - npm test explicitly selects TAP, making the plan's test-count oracle independent of terminal detection. Dependency install reported zero vulnerabilities; npm blocked two transitive install scripts, neither needed by these tests (not enabled).
+
+### Task 2
+
+- Plan's contract tests observed RED (missing implementation), then GREEN. All 16 CPU tests and typecheck pass.
+- Added 13 fixtures emitted by the actual built Python serve (base/spec all, reuse, stripped BOS, budget, workspace unavailable, plus metadata-only, signed steering-only and emotion-only), with producer file hashes and kernel commit. Every fixture passes TurnCheck unchanged. Negative witnesses alter an ordinary completion ID or reused count and refuse.
+- Included the real e2e record's summary-only response and range/count checks. result.json is an aggregate, not full raw SSE; the CPU producer fixture supplies that missing coverage. No cross-plan mismatch found, and no kernel change needed.
+- The generator writes JSON only to stdout, fixes completion timestamps and uses CPU fake engines. Tests consume a checked-in fixture and need no Python, tokenizer or kernel checkout.
