@@ -27,6 +27,10 @@ class StoreFfiTest(unittest.TestCase):
         # 64-token chunk but not the 300-token conversation that parks A, so A's restore must come from NVMe.
         bpt, budget = cls.k.bytes_per_token(), int(0.002 * 2**30)
         assert 64 * bpt <= budget < 300 * bpt, f"{bpt} bytes per token"
+        cls.k.lib.nomos_set_steer.argtypes = [ctypes.c_int64, ctypes.c_int32, ctypes.c_int64]
+        cls.k.lib.nomos_set_steer.restype = ctypes.c_int32
+        cls.k.lib.nomos_clear_steer.argtypes = [ctypes.c_int64]
+        cls.k.lib.nomos_clear_steer.restype = ctypes.c_int32
 
     @classmethod
     def tearDownClass(cls):
@@ -100,6 +104,17 @@ class StoreFfiTest(unittest.TestCase):
         restores = lambda s: s["restores_ram"] + s["restores_nvme"]   # a RAM tier of one chunk makes most of them NVMe
         self.assertEqual(restores(after), restores(before) + 1)       # ... restored from the store, not trusted in the engine
 
+    def test_clearing_idle_steering_keeps_the_session(self):   # ledger R36: only KV written while steered is untrusted
+        ids = doc_tokens(1800)[1500:]
+        _, gen = self.k.turn(ids, 8)
+        kv = self.k.cache_len()
+        self.assertEqual(self.k.live_tokens(), (ids + gen)[:kv])
+        self.assertEqual(self.k.lib.nomos_clear_steer(self.k.h), 0)                    # nothing is armed
+        self.assertEqual(self.k.live_tokens(), (ids + gen)[:kv])                       # so the tokens still describe the KV
+        before = self.k.stats()
+        self.assertEqual(self.k.prepare(ids + gen + doc_tokens(1840)[1800:]), kv)      # the live session simply continues
+        after = self.k.stats()
+        self.assertEqual((after["restores_ram"], after["restores_nvme"]), (before["restores_ram"], before["restores_nvme"]))
 
     def test_store_off_leaves_the_engine_alone(self):      # NOMOS_KVSTORE unset is the default: no store, no side effects
         ids = doc_tokens(2100)[1800:]
@@ -117,6 +132,23 @@ class StoreFfiTest(unittest.TestCase):
             os.environ["NOMOS_KVSTORE"] = "1"
             self.k.reset()                                        # the next test starts from a clean engine
 
+    def test_steering_bypasses_the_store(self):           # ledger R17
+        with open(os.path.join(TOK_DIR, "config.json")) as f:
+            cfg = json.load(f)
+        d = cfg.get("hidden_size") or cfg["text_config"]["hidden_size"]
+        vec = np.zeros(d, dtype=np.float32)               # a zero steer: same numbers, but the store cannot know that
+        self.k.turn(doc_tokens(2400)[2100:], 4)           # an unsteered turn: a store with a live session, whatever ran before
+        ids = doc_tokens(1500)[1240:]
+        self.assertEqual(self.k.lib.nomos_set_steer(self.k.h, 20, vec.ctypes.data), 0)
+        before = self.k.stats()
+        self.assertGreater(before["prepares"], 0)         # the store exists, so only the steering check can bypass it
+        self.assertEqual(self.k.prepare(ids), 0)
+        self.assertEqual(self.k.cache_len(), 0)           # a clean KV, not the live session
+        self.k.prefill(ids)
+        self.assertEqual(self.k.commit(), 0)
+        self.assertEqual(self.k.stats()["prepares"], before["prepares"])   # the store never saw the turn
+        self.assertEqual(self.k.lib.nomos_clear_steer(self.k.h), 0)
+        self.assertNotEqual(len(self.k.live_tokens()), self.k.cache_len())  # KV written under steering: untrusted
 
 
 if __name__ == "__main__":

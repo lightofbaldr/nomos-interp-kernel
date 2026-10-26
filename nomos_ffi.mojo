@@ -353,6 +353,84 @@ def nomos_lm_draft_debug_prefill(
 
 
 @export
+def nomos_lm_draft_debug_prefill_layer(
+    draft_handle: Int64,
+    ids_ptr: Int64,
+    n: Int32,
+    trace_layer: Int32,
+    out_phase_ptr: Int64,
+    out_meta_ptr: Int64,
+    out_token_ptr: Int64,
+) -> Int32:
+    """Debug one E2B layer on the last prompt token.
+
+    Runs reset+prefill over ids[0..n-1], writes:
+    - out_phase_ptr: optional host float[4*1536]:
+      [layer input, post-attn residual, post-MLP residual, final layer output];
+    - out_meta_ptr: optional host int32[4]:
+      [read_layer, q_head_dim, read_head_dim, is_shared];
+    - out_token_ptr: required Int32 greedy next token.
+    Leaves draft KV length == n. 0=ok, -1=bad arg, -99=exception.
+    """
+    if draft_handle == 0 or ids_ptr == 0 or out_token_ptr == 0 or n <= Int32(0):
+        return Int32(-1)
+    var dp = UnsafePointer[E2BDraftEngine, MutUntrackedOrigin](unsafe_from_address=Int(draft_handle))
+    try:
+        var ids = List[Int]()
+        _read_int32_array_into(ids_ptr, Int(n), ids)
+        var tok = dp[0].prefill_debug_layer(
+            ids, Int(trace_layer), UInt64(out_phase_ptr), UInt64(out_meta_ptr)
+        )
+        UnsafePointer[Int32, MutUntrackedOrigin](unsafe_from_address=Int(out_token_ptr))[0] = Int32(tok)
+        return Int32(0)
+    except e:
+        print("[nomos_lm_draft_debug_prefill_layer EXC]", e, " n=", Int(n), " layer=", Int(trace_layer))
+        return Int32(-99)
+
+
+@export
+def nomos_lm_draft_debug_prefill_layer_attn(
+    draft_handle: Int64,
+    ids_ptr: Int64,
+    n: Int32,
+    trace_layer: Int32,
+    out_phase_ptr: Int64,
+    out_meta_ptr: Int64,
+    out_attn_ptr: Int64,
+    out_attn_meta_ptr: Int64,
+    out_token_ptr: Int64,
+) -> Int32:
+    """Debug one E2B layer plus attention inputs on the last prompt token.
+
+    Includes all outputs from nomos_lm_draft_debug_prefill_layer and adds:
+    - out_attn_ptr: optional host float[80], five rows of 16 floats:
+      [q0, k_first, v_first, k_last, v_last];
+    - out_attn_meta_ptr: optional host int32[8]:
+      [read_layer, pos_plus_one, attn_len, win_start,
+       q_head_dim, read_head_dim, kvg, max_seq].
+    """
+    if draft_handle == 0 or ids_ptr == 0 or out_token_ptr == 0 or n <= Int32(0):
+        return Int32(-1)
+    var dp = UnsafePointer[E2BDraftEngine, MutUntrackedOrigin](unsafe_from_address=Int(draft_handle))
+    try:
+        var ids = List[Int]()
+        _read_int32_array_into(ids_ptr, Int(n), ids)
+        var tok = dp[0].prefill_debug_layer(
+            ids,
+            Int(trace_layer),
+            UInt64(out_phase_ptr),
+            UInt64(out_meta_ptr),
+            UInt64(out_attn_ptr),
+            UInt64(out_attn_meta_ptr),
+        )
+        UnsafePointer[Int32, MutUntrackedOrigin](unsafe_from_address=Int(out_token_ptr))[0] = Int32(tok)
+        return Int32(0)
+    except e:
+        print("[nomos_lm_draft_debug_prefill_layer_attn EXC]", e, " n=", Int(n), " layer=", Int(trace_layer))
+        return Int32(-99)
+
+
+@export
 def nomos_lm_draft_step_token(draft_handle: Int64, token: Int32, out_token_ptr: Int64) -> Int32:
     """Append one token to the draft model and write its greedy next-token prediction."""
     if draft_handle == 0 or out_token_ptr == 0:
@@ -1025,6 +1103,133 @@ def nomos_verify_exact_next_token(
         print("[nomos_verify_exact_next_token EXC]", e,
               " start=", Int(start_pos), " num_acc=", Int(num_acc),
               " n_rows=", Int(n_rows))
+        return Int32(-99)
+
+
+@export
+def nomos_debug_prefill_all_layers(
+    handle: Int64,
+    ids_ptr: Int64,
+    n: Int32,
+    out_ptr: Int64,
+) -> Int32:
+    """Capture raw residual output for every prompt row and all layers.
+
+    out_ptr is Float32[n, TOTAL_LAYERS, D], row-major. This is a correctness
+    oracle surface only; it does not alter the normal prefill ABI.
+
+    M3 sentinel mode: after NOMOS_MM_DEBUG=1 + nomos_prefill_mm, call with
+    ids_ptr=0 and n=-S. The existing symbol copies the retained pre-layer0
+    Float32[S,D] splice surface without rerunning or mutating engine state.
+    """
+    if handle == 0 or out_ptr == 0:
+        return Int32(-1)
+    var engine_ptr = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+    if n < Int32(0):
+        var rows = -Int(n)
+        if (
+            ids_ptr != 0 or rows <= 0 or engine_ptr[0].mm_debug_rows != rows
+            or len(engine_ptr[0].mm_debug_embeddings) != rows * D
+        ):
+            return Int32(-2)
+        var out = UnsafePointer[Float32, MutUntrackedOrigin](unsafe_from_address=Int(out_ptr))
+        for i in range(rows * D):
+            out[i] = engine_ptr[0].mm_debug_embeddings[i]
+        return Int32(0)
+    if ids_ptr == 0 or n == Int32(0):
+        return Int32(-1)
+    var d_rows = UInt64(0)
+    try:
+        var prompt = List[Int]()
+        _read_int32_array_into(ids_ptr, Int(n), prompt)
+        engine_ptr[0].reset_kv_cache()
+        d_rows = cuda_malloc(Int(n) * TOTAL_LAYERS * D * 4)
+        var layers = List[Int]()
+        for layer in range(TOTAL_LAYERS):
+            layers.append(layer)
+        engine_ptr[0].configure_drafter_taps(UInt64(0), d_rows, layers)
+        prefill_batch_impl(
+            engine_ptr[0], prompt, 0,
+            eagle_tap_rows=Int(n),
+        )
+        cuda_memcpy(UInt64(out_ptr), d_rows, Int(n) * TOTAL_LAYERS * D * 4, 2)
+        engine_ptr[0].clear_drafter_taps()
+        cuda_free(d_rows)
+        return Int32(0)
+    except e:
+        engine_ptr[0].clear_drafter_taps()
+        if d_rows != 0:
+            cuda_free(d_rows)
+        print("[nomos_debug_prefill_all_layers EXC]", e)
+        return Int32(-99)
+
+
+@export
+def nomos_debug_prefill_layers(
+    handle: Int64,
+    ids_ptr: Int64,
+    n: Int32,
+    start_pos: Int32,
+    layers_ptr: Int64,
+    n_layers: Int32,
+    out_ptr: Int64,
+) -> Int32:
+    """Capture the raw residual after each listed layer for n rows (SP1 plan B; debug surface, like the all-layer
+    capture, at 26.6 KB per row per layer instead of 1.38 MB per row).
+
+    out_ptr is Float32[n, n_layers, D], row-major, layers in the order given. start_pos == 0 resets the KV and
+    captures a fresh prompt. start_pos > 0 continues from the cached prefix [0, start_pos), so a caller can capture
+    a long transcript in chunks: one batch cannot hold much more than ~4K tokens on a 24 GB card
+    (engine_decode.mojo, the O(S^2) note at the chunked-prefill driver). The drafter tap configuration in force
+    before the call is restored afterwards, so a loaded DFlash drafter keeps drafting.
+    Batched states are not batch-size invariant: last-bit tiling differences, grown by W4A4, put a 300-row batch at a
+    median cosine of 0.987 to the first 300 rows of a 600-row one by layer 34 (256-aligned batches agree bit for
+    bit), and a continued chunk differs from one batch the same way. Compare captures made with the same chunking.
+    Returns 0 ok, -1 bad arg, -2 start_pos+n exceeds NOMOS_MAX_SEQ or start_pos != the cache length,
+    -3 a layer out of range or repeated, -99 exception."""
+    if (
+        handle == 0 or ids_ptr == 0 or out_ptr == 0 or layers_ptr == 0
+        or n <= Int32(0) or n_layers <= Int32(0) or start_pos < Int32(0)
+    ):
+        return Int32(-1)
+    var engine_ptr = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+    if Int(start_pos) + Int(n) > engine_ptr[0].max_seq:
+        return Int32(-2)
+    if start_pos > Int32(0) and engine_ptr[0].cache_len() != Int(start_pos):
+        return Int32(-2)
+    var layers = List[Int]()
+    try:
+        _read_int32_array_into(layers_ptr, Int(n_layers), layers)
+    except e:
+        print("[nomos_debug_prefill_layers EXC]", e)
+        return Int32(-99)
+    for i in range(len(layers)):
+        if layers[i] < 0 or layers[i] >= TOTAL_LAYERS:
+            return Int32(-3)
+        for j in range(i):
+            if layers[j] == layers[i]:
+                return Int32(-3)
+    var saved_live = engine_ptr[0].d_eagle3_tap_out
+    var saved_rows = engine_ptr[0].d_eagle3_tap_rows_out
+    var saved_layers = engine_ptr[0].drafter_tap_layers.copy()
+    var d_rows = UInt64(0)
+    try:
+        var prompt = List[Int]()
+        _read_int32_array_into(ids_ptr, Int(n), prompt)
+        if start_pos == Int32(0):
+            engine_ptr[0].reset_kv_cache()
+        d_rows = cuda_malloc(Int(n) * Int(n_layers) * D * 4)
+        engine_ptr[0].configure_drafter_taps(UInt64(0), d_rows, layers)
+        prefill_batch_impl(engine_ptr[0], prompt, Int(start_pos), eagle_tap_rows=Int(n))
+        cuda_memcpy(UInt64(out_ptr), d_rows, Int(n) * Int(n_layers) * D * 4, 2)
+        engine_ptr[0].configure_drafter_taps(saved_live, saved_rows, saved_layers)
+        cuda_free(d_rows)
+        return Int32(0)
+    except e:
+        engine_ptr[0].configure_drafter_taps(saved_live, saved_rows, saved_layers)
+        if d_rows != 0:
+            cuda_free(d_rows)
+        print("[nomos_debug_prefill_layers EXC]", e)
         return Int32(-99)
 
 
@@ -2661,7 +2866,8 @@ def nomos_dflash_verify_fused(
     tap capture for DFlash context prefill. Captures n-tap rows
     [1,13,25,37,49] into the DFlash verify-tap cache; host then calls
     nomos_dflash_append_verify_context(start_row,n_rows) for the accepted prefix.
-    0=ok, -1=bad arg, -2=DFlash not loaded, -3=too many rows, -99=exception.
+    0=ok, -1=bad arg, -2=DFlash not loaded, -3=too many rows, -4=steering armed without nomos_set_steer_from,
+    -99=exception.
     """
     if handle == 0 or tokens_ptr == 0 or n_rows <= Int32(0):
         return Int32(-1)
@@ -2670,6 +2876,10 @@ def nomos_dflash_verify_fused(
     var engine_ptr = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
     if engine_ptr[0].dflash_ptr == 0:
         return Int32(-2)
+    if engine_ptr[0].steer_active and engine_ptr[0].steer_from_pos < 0:
+        # Legacy steering covers decode only: verifying under it would drop the steer from every verified row
+        # without a word. Arm nomos_set_steer_from first (SP1 plan B).
+        return Int32(-4)
     try:
         var dp = UnsafePointer[DFlashDrafter, MutUntrackedOrigin](
             unsafe_from_address=Int(engine_ptr[0].dflash_ptr))
@@ -3565,7 +3775,8 @@ def nomos_session_prepare(handle: Int64, ids_ptr: Int64, n: Int32, spec: Int32) 
     DFlash loop. Other returns:
     - 0, engine untouched, when the store is off or already DISABLED for this process (the caller's nomos_prefill
       starts afresh);
-    - 0, KV reset, after an internal error: a fresh prefill is always correct. An error with no store to blame (it could not be created, e.g. another process holds its
+    - 0, KV reset, while steering is armed (the store is bypassed) and after an internal error: a fresh prefill is
+      always correct. An error with no store to blame (it could not be created, e.g. another process holds its
       directory) also DISABLES the store for the rest of the process, logged once;
     - -1 bad arg (null handle or ids, n <= 0);
     - -10 / -11 / -12 the store is refused (see nomos_session_status), engine untouched."""
@@ -3576,6 +3787,14 @@ def nomos_session_prepare(handle: Int64, ids_ptr: Int64, n: Int32, spec: Int32) 
     if st != 1:
         return Int32(0) if st == 0 else Int32(st)
     if engine_ptr[0].kvstore_disabled:
+        return Int32(0)
+    if engine_ptr[0].steer_active:
+        # Steered KV is not described by its tokens (ledger R17; a variant_hash in the cache key is v1.1):
+        # bypass the store for this turn and start from a clean KV.
+        try:
+            kv_reset_session(engine_ptr[0])
+        except:
+            engine_ptr[0].reset_kv_cache()
         return Int32(0)
     try:
         var ids = List[Int]()
@@ -3600,12 +3819,12 @@ def nomos_session_prepare(handle: Int64, ids_ptr: Int64, n: Int32, spec: Int32) 
 @export
 def nomos_session_commit(handle: Int64) -> Int32:
     """Persist the live session's tokens since the last commit; call once per turn, after generation. Returns
-    tokens committed (>= 0), 0 when the store is off or disabled, a negative store code
+    tokens committed (>= 0), 0 when the store is off, disabled or bypassed (steering armed), a negative store code
     (see SessionStore.commit), or -99 if committing raised (logged; the store keeps running)."""
     if handle == 0:
         return Int32(-1)
     var engine_ptr = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
-    if store_status(engine_ptr[0]) != 1 or engine_ptr[0].kvstore_ptr == 0:
+    if store_status(engine_ptr[0]) != 1 or engine_ptr[0].kvstore_ptr == 0 or engine_ptr[0].steer_active:
         return Int32(0)
     try:
         var sp = session_store(engine_ptr[0])
@@ -3748,6 +3967,85 @@ def nomos_generate_stream(
         engine_ptr[0].top_p = saved_top_p
         engine_ptr[0].rep_penalty = saved_rep
         return Int32(-99)
+
+@export
+def nomos_set_steer(handle: Int64, layer: Int32, vec_ptr: Int64) -> Int32:
+    """Inference-time steering (doubt-direction causality experiment). Upload a pre-scaled
+    alpha*d_hat vector [D] float32 from host `vec_ptr` and arm it at decoder `layer`. The
+    decode forward adds it to the residual for the last-prompt + answer positions. Python
+    bakes alpha into the vector (alpha=0 -> zero vector -> byte-identical to baseline).
+    Returns 0 ok, -1 null arg, -99 exception."""
+    if handle == 0 or vec_ptr == 0:
+        return Int32(-1)
+    try:
+        var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+        if engine[0].d_steer == UInt64(0):
+            engine[0].d_steer = cuda_malloc(D * 4)
+        cuda_memcpy(engine[0].d_steer, UInt64(vec_ptr), D * 4, 1)   # 1 = HostToDevice
+        engine[0].steer_layer = Int(layer)
+        engine[0].steer_active = True
+        engine[0].mark_live_desync()   # KV already held was computed without this steering (ledger R17)
+        return Int32(0)
+    except e:
+        print("[nomos_set_steer EXC]", e)
+        return Int32(-99)
+
+
+@export
+def nomos_set_ablate(handle: Int64, layer: Int32, vec_ptr: Int64, alpha: Float32) -> Int32:
+    """Projection-ablation (Heretic-style, subtractive). Upload a UNIT direction d_hat [D] float32
+    and, during answer generation at `layer`, remove alpha*(h.d_hat)*d_hat from the residual
+    (alpha=1 => full removal of that component; alpha=0 => no-op == baseline). Returns 0 ok."""
+    if handle == 0 or vec_ptr == 0:
+        return Int32(-1)
+    try:
+        var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+        if engine[0].d_steer == UInt64(0):
+            engine[0].d_steer = cuda_malloc(D * 4)
+        cuda_memcpy(engine[0].d_steer, UInt64(vec_ptr), D * 4, 1)   # H2D unit d_hat
+        engine[0].steer_layer = Int(layer)
+        engine[0].steer_alpha = alpha
+        engine[0].steer_ablate = True
+        engine[0].steer_active = True
+        engine[0].mark_live_desync()   # KV already held was computed without this ablation (ledger R17)
+        return Int32(0)
+    except e:
+        print("[nomos_set_ablate EXC]", e)
+        return Int32(-99)
+
+
+@export
+def nomos_set_steer_from(handle: Int64, pos: Int32) -> Int32:
+    """The absolute position steering starts at, on every path: decode, DFlash verify, continuation and full
+    prefill (SP1 plan B). -1 restores the legacy rule (decode only, from the last prompt token). Changing it while
+    steering is armed marks the live KV untracked, like nomos_set_steer (ledger R17).
+    Returns 0 ok, -1 null handle or pos < -1."""
+    if handle == 0 or pos < Int32(-1):
+        return Int32(-1)
+    var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+    if engine[0].steer_from_pos != Int(pos):
+        engine[0].steer_from_pos = Int(pos)
+        if engine[0].steer_active:
+            engine[0].mark_live_desync()
+    return Int32(0)
+
+
+@export
+def nomos_clear_steer(handle: Int64) -> Int32:
+    """Disarm inference-time steering/ablation (restores parity). Returns 0 ok, -1 null handle. KV written while
+    steered is not described by its tokens, so disarming marks the live state untracked (ledger R17); a clear with
+    nothing armed changes nothing and leaves it alone."""
+    if handle == 0:
+        return Int32(-1)
+    var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+    var was_steered = engine[0].steer_active
+    engine[0].steer_active = False
+    engine[0].steer_ablate = False
+    engine[0].steer_from_pos = -1
+    if was_steered:
+        engine[0].mark_live_desync()
+    return Int32(0)
+
 
 @export
 def nomos_reset_kv(handle: Int64) -> Int32:

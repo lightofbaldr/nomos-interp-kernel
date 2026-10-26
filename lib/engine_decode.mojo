@@ -864,6 +864,20 @@ def run_inference_impl(
                 if tap_slot >= 0:
                     cuda_memcpy_async(self.d_eagle3_tap_out + UInt64(tap_slot * D * 4), self.d_x_buf, D * 4, 3, self.ctx)
 
+            # Inference-time steering (authorized experiment; dormant when off, parity-safe).
+            # Additive: h += alpha*d_hat (pre-scaled vector in d_steer). Ablate (Heretic): remove
+            # alpha*(h.d_hat)d_hat via cuBLAS sdot+saxpy, bracketed by syncs (d_steer holds UNIT d_hat).
+            # One absolute start for every path when set (SP1 plan B); -1 keeps the legacy rule.
+            var steer_start = self.steer_from_pos if self.steer_from_pos >= 0 else prompt_end - 1
+            if self.steer_active and layer == self.steer_layer and pos >= steer_start:
+                if self.steer_ablate:
+                    cuda_sync()
+                    var s = cublas_sdot(self.handle, D, self.d_x_buf, self.d_steer)
+                    cublas_saxpy(self.handle, D, -self.steer_alpha * s, self.d_steer, self.d_x_buf)
+                    cuda_sync()
+                else:
+                    gpu_residual_add_mojo(self.ctx, self.d_x_buf, self.d_steer, D)
+
         # Prefill fast-path: only the last prompt token onward needs logits.
         # The KV cache for this position is already populated by the layer
         # loop above, and a sampled token at an earlier prompt position is

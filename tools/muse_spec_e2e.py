@@ -65,6 +65,7 @@ def bind(so_path: str):
         "nomos_dflash_verify_fused": (C.c_int32, [C.c_int64, C.c_int64, C.c_int32, C.c_int32, C.c_int64]),
         "nomos_dflash_append_verify_context": (C.c_int32, [C.c_int64, C.c_int32, C.c_int32]),
         "nomos_dflash_get_taps": (C.c_int32, [C.c_int64, C.c_int64]),
+        "nomos_build_id":        (C.c_int64, []),
     }
     for name, (r, a) in sigs.items():
         f = getattr(lib, name)
@@ -101,6 +102,34 @@ def base_generate(lib, ht, logits, ids, ntok):
         tok = int(np.argmax(logits))
         out.append(tok)
     return out, (ntok - 1) / (time.time() - t0)
+
+
+def g5_check(trc, taps):
+    """G5's validity gate for the first-cycle FUSED-VERIFY tap trace. Returns (ok, reason, per-slot diagnostics).
+
+    Valid only if the getter returned 0, the buffer is [TAPS, D], and every value is finite. The caller NaN-fills the
+    buffer first, so a value the getter never wrote stays NaN and fails. Every slot must also be non-zero somewhere:
+    for these prompts a tap slot is a real residual row, never identically zero. That is this harness's stated
+    expectation, not a law of arithmetic. (Codex's 10-24 review: the old gate passed rc=-99, NaN and one written slot.)"""
+    taps = np.asarray(taps)
+    if trc != 0:
+        return False, f"getter rc={trc}", []
+    if taps.shape != (TAPS, D):
+        return False, f"shape {taps.shape}, expected {(TAPS, D)}", []
+    slots = []
+    for i in range(TAPS):
+        row = taps[i]
+        fin = np.isfinite(row)
+        slots.append({"slot": i, "finite": bool(fin.all()),
+                      "nonzero": int(np.count_nonzero(row[fin])),
+                      "mean_abs": float(np.abs(row[fin]).mean()) if fin.any() else float("nan")})
+    bad = [s["slot"] for s in slots if not s["finite"]]
+    if bad:
+        return False, f"non-finite or unwritten values in slot(s) {bad}", slots
+    zero = [s["slot"] for s in slots if s["nonzero"] == 0]
+    if zero:
+        return False, f"all-zero tap in slot {zero[0]}" + (f" (and slots {zero[1:]})" if len(zero) > 1 else ""), slots
+    return True, "ok", slots
 
 
 def spec_generate(lib, ht, logits, ids, ntok, vb, trace_path=None):
@@ -142,18 +171,28 @@ def spec_generate(lib, ht, logits, ids, ntok, vb, trace_path=None):
                 break
         nxt = int(np.argmax(rows[num_acc]))
 
-        if trace_path and steps == 1:               # G5: first-cycle trace
-            taps = np.zeros((TAPS, D), np.float32)
+        if trace_path and steps == 1:               # G5: first-cycle FUSED-VERIFY trace
+            # What this is: the TAPS slots are the tap layers of ONE token, the last verify input (row vb-1, absolute
+            # position start+vb-1), read after nomos_dflash_verify_fused, whose prefill path fences ctx before copying.
+            # It is NOT a direct observation of the decode-step tap copy: stale decode reads are not tested here.
+            taps = np.full((TAPS, D), np.nan, np.float32)    # a value the getter never writes stays NaN
             trc = lib.nomos_dflash_get_taps(ht, taps.ctypes.data)
-            np.savez(trace_path, anchor=c, proposed=np.array(drafts),
-                     verify_argmax=np.array([int(np.argmax(rows[j]))
-                                             for j in range(vb)]),
-                     num_acc=num_acc, taps_rc=trc, taps=taps)
-            print(f"  [G5 trace] anchor={c} proposed[:8]={drafts[:8]} "
-                  f"num_acc={num_acc} taps_rc={trc} "
-                  f"tap|mean|={np.abs(taps).mean():.4f}", flush=True)
-            if trc == 0 and float(np.abs(taps).mean()) == 0.0:
-                fail("G5", "tap rows read back all-zero — capture not live")
+            ok, reason, slots = g5_check(trc, taps)
+            record = dict(capture_kind="fused-verify", anchor=c, proposed=np.array(drafts),
+                          verify_tokens=np.array(toks[:vb]), verify_start=start, verify_row=vb - 1,
+                          abs_position=start + vb - 1, tap_count=TAPS,
+                          prompt_sha256=hashlib.sha256(np.ascontiguousarray(ids).tobytes()).hexdigest(),
+                          verify_argmax=np.array([int(np.argmax(rows[j])) for j in range(vb)]),
+                          num_acc=num_acc, taps_rc=trc, taps=taps,
+                          slot_finite=np.array([s["finite"] for s in slots]),
+                          slot_nonzero=np.array([s["nonzero"] for s in slots]),
+                          slot_mean_abs=np.array([s["mean_abs"] for s in slots]))
+            if not ok:
+                np.savez(trace_path.replace(".npz", ".INVALID.npz"), invalid_reason=reason, **record)
+                fail("G5", f"fused-verify tap trace invalid: {reason}")
+            np.savez(trace_path, **record)
+            print(f"  [G5 fused-verify trace] anchor={c} proposed[:8]={drafts[:8]} num_acc={num_acc} "
+                  f"pos={start + vb - 1} slot|mean|={[round(s['mean_abs'], 4) for s in slots]}", flush=True)
 
         spec.extend(drafts[:num_acc])
         spec.append(nxt)
@@ -183,6 +222,9 @@ def main() -> None:
     ap.add_argument("--ntok", type=int, default=64)
     ap.add_argument("--vb", type=int, default=9)
     ap.add_argument("--trace-dir", default="")
+    ap.add_argument("--steer-npz", default="", help="SP1 plan B: arm steering from this npz (unit vectors, layer, layer_norm)")
+    ap.add_argument("--steer-key", default="desperate")
+    ap.add_argument("--steer-scale", type=float, default=0.0, help="fraction of the layer's mean residual norm")
     args = ap.parse_args()
 
     wdir = args.weights.rstrip("/") + "/"
@@ -205,6 +247,7 @@ def main() -> None:
     print(f"[G6] vb={args.vb} (UNSWEPT for Muse — not a champion claim) ntok={args.ntok}")
 
     lib = bind(args.so)
+    print(f"[G6] build_id=0x{lib.nomos_build_id() & 0xFFFFFFFFFFFFFFFF:016x} (loaded handle, unsigned)", flush=True)
     wbuf = C.create_string_buffer(wdir.encode())
     ht = lib.nomos_init(C.cast(wbuf, C.c_void_p).value)
     if not ht:
@@ -214,15 +257,30 @@ def main() -> None:
     if rc != 0:
         fail("G1", f"nomos_dflash_load rc={rc}")
     print("engine + drafter up", flush=True)
+    steer = None
+    if args.steer_npz:
+        z = np.load(args.steer_npz)
+        steer = (np.ascontiguousarray(z[args.steer_key] * args.steer_scale * float(z["layer_norm"]), np.float32),
+                 int(z["layer"]))
+        for name, argt in (("nomos_set_steer", [C.c_int64, C.c_int32, C.c_int64]),
+                           ("nomos_set_steer_from", [C.c_int64, C.c_int32]), ("nomos_clear_steer", [C.c_int64])):
+            f = getattr(lib, name)
+            f.restype, f.argtypes = C.c_int32, argt
+        print(f"[G6] steering: {args.steer_key} x {args.steer_scale} at layer {steer[1]}, from each prompt's last token",
+              flush=True)
 
     logits = np.zeros(VOCAB, np.float32)
     bar = json.load(open(args.tokens))
     total_acc = 0
     results = []
+    token_log = []
     all_identical = True
 
     for i, p in enumerate(bar["prompts"]):
         ids = np.array(p["ids"], np.int32)
+        if steer and (lib.nomos_set_steer(ht, steer[1], steer[0].ctypes.data) != 0
+                      or lib.nomos_set_steer_from(ht, len(ids) - 1) != 0):
+            fail("G1", "could not arm steering")
         base, btps = base_generate(lib, ht, logits, ids, args.ntok)
         trace = (os.path.join(args.trace_dir, "first_cycle_trace.npz")
                  if args.trace_dir and i == 0 else None)
@@ -231,12 +289,18 @@ def main() -> None:
         spec, E, acc, steps, stps = spec_generate(lib, ht, logits, ids,
                                                   args.ntok, args.vb, trace)
         total_acc += acc
+        if steer:
+            lib.nomos_clear_steer(ht)
         # G3: full fixed-budget arrays, not prefixes
         if len(base) != args.ntok or len(spec) != args.ntok:
             fail("G3", f"[{p['id']}] length: base={len(base)} spec={len(spec)} "
                        f"!= {args.ntok}")
         ident = base == spec
         all_identical &= ident
+        if args.trace_dir:          # full arrays, so a second run (another library) can compare base against base
+            token_log.append({"id": p["id"], "base": [int(t) for t in base], "spec": [int(t) for t in spec]})
+            with open(os.path.join(args.trace_dir, "tokens.json"), "w") as f:
+                json.dump(token_log, f)
         results.append((p["id"], p["bucket"], ident, E, btps, stps, acc,
                         steps * (args.vb - 1)))
         print(f"  {p['id']:>8} [{p['bucket']:>10}] base {btps:6.2f} | "
@@ -253,9 +317,13 @@ def main() -> None:
     total_drafted = sum(r[7] for r in results)
     acc_rate = total_acc / max(1, total_drafted)
     if mean_E < 1.15 or acc_rate < 0.02:
-        fail("G2", f"drafter not live: mean E={mean_E:.3f} (need >=1.15), "
-                   f"accept rate={acc_rate:.2%} (need >=2%) — "
-                   f"pinned-at-E~1; spec numbers withheld")
+        if steer:      # under steering, low acceptance is a result to report, not a broken drafter
+            print(f"[G2] steered acceptance: mean E={mean_E:.3f}, accept rate={acc_rate:.2%} (reported, not gated)",
+                  flush=True)
+        else:
+            fail("G2", f"drafter not live: mean E={mean_E:.3f} (need >=1.15), "
+                       f"accept rate={acc_rate:.2%} (need >=2%) — "
+                       f"pinned-at-E~1; spec numbers withheld")
 
     n_ident = sum(1 for r in results if r[2])
     print(f"\nLOSSLESS (kernel-vs-kernel, fixed {args.ntok}-token arrays): "

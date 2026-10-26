@@ -1,5 +1,6 @@
 nomos_blend_cb
 nomos_build_id
+nomos_clear_steer
 nomos_close
 nomos_debug_final_norm
 nomos_debug_gdn_state
@@ -7,6 +8,8 @@ nomos_debug_kv_append_ab
 nomos_debug_kv_append_overwrite_ab
 nomos_debug_kv_block32_q8_ab
 nomos_debug_omlp_stage_ab
+nomos_debug_prefill_all_layers
+nomos_debug_prefill_layers
 nomos_debug_qkv_source_ab
 nomos_decode_step
 nomos_decode_step_token
@@ -55,6 +58,8 @@ nomos_kv_truncate
 nomos_live_tokens
 nomos_lm_draft_cache_len
 nomos_lm_draft_debug_prefill
+nomos_lm_draft_debug_prefill_layer
+nomos_lm_draft_debug_prefill_layer_attn
 nomos_lm_draft_draft
 nomos_lm_draft_draft_conf
 nomos_lm_draft_draft_until
@@ -91,6 +96,9 @@ nomos_session_prepare
 nomos_session_stats
 nomos_session_status
 nomos_session_supported
+nomos_set_ablate
+nomos_set_steer
+nomos_set_steer_from
 nomos_shutdown
 nomos_strict_reset
 nomos_strict_violation_count

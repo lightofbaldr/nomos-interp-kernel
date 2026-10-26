@@ -266,6 +266,20 @@ struct GemmaEngine(Movable, KvSessionEngine):
     # (lower = less VRAM, higher = more context), no recompile.
     var max_seq: Int
 
+    # ── Inference-time steering (doubt-direction causality experiment; dormant when off) ──
+    # d_steer holds a pre-scaled alpha*d_hat vector [D] on device. When steer_active and
+    # layer == steer_layer, it is added to the residual (d_x_buf) at the tap seam for the
+    # last-prompt + answer positions. Python bakes alpha into the vector. Parity-safe when off.
+    var steer_active: Bool
+    var steer_layer: Int
+    var d_steer: UInt64
+    var steer_ablate: Bool          # True = projection-ablate (h -= alpha*(h.d_hat)d_hat); False = additive
+    var steer_alpha: Float32        # ablation strength (1.0 = full removal of the d_hat component)
+    var steer_from_pos: Int         # absolute position steering starts at on every path (decode, verify,
+                                    # prefill); -1 = legacy: decode only, from the last prompt token (SP1 plan B)
+
+    # (research-only engine state removed — perf-clean product tree)
+
     # ─────────────────────────────────────────────────────────────────
     def __init__(
         out self,
@@ -290,6 +304,12 @@ struct GemmaEngine(Movable, KvSessionEngine):
         self.rep_penalty = _env_float("NOMOS_REP_PENALTY", 1.05)
         self.temp = _env_float("NOMOS_TEMP", 0.3)
         self.top_p = _env_float("NOMOS_TOP_P", 0.9)
+        self.steer_active = False
+        self.steer_layer = -1
+        self.d_steer = UInt64(0)
+        self.steer_ablate = False
+        self.steer_alpha = Float32(0.0)
+        self.steer_from_pos = -1
         self.precision_bits = Int(_env_float("NOMOS_PRECISION_BITS", 32.0))
         self.weight_nvfp4 = _env_float("NOMOS_WEIGHT_NVFP4", 0.0) > 0.5
         # W4A4 needs NVFP4 weights (it MMAs FP4 act × FP4 weight), so it implies weight_nvfp4.

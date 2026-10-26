@@ -40,12 +40,37 @@ from lib.fp4_gemv_v2 import (gpu_matmul_nvfp4_fused_v3_dev,
                             gpu_matmul_nvfp4_fused_v3_multirow_dev,
                             NVFP4_GEMV_SMAX)
 from lib.cuda import cuda_sync
+from lib.cublas import cublas_sdot, cublas_saxpy
 from std.ffi import external_call, c_size_t
 from std.math import sqrt
 from std.time import perf_counter_ns
 from std.memory import UnsafePointer
 from std.collections import List
 from lib.dflash_drafter import DFlashDrafter, DFLASH_CTX_BATCH, DFLASH_TAPS, dflash_append_context_rows
+
+
+def steer_batch_rows(mut self: GemmaEngine, d_x_b: UInt64, S: Int, start_pos: Int, layer: Int) raises:
+    """The decode seam's steering, applied to a batch (SP1 plan B). At the steer layer, after the drafter tap copy
+    (the decode order), every row whose absolute position start_pos + r is at or past steer_from_pos gets the same
+    add, or the same ablation, that a single-token step at that position would. With the legacy
+    steer_from_pos = -1 no batched row is steered, exactly as before."""
+    if not self.steer_active or layer != self.steer_layer or self.steer_from_pos < 0:
+        return
+    var first = self.steer_from_pos - start_pos
+    if first < 0:
+        first = 0
+    if first >= S:
+        return
+    if self.steer_ablate:
+        cuda_sync()
+        for r in range(first, S):
+            var row = d_x_b + UInt64(r * D * 4)
+            var s = cublas_sdot(self.handle, D, row, self.d_steer)
+            cublas_saxpy(self.handle, D, -self.steer_alpha * s, self.d_steer, row)
+        cuda_sync()
+    else:
+        for r in range(first, S):
+            gpu_residual_add_mojo(self.ctx, d_x_b + UInt64(r * D * 4), self.d_steer, D)
 
 
 def prefill_batch_impl(
@@ -476,6 +501,7 @@ def prefill_batch_impl(
                                     d_x_b + UInt64(r * D * 4), D * 4, 3,
                                 )
                         cuda_sync()
+            steer_batch_rows(self, d_x_b, S, start_pos, layer)
             cuda_free(d_gdn_qkv_raw); cuda_free(d_gdn_qkv_conv)
             cuda_free(d_gdn_z); cuda_free(d_gdn_a); cuda_free(d_gdn_b)
             cuda_free(d_gdn_core); cuda_free(d_gdn_out)
@@ -1377,6 +1403,7 @@ def prefill_batch_impl(
                                 3,
                             )
                     cuda_sync()
+        steer_batch_rows(self, d_x_b, S, start_pos, layer)
 
     if dflash_capture:
         var dp = UnsafePointer[DFlashDrafter, MutUntrackedOrigin](
