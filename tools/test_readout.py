@@ -588,5 +588,81 @@ class Workspace(unittest.TestCase):
                                   f"the reference lens at the {word!r} context")
 
 
+def spec_prefill(k, ids):
+    """The prompt for spec_cycles: loads the drafter if needed, prefills ids and takes the greedy seed.
+    Returns (seed, L), L being the cache length."""
+    ensure_drafter(k)
+    return int(np.argmax(k.prefill(ids))), len(ids)
+
+
+def spec_cycles(k, seed, L, n_new, commit=False, check=None, kmax=7):
+    """A speculative cycle fixture (review R8): the per-cycle work of pyhost/host.py's spec_generate_stream, driven from
+    the host as kvsession_testlib.Kernel.spec_trace drives it, plus readouts. It is not the production turn loop
+    (pyhost/host.py:423-474): it does not emit the seed, stop on a stop token, shrink the last cycles to the budget or
+    end with the exact M=1 step, and it does not settle the turn. Each cycle:
+    - drafts from seed at L, verifies [seed] + kmax drafts, and accepts the longest agreeing prefix;
+    - sets the cache length and appends the drafter context;
+    - with commit, commits the kept rows' workspace.
+    check(L, rows, num_acc) runs after each cycle. Returns (emitted tokens, fed tokens)."""
+    emitted, fed = [], []
+    out15 = np.zeros(15, np.int32)
+    vlogits = np.zeros((kmax + 1, T.VOCAB), np.float32)
+    while len(emitted) < n_new:
+        assert k.lib.nomos_dflash_draft_block(k.h, seed, L, out15.ctypes.data) == 15
+        drafts = [int(x) for x in out15[:kmax]]
+        rows = np.asarray([seed] + drafts, np.int32)
+        assert k.lib.nomos_dflash_verify_fused(k.h, rows.ctypes.data, len(rows), L, vlogits.ctypes.data) == 0
+        tgt = [int(np.argmax(vlogits[i])) for i in range(len(rows))]
+        num_acc = 0
+        while num_acc < kmax and drafts[num_acc] == tgt[num_acc]:
+            num_acc += 1
+        assert k.set_len(L + 1 + num_acc) == 0
+        assert k.lib.nomos_dflash_append_verify_context(k.h, 0, num_acc + 1) > 0
+        if commit:
+            assert k.lib.nomos_readout_workspace_commit(k.h, 0, num_acc + 1) == 0
+        if check is not None:
+            check(L, rows, num_acc)
+        fed += [seed] + drafts[:num_acc]
+        emitted += drafts[:num_acc] + [tgt[num_acc]]
+        L, seed = L + 1 + num_acc, tgt[num_acc]
+    return emitted, fed
+
+
+class Speculative(unittest.TestCase):
+    def test_only_kept_rows_are_readable_and_every_verify_row_is_exact(self):
+        """After each round, the kept rows read valid and the rejected rows invalid, for both tables. Afterwards,
+        each round's verify rows (rejected ones included) are recomputed by an offline capture at the same start
+        position. Verify and the capture share prefill_batch_impl's per-token attention route here, so the rows
+        match bit for bit (ruling R2)."""
+        k = kernel()
+        k.lib.nomos_clear_steer(k.h)
+        lens, norm_w = lens_assets()
+        dirs = unit_dirs(3, seed=6)
+        self.assertEqual(configure(k, dirs=dirs, ws=WS, lens=lens, norm_w=norm_w), 0)
+        self.assertEqual(k.lib.nomos_readout_begin_turn(k.h), 0)
+        rounds = []
+
+        def check(L, rows, num_acc):
+            rc, r = read(k, L, len(rows), n_ws=len(WS))
+            self.assertEqual(rc, 0)
+            kept = num_acc + 1
+            self.assertTrue(r["emo_valid"][:kept].all())
+            self.assertTrue(r["ws_valid"][:kept].all())
+            self.assertFalse(r["emo_valid"][kept:].any())
+            self.assertFalse(r["ws_valid"][kept:].any())
+            rounds.append((L, rows.copy(), num_acc, r["emo"].copy()))
+
+        spec_cycles(k, *spec_prefill(k, fixture_ids()[:120]), 48, commit=True, check=check)
+        self.assertGreater(sum(n for _, _, n, _ in rounds), 0, "no draft was accepted: no speculation was exercised")
+        self.assertTrue(any(n < 7 for _, _, n, _ in rounds), "no draft was rejected: no rejection was exercised")
+        for L, rows, _, emo in reversed(rounds):          # a later round's capture only writes positions >= its L
+            self.assertEqual(k.set_len(L), 0)
+            off = offline_rows(k, rows, EMO, start_pos=L)
+            assert_finite(off, f"the verify rows at {L}")
+            for slot in range(len(EMO)):
+                assert_bits_equal(emo[:, slot, :], project_rows(k, off[:, slot, :], slot),
+                                  f"the verify rows at {L}, slot {slot}")
+
+
 if __name__ == "__main__":
     unittest.main()
