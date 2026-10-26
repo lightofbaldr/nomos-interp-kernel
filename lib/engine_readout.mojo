@@ -18,6 +18,7 @@ from lib.model_config import D, VOCAB, TOTAL_LAYERS, RMS_EPS_FINAL
 from lib.gemma4_engine import GemmaEngine
 from lib.readout_kernels import (
     readout_launch_proj, readout_launch_mark, readout_launch_copy, readout_launch_topk, readout_launch_mark_kept,
+    readout_topk_scratch_bytes,
 )
 
 comptime RO_STAGE_ROWS = DFLASH_MAX_VERIFY_ROWS   # a DFlash verify stages at most this many rows; a decode step 1
@@ -87,6 +88,7 @@ def readout_configure(
         self.d_ro_ws_valid = cuda_malloc(ms)
         cuda_memset_2d(self.d_ro_ws_valid, ms, 0, ms, 1)
         self.d_ro_bad = cuda_malloc(n_ws * RO_STAGE_ROWS * 4)
+        self.d_ro_cand = cuda_malloc(readout_topk_scratch_bytes(VOCAB, NVFP4_GEMV_SMAX))
         self.ro_ws_layers = ws_layers.copy()
         self.ro_k = k
     cuda_sync()
@@ -151,13 +153,10 @@ def readout_commit(mut self: GemmaEngine, row0: Int, nrows: Int) raises -> Int:
             self.ctx, self.d_ro_logits, self.d_ro_normed + UInt64(p0 * D * 4),
             self.d_embed_nvfp4, self.embed_global, D, VOCAB, cs,
         )
-        for i in range(cs):
-            var slot = (p0 + i) // nrows
-            var pos = self.ro_stage_pos[row0 + (p0 + i) % nrows]
-            readout_launch_topk(
-                self.ctx, self.d_ro_ws_ids, self.d_ro_ws_scores, self.d_ro_logits + UInt64(i * VOCAB * 4),
-                VOCAB, self.ro_k, (pos * n_ws + slot) * self.ro_k, self.d_ro_bad, p0 + i,
-            )
+        readout_launch_topk(                        # the pass's cs pairs in two launches
+            self.ctx, self.d_ro_ws_ids, self.d_ro_ws_scores, self.d_ro_bad, self.d_ro_logits, VOCAB, self.ro_k, cs,
+            self.d_ro_cand, p0, nrows, n_ws, self.ro_stage_pos[row0],
+        )
         p0 += cs
     readout_launch_mark_kept(self.ctx, self.d_ro_ws_valid, self.d_ro_bad, self.ro_stage_pos[row0], nrows, n_ws)
     self.ctx.synchronize()
@@ -186,8 +185,9 @@ def readout_topk_debug(
     var d_ids = cuda_malloc(k * 4)
     var d_sc = cuda_malloc(k * 4)
     var d_bad = cuda_malloc(4)
+    var d_scratch = cuda_malloc(readout_topk_scratch_bytes(VOCAB, 1))
     cuda_memcpy(d_lg, logits_host, VOCAB * 4, 1)
-    readout_launch_topk(self.ctx, d_ids, d_sc, d_lg, VOCAB, k, 0, d_bad, 0)
+    readout_launch_topk(self.ctx, d_ids, d_sc, d_bad, d_lg, VOCAB, k, 1, d_scratch, 0, 1, 1, 0)
     self.ctx.synchronize()
     cuda_memcpy(ids_host, d_ids, k * 4, 2)
     cuda_memcpy(scores_host, d_sc, k * 4, 2)
@@ -198,6 +198,7 @@ def readout_topk_debug(
     cuda_free(d_ids)
     cuda_free(d_sc)
     cuda_free(d_bad)
+    cuda_free(d_scratch)
     return flag[0] != Int32(0)
 
 

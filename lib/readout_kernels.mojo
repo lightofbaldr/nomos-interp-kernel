@@ -19,6 +19,8 @@ from lib.model_config import D
 comptime RO_TPB = 256
 comptime RO_TOPK_TPB = 1024
 comptime RO_MAX_K = 16
+comptime RO_TOPK_CHUNK = 2048       # logits per top-k stage-1 block
+comptime RO_TOPK_TPB1 = 256         # top-k stage-1 threads per block
 
 
 @always_inline
@@ -100,26 +102,30 @@ def readout_copy_kernel(
         dst[i] = src[i]
 
 
-def readout_topk_kernel(
-    ids: UnsafePointer[Int32, MutAnyOrigin],
-    scores: UnsafePointer[Float32, MutAnyOrigin],
-    logits: UnsafePointer[Float32, MutAnyOrigin],   # one row [vocab]
+def readout_topk_partial_kernel(
+    cand_ids: UnsafePointer[Int32, MutAnyOrigin],       # [rows, nblk, k]
+    cand_scores: UnsafePointer[Float32, MutAnyOrigin],  # [rows, nblk, k]
+    cand_bad: UnsafePointer[Int32, MutAnyOrigin],       # [rows, nblk]
+    logits: UnsafePointer[Float32, MutAnyOrigin],       # [rows, vocab]
     vocab_arg: Int32,
     k_arg: Int32,
-    off_arg: Int32,
-    bad: UnsafePointer[Int32, MutAnyOrigin],        # one flag per (slot, row) pair: 1 = refused
-    pair_arg: Int32,
+    nblk_arg: Int32,
 ):
-    """k rounds of block argmax, in one block; a chosen id is excluded from later rounds. The order is the higher
-    score first and, on equal scores, the lower index first: the first k of a stable descending sort.
-    Round 0's scan also checks every logit, and one non-finite logit refuses the row (Codex 10-26 F1): comparisons
-    with NaN can otherwise hide the true maximum behind a finite-looking answer. A refused row sets bad[pair] = 1 and
-    leaves ids and scores unwritten; a ranked row sets bad[pair] = 0."""
-    var n = Int(vocab_arg)
+    """Top-k stage 1: one block per (row, chunk of RO_TOPK_CHUNK logits). k rounds of block argmax over the chunk, a
+    chosen id excluded from later rounds; the order is the higher score first and, on equal scores, the lower id first.
+    Round 0 also checks every logit: one non-finite value marks the chunk bad (Codex 10-26 F1) and ends the block. A
+    chunk shorter than k pads with id -1."""
+    var vocab = Int(vocab_arg)
     var kk = Int(k_arg)
-    var off = Int(off_arg)
-    var score_s = stack_allocation[dtype=DType.float32, address_space=AddressSpace.SHARED](row_major[RO_TOPK_TPB]())
-    var idx_s = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[RO_TOPK_TPB]())
+    var nblk = Int(nblk_arg)
+    var b = Int(block_idx.x)
+    var row = b // nblk
+    var lo = (b % nblk) * RO_TOPK_CHUNK
+    var hi = lo + RO_TOPK_CHUNK
+    if hi > vocab:
+        hi = vocab
+    var score_s = stack_allocation[dtype=DType.float32, address_space=AddressSpace.SHARED](row_major[RO_TOPK_TPB1]())
+    var idx_s = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[RO_TOPK_TPB1]())
     var chosen = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[RO_MAX_K]())
     var flag_s = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[1]())
     var tid = Int(thread_idx.x)
@@ -130,20 +136,20 @@ def readout_topk_kernel(
         var best = Float32(-3.4e38)
         var best_i = Int32(-1)
         var seen = False
-        var i = tid
-        while i < n:
+        var i = lo + tid
+        while i < hi:
             var skip = False
             for c in range(rnd):
                 if Int(chosen[c]) == i:
                     skip = True
             if not skip:
-                var v = logits[i]
+                var v = logits[row * vocab + i]
                 if rnd == 0 and _ro_nonfinite(v):
                     seen = True
                 if best_i < 0 or v > best:
                     best = v
                     best_i = Int32(i)
-            i += RO_TOPK_TPB
+            i += RO_TOPK_TPB1
         if seen:
             flag_s[0] = Int32(1)
         score_s[tid] = best
@@ -152,10 +158,10 @@ def readout_topk_kernel(
         if rnd == 0:
             var refused = flag_s[0] != Int32(0)     # read by every thread after the barrier: a uniform decision
             if tid == 0:
-                bad[Int(pair_arg)] = Int32(1) if refused else Int32(0)
+                cand_bad[b] = Int32(1) if refused else Int32(0)
             if refused:
                 return
-        var stride = RO_TOPK_TPB // 2
+        var stride = RO_TOPK_TPB1 // 2
         while stride > 0:
             if tid < stride:
                 var o = tid + stride
@@ -169,7 +175,95 @@ def readout_topk_kernel(
             stride //= 2
         if tid == 0:
             chosen[rnd] = idx_s[0]
-            ids[off + rnd] = idx_s[0]
+            cand_ids[b * kk + rnd] = idx_s[0]
+            cand_scores[b * kk + rnd] = score_s[0]
+        barrier()
+
+
+def readout_topk_merge_kernel(
+    ids: UnsafePointer[Int32, MutAnyOrigin],
+    scores: UnsafePointer[Float32, MutAnyOrigin],
+    bad: UnsafePointer[Int32, MutAnyOrigin],            # one flag per (slot, row) pair: 1 = refused
+    cand_ids: UnsafePointer[Int32, MutAnyOrigin],
+    cand_scores: UnsafePointer[Float32, MutAnyOrigin],
+    cand_bad: UnsafePointer[Int32, MutAnyOrigin],
+    k_arg: Int32,
+    nblk_arg: Int32,
+    pair0_arg: Int32,
+    nrows_arg: Int32,
+    n_ws_arg: Int32,
+    pos0_arg: Int32,
+):
+    """Top-k stage 2: one block per logits row of the pass, merging the row's nblk * k stage-1 candidates in k rounds
+    of block argmax, in the same order. Row r is pair p = pair0 + r: slot p // nrows at position pos0 + p % nrows, so
+    its top k go to offset (position * n_ws + slot) * k. A bad chunk refuses the row: bad[p] = 1 and nothing is written;
+    otherwise bad[p] = 0. The global top k is a subset of the chunks' top k, so the merge is exact."""
+    var kk = Int(k_arg)
+    var nblk = Int(nblk_arg)
+    var r = Int(block_idx.x)
+    var pair = Int(pair0_arg) + r
+    var nrows = Int(nrows_arg)
+    var off = ((Int(pos0_arg) + pair % nrows) * Int(n_ws_arg) + pair // nrows) * kk
+    var ncand = nblk * kk
+    var cbase = r * ncand
+    var score_s = stack_allocation[dtype=DType.float32, address_space=AddressSpace.SHARED](row_major[RO_TOPK_TPB]())
+    var slot_s = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[RO_TOPK_TPB]())
+    var id_s = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[RO_TOPK_TPB]())
+    var chosen = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[RO_MAX_K]())
+    var flag_s = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[1]())
+    var tid = Int(thread_idx.x)
+    if tid == 0:
+        flag_s[0] = Int32(0)
+    barrier()
+    var j = tid
+    while j < nblk:
+        if cand_bad[r * nblk + j] != Int32(0):
+            flag_s[0] = Int32(1)
+        j += RO_TOPK_TPB
+    barrier()
+    var refused = flag_s[0] != Int32(0)             # read by every thread after the barrier: a uniform decision
+    if tid == 0:
+        bad[pair] = Int32(1) if refused else Int32(0)
+    if refused:
+        return
+    for rnd in range(kk):
+        var best = Float32(-3.4e38)
+        var best_q = Int32(-1)
+        var best_id = Int32(-1)
+        var q = tid
+        while q < ncand:
+            var cid = cand_ids[cbase + q]
+            if cid >= 0:
+                var skip = False
+                for c in range(rnd):
+                    if Int(chosen[c]) == q:
+                        skip = True
+                if not skip:
+                    var v = cand_scores[cbase + q]
+                    if best_q < 0 or v > best or (v == best and cid < best_id):
+                        best = v
+                        best_q = Int32(q)
+                        best_id = cid
+            q += RO_TOPK_TPB
+        score_s[tid] = best
+        slot_s[tid] = best_q
+        id_s[tid] = best_id
+        barrier()
+        var stride = RO_TOPK_TPB // 2
+        while stride > 0:
+            if tid < stride:
+                var o = tid + stride
+                if slot_s[o] >= 0:
+                    var mine = slot_s[tid]
+                    if mine < 0 or score_s[o] > score_s[tid] or (score_s[o] == score_s[tid] and id_s[o] < id_s[tid]):
+                        score_s[tid] = score_s[o]
+                        slot_s[tid] = slot_s[o]
+                        id_s[tid] = id_s[o]
+            barrier()
+            stride //= 2
+        if tid == 0:
+            chosen[rnd] = slot_s[0]
+            ids[off + rnd] = id_s[0]
             scores[off + rnd] = score_s[0]
         barrier()
 
@@ -206,17 +300,40 @@ def readout_launch_copy(ctx: DeviceContext, d_dst: UInt64, d_src: UInt64, n: Int
     )
 
 
+def readout_topk_blocks(vocab: Int) -> Int:
+    """Top-k stage-1 blocks per logits row."""
+    return (vocab + RO_TOPK_CHUNK - 1) // RO_TOPK_CHUNK
+
+
+def readout_topk_scratch_bytes(vocab: Int, rows: Int) -> Int:
+    """Device scratch the two-stage top-k needs for `rows` logits rows at any k <= RO_MAX_K."""
+    return rows * readout_topk_blocks(vocab) * (RO_MAX_K * 8 + 4)
+
+
 def readout_launch_topk(
-    ctx: DeviceContext, d_ids: UInt64, d_scores: UInt64, d_logits: UInt64, vocab: Int, k: Int, off: Int,
-    d_bad: UInt64, pair: Int,
+    ctx: DeviceContext, d_ids: UInt64, d_scores: UInt64, d_bad: UInt64, d_logits: UInt64, vocab: Int, k: Int,
+    rows: Int, d_scratch: UInt64, pair0: Int, nrows: Int, n_ws: Int, pos0: Int,
 ) raises:
-    """Enqueues readout_topk_kernel on ctx: the top k of one logits row [vocab], written to ids and scores at off, or
-    refused (bad[pair] = 1) when the row holds a non-finite logit."""
-    var kt = ctx.compile_function[readout_topk_kernel]()
+    """Enqueues the two-stage top-k on ctx for `rows` logits rows [rows, vocab], within readout_topk_scratch_bytes(
+    vocab, rows) of scratch: stage 1 finds each chunk's top k, stage 2 merges them per row and writes the row's top k,
+    or refuses the row (bad[pair] = 1) when it holds a non-finite logit. Row r is pair pair0 + r; see
+    readout_topk_merge_kernel for where its result goes."""
+    var nblk = readout_topk_blocks(vocab)
+    var n_c = rows * nblk * k
+    var d_cid = d_scratch
+    var d_csc = d_scratch + UInt64(n_c * 4)
+    var d_cbad = d_scratch + UInt64(n_c * 8)
+    var k1 = ctx.compile_function[readout_topk_partial_kernel]()
     ctx.enqueue_function(
-        kt, _ro_i32(d_ids), _as_f32_ptr(d_scores), _as_f32_ptr(d_logits), Int32(vocab), Int32(k), Int32(off),
-        _ro_i32(d_bad), Int32(pair),
-        grid_dim=1, block_dim=RO_TOPK_TPB,
+        k1, _ro_i32(d_cid), _as_f32_ptr(d_csc), _ro_i32(d_cbad), _as_f32_ptr(d_logits),
+        Int32(vocab), Int32(k), Int32(nblk),
+        grid_dim=rows * nblk, block_dim=RO_TOPK_TPB1,
+    )
+    var k2 = ctx.compile_function[readout_topk_merge_kernel]()
+    ctx.enqueue_function(
+        k2, _ro_i32(d_ids), _as_f32_ptr(d_scores), _ro_i32(d_bad), _ro_i32(d_cid), _as_f32_ptr(d_csc),
+        _ro_i32(d_cbad), Int32(k), Int32(nblk), Int32(pair0), Int32(nrows), Int32(n_ws), Int32(pos0),
+        grid_dim=rows, block_dim=RO_TOPK_TPB,
     )
 
 

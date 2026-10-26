@@ -540,6 +540,33 @@ class TopK(unittest.TestCase):
         self.assertEqual(k.lib.nomos_readout_debug_topk(k.h, logits.ctypes.data, 17, ids.ctypes.data,
                                                         sc.ctypes.data), -1)
 
+    def test_topk_is_exact_wherever_winners_and_ties_fall(self):
+        """The top-k equals a stable descending sort however the winners and ties fall across the vocabulary: all in
+        the first ids, a 16-way tie spread across it (the lower ids win), the last id tied with a distant one, a tie
+        straddling the k-th place, and all logits equal. Pins the result through any blocking of the scan."""
+        k = kernel()
+        V = T.VOCAB
+        rng = np.random.default_rng(11)
+        first = rng.standard_normal(V).astype(np.float32)
+        first[:16] = 10.0 + np.arange(16, dtype=np.float32)[::-1]
+        spread = rng.standard_normal(V).astype(np.float32)
+        spread[np.linspace(0, V - 1, 16).astype(int)] = 9.0
+        last = rng.standard_normal(V).astype(np.float32)
+        last[[V - 1, V - 2049, 5]] = (20.0, 20.0, 19.0)
+        straddle = np.full(V, -1.0, np.float32)
+        straddle[[3, 4000, 90000, 150000, V - 48]] = 2.0
+        cases = (("winners in the first ids", first), ("a 16-way tie spread across the vocabulary", spread),
+                 ("the last id tied with a distant one", last), ("a tie straddling k", straddle),
+                 ("all logits equal", np.zeros(V, np.float32)))
+        for name, logits in cases:
+            for kk in (1, 8, 16):
+                ids, sc = np.zeros(kk, np.int32), np.zeros(kk, np.float32)
+                self.assertEqual(k.lib.nomos_readout_debug_topk(k.h, logits.ctypes.data, kk, ids.ctypes.data,
+                                                                sc.ctypes.data), 0, name)
+                want = np.lexsort((np.arange(V), -logits))[:kk]
+                np.testing.assert_array_equal(ids, want, f"{name}, k={kk}")
+                assert_bits_equal(sc, logits[want], f"{name}, k={kk} scores")
+
     def test_topk_refuses_non_finite_logits(self):
         """Codex 10-26 F1: a non-finite logit is refused (-3), never ranked. The witnesses are a NaN as thread 0's
         first candidate; a NaN in the same thread as the true maximum, which an unchecked scan loses while returning
