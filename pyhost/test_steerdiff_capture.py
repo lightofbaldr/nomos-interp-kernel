@@ -489,5 +489,61 @@ class ExportScenarios(unittest.TestCase):
         self.assertEqual((index["scenarios"], comp["scenario"]), ({}, None))
 
 
+
+@unittest.skipUnless(os.path.exists("/home/adam/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json"),
+                     "the recorded lie episodes are absent")
+class ChannelPriming(unittest.TestCase):
+    """A run whose prefix reaches past the original prompt labels its tokens as a parser reading the whole recorded
+    generation from its start would: the replay's thinking tail is reasoning, the answer scenario's tokens are answer."""
+
+    def test_a_primed_parser_labels_like_the_full_generation(self):
+        from transformers import AutoTokenizer
+        import serve
+        from serve_protocol import load_serve_protocol
+        import steerdiff_scenarios as S
+        tok = AutoTokenizer.from_pretrained(os.path.expanduser("~/nomos_data/muse-glimmer-tokenizer"))
+        protocol = load_serve_protocol(tok, 2)
+        path = "/home/adam/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json"
+        replay, answer = S.lie_scenarios(path, "TATHUGA", tok, protocol, serve._atem_channel, tail=256)
+        P = replay["onset"] + 1
+        gen = replay["prompt_ids"][P:] + replay["reference"]
+        truth = C.make_channel_of(serve, protocol, tok)
+        want = [truth(t) for t in gen]
+        cut, a0 = len(replay["prompt_ids"]) - P, len(answer["prompt_ids"]) - P
+        primed = C.make_channel_of(serve, protocol, tok, replay["prompt_ids"][P:])
+        self.assertEqual([primed(t) for t in replay["reference"]], want[cut:])
+        self.assertEqual((want[cut], want[a0]), ("reasoning", "answer"))
+        primed = C.make_channel_of(serve, protocol, tok, answer["prompt_ids"][P:])
+        self.assertEqual(primed(gen[a0]), "answer")
+
+
+
+class Relabel(unittest.TestCase):
+    """tools/steerdiff_relabel.py: channels recomputed from the token sequence, primed past the original prompt."""
+
+    def test_relabel_recomputes_channels_from_the_tokens_after_the_primer(self):
+        import steerdiff_relabel as RL
+        seen = {}
+
+        def factory(primer):
+            seen["primer"] = list(primer)
+            state = {"answer": 99 in primer}
+            def channel_of(t):
+                ch = "answer" if state["answer"] else "reasoning"
+                state["answer"] = state["answer"] or t == 99      # 99 plays the answer header
+                return ch
+            return channel_of
+
+        doc = {"prompt_ids": [1, 2, 7, 99], "tokens": [5, 6, 3],
+               "records": [{"pos": 0, "token": 1, "source": "prompt", "channel": None},
+                           {"pos": 4, "token": 5, "source": "generated", "channel": "template"},
+                           {"pos": 5, "token": 6, "source": "generated", "channel": "template"}]}
+        new, changed = RL.relabel(doc, onset=1, factory=factory)
+        self.assertEqual(seen["primer"], [7, 99])                 # every prefix token past the original prompt
+        self.assertEqual([r["channel"] for r in new["records"]], [None, "answer", "answer"])
+        self.assertEqual(changed, 2)
+        self.assertEqual(doc["records"][1]["channel"], "template")  # the input is not mutated
+
+
 if __name__ == "__main__":
     unittest.main()

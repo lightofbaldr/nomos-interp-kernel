@@ -118,6 +118,21 @@ def build_prompt(serve_mod, eng, text: str, system: str | None = SYSTEM) -> list
     return [int(t) for t in ids]
 
 
+def make_channel_of(serve_mod, protocol, tok, primer=()):
+    """channel_of(token) for one run: the ATEM parser's channel before it takes each token. primer holds the tokens
+    the prefill already carries past the original prompt (a replay that prefills into the thinking, or an answer
+    scenario whose prefix ends past the answer header), so the parser is in the state the whole generation left it."""
+    parser = protocol.stream_parser(tok)
+    for t in primer:
+        parser.feed(int(t))
+
+    def channel_of(t):
+        ch = serve_mod._atem_channel(parser, t)
+        parser.feed(t)
+        return ch
+    return channel_of
+
+
 def capture(lm, prompt_ids, layout, header, arm_fn, channel_of, stop_ids, max_new: int, reference=None) -> dict:
     """One arm in one mode. arm_fn() arms (or clears) the steering after the readouts are configured; channel_of(tok)
     names a token's channel before the protocol parser takes it. Free: the argmax, until a stop token (handed out, never
@@ -323,12 +338,7 @@ def main(argv=None) -> int:
                                 lm.lib.nomos_clear_steer(lm.h)
                                 raise RuntimeError(f"the kernel refused the steering (rc={rc})")
 
-                    parser = protocol.stream_parser(tok)
-
-                    def channel_of(t, parser=parser):
-                        ch = serve._atem_channel(parser, t)
-                        parser.feed(t)
-                        return ch
+                    channel_of = make_channel_of(serve, protocol, tok, prompt_ids[from_pos + 1:])
 
                     run_id = f"{pkey}.{arm['name']}.{mode}"
                     steer = None if vec is None else {"layer": STEER_LAYER, "kind": arm["kind"], "s": arm["s"],
