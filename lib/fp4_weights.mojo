@@ -19,7 +19,7 @@ Requires Mojo ≥1.0.0b3 + --target-accelerator sm_121a.
 from max.gpu.host import DeviceContext
 from std.gpu.primitives import thread_idx, block_idx, block_dim
 from std.gpu.primitives.warp import shuffle_xor, WARP_SIZE
-from std.memory import UnsafePointer
+from std.memory import UnsafePointer, bitcast
 from std.collections import List
 from lib.cuda import cuda_malloc, cuda_upload_u8
 from lib.io import read_nvfp4_bytes
@@ -50,13 +50,17 @@ def _as_f32_ptr(addr: UInt64) -> UnsafePointer[Float32, MutAnyOrigin]:
 
 def e4m3_decode(b: Int) -> Float32:
     """ue4m3 byte → positive fp32 (bias 7, no inf). Matches the LUT in quantize_nvfp4.py.
-    Branchless-on-exponent + no divide: normal = (8+mant)*2^(exp-10) via the E4M3_P2 LUT;
-    only exp==0 (subnormal, rare for block scales) keeps a cheap predicated path."""
+    Branchless-on-exponent + no divide: normal = (8+mant)*2^(exp-10), with 2^(exp-10) built from its fp32 bits,
+    (exp+117) << 23, which equals E4M3_P2[exp] exactly for exp 1..15. A runtime index into the E4M3_P2 SIMD constant
+    made the GPU compiler store all 16 lanes to the thread's stack and load one back at every call: 64 bytes of local
+    stores per scale in every NVFP4 GEMV's hot loop (Nsight Compute, 2026-10-26). Same value, so every product is
+    bit-identical. Only exp==0 (subnormal, rare for block scales) keeps a cheap predicated path."""
     var exp = (b >> 3) & 0xF
     var mant = b & 0x7
     if exp == 0:
         return Float32(mant) * Float32(0.001953125)   # subnormal: mant * 2^-9
-    return Float32(8 + mant) * E4M3_P2[exp]           # (8+mant) * 2^(exp-10) == (1.mant) * 2^(exp-7)
+    var p2 = bitcast[DType.float32](UInt32(exp + 117) << UInt32(23))   # == E4M3_P2[exp] == 2^(exp-10)
+    return Float32(8 + mant) * p2                     # (8+mant) * 2^(exp-10) == (1.mant) * 2^(exp-7)
 
 
 def e2m1_mag(v: Int) -> Float32:
