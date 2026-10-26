@@ -17,7 +17,9 @@
     "test:live": "node scripts/browser.mjs --live",
     "test:transport": "node scripts/transport.mjs",
     "test:chat": "node scripts/chat.mjs",
-    "test:kernel": "node scripts/kernel-chat.mjs"
+    "test:kernel": "node scripts/kernel-chat.mjs",
+    "test:steering": "node scripts/steering-tests.mjs",
+    "test:integration": "node scripts/lab-integration.mjs && npm run test:browser && npm run test:ui && npm run test:contrast"
   },
   "dependencies": {
     "@fontsource-variable/geist": "5.3.0",

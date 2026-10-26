@@ -1,0 +1,73 @@
+{
+  "source": "/home/adam/Projects/glimmer-steering-diff-scratch-20261026",
+  "commit": "b3a10582ed479d541c73a6cd2d8ad1f656d4eb3f",
+  "history_imported": false,
+  "files": [
+    {
+      "source": "src/lib/CandidatePanel.svelte",
+      "source_sha256": "b402df06b7a948089ac84e657ef9b965e8c0b75540241e795ad255109552623b",
+      "target": "src/lib/steering-diff/CandidatePanel.svelte",
+      "import_sha256": "b402df06b7a948089ac84e657ef9b965e8c0b75540241e795ad255109552623b"
+    },
+    {
+      "source": "src/lib/EmotionGrid.svelte",
+      "source_sha256": "f85716f7a3f38eaf1f2320163822d42b1b6416011ca460c97edd51227f77051d",
+      "target": "src/lib/steering-diff/EmotionGrid.svelte",
+      "import_sha256": "f85716f7a3f38eaf1f2320163822d42b1b6416011ca460c97edd51227f77051d"
+    },
+    {
+      "source": "src/lib/ResponseView.svelte",
+      "source_sha256": "0b48c9bfddb5effa78f4b54a3a97af0b8b4b3849c064a648c9a344c26c86bd16",
+      "target": "src/lib/steering-diff/ResponseView.svelte",
+      "import_sha256": "0b48c9bfddb5effa78f4b54a3a97af0b8b4b3849c064a648c9a344c26c86bd16"
+    },
+    {
+      "source": "src/lib/ScenarioContext.svelte",
+      "source_sha256": "dc2257eb8e22b412c6a3595ab290e85d5ede3d6af2b8602e5526ca803552e211",
+      "target": "src/lib/steering-diff/ScenarioContext.svelte",
+      "import_sha256": "dc2257eb8e22b412c6a3595ab290e85d5ede3d6af2b8602e5526ca803552e211"
+    },
+    {
+      "source": "src/lib/model.ts",
+      "source_sha256": "1556dc7a15144d230469d5a7810c921fbe85bb1b1f4166445745a1aee0b18f9c",
+      "target": "src/lib/steering-diff/model.ts",
+      "import_sha256": "1556dc7a15144d230469d5a7810c921fbe85bb1b1f4166445745a1aee0b18f9c"
+    },
+    {
+      "source": "src/lib/data.ts",
+      "source_sha256": "5c503f4b6d4ecd08cc0759c959253017f6343d1b2ed74e4d317096bebba03d34",
+      "target": "src/lib/steering-diff/data.ts",
+      "import_sha256": "5c503f4b6d4ecd08cc0759c959253017f6343d1b2ed74e4d317096bebba03d34"
+    },
+    {
+      "source": "src/App.svelte",
+      "source_sha256": "a34a90a56e96a1edba009c2afe307207b2e6948b65c29d1f1a1ec15367f149bc",
+      "target": "src/lib/steering-diff/Explorer.svelte",
+      "import_sha256": "15ba6d24b9b548da4c38660c373c1afdd64fa55d4656bb8755359663a5bc0e6d"
+    },
+    {
+      "source": "src/style.css",
+      "source_sha256": "1d5587413a4b0644e0d99dea06dfc79e70eeb73b72149af8a4f3a7773e4d3324",
+      "target": "src/lib/steering-diff/style.css",
+      "import_sha256": "1057ab454fd4fe34ccd38d77483aabcce6196aa9b3ad8960b09e2d18e6f2ce6f"
+    },
+    {
+      "source": "tests/model.test.ts",
+      "source_sha256": "c2a7ff5a5a377c13799cc755f7f0187c6d19babf4874589af1a0e7aa48b255ee",
+      "target": "tests/steering/model.test.ts",
+      "import_sha256": "19caa5ec6d10790ad9e95ec8ef91d8d5b8fcbd6c24261d9ad39d7c9b5c929a53"
+    },
+    {
+      "source": "tests/scenarios.test.ts",
+      "source_sha256": "0aa55cf55cf4e01ccf0e53972201cc5d3e2a560766ee51b6a6fb38cac2285b86",
+      "target": "tests/steering/scenarios.test.ts",
+      "import_sha256": "b572fa796b05d5f4083f4b5a8eb2ae8d9312890a9b5e50a158365ebff10c0622"
+    },
+    {
+      "source": "tests/scenario-fixture.ts",
+      "source_sha256": "169b9cf7eef654f37c5e49bfb6af87b2e10ade8d48c415f9d08e70e6fdc53b86",
+      "target": "tests/steering/scenario-fixture.ts",
+      "import_sha256": "00ece6aadb6b190009be1b15416c3cc577fc8eec60a5770880430ba70a79f3a6"
+    }
+  ]
+}

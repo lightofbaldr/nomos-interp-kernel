@@ -15,6 +15,13 @@ rewrite historical provenance) the following:
 - Any steering-diff adapter defaults, test paths, evidence or integration docs
   added on the review branch. Capture bundles must remain external and private.
 
+Review-branch additions with explicit personal paths: `src/lib/server/steering-data.ts`,
+`tests/steering/model.test.ts`, `docs/STEERING-DIFF.md`, and
+`docs/import/steering-scratch.json`. The browser helpers inherit the existing
+Chromium path from `scripts/harness.mjs`. Runtime responses can include source
+episode paths from the external data, which this source-only checklist does not
+redact.
+
 Inventory again at export time with a tracked-file search for `/home/adam`,
 `192.168.`, `design-kits`, private hostnames and local data paths. Also check the
 vendored package license/notice files. This checklist is not publication approval.
