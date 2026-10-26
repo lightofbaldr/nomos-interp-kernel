@@ -1,0 +1,545 @@
+{
+  "schema": "glimmer-lab.snapshot/1",
+  "source_repo": "/home/adam/Projects/design-kits",
+  "source_path": "ports/nomos-muse",
+  "base_commit": "ecb0850b8a3af600bf6a8833ccc6739e9d7dde99",
+  "snapshot": "current working tree; NOT an exact committed-tree export",
+  "source_remote": "origin\t<private-forgejo>/design-kits.git (fetch)\norigin\t<private-forgejo>/design-kits.git (push)\n",
+  "source_status": " M ports/nomos-muse/GATES.md\n M ports/nomos-muse/README.md\n M ports/nomos-muse/docs/ATTRIBUTION.md\n M ports/nomos-muse/docs/INTEGRATION.md\n M ports/nomos-muse/docs/REVIEW.md\n M ports/nomos-muse/package.json\n M ports/nomos-muse/preview/chat-1024.png\n M ports/nomos-muse/preview/chat-1280.png\n M ports/nomos-muse/preview/chat-1440.png\n M ports/nomos-muse/preview/chat-320.png\n M ports/nomos-muse/preview/chat-375.png\n M ports/nomos-muse/preview/chat-414.png\n M ports/nomos-muse/preview/chat-768.png\n M ports/nomos-muse/preview/inspection-768.png\n M ports/nomos-muse/preview/welcome-desktop.png\n M ports/nomos-muse/project.json\n M ports/nomos-muse/scripts/browser.mjs\n M ports/nomos-muse/scripts/contrast.mjs\n M ports/nomos-muse/scripts/harness.mjs\n M ports/nomos-muse/scripts/refresh-preview.mjs\n M ports/nomos-muse/src/app.css\n M ports/nomos-muse/src/lib/components/Inspector.svelte\n M ports/nomos-muse/src/routes/+page.svelte\n?? ports/nomos-muse/preview/kernel-chat-375.png\n?? ports/nomos-muse/preview/kernel-chat-768.png\n?? ports/nomos-muse/preview/kernel-chat-desktop.png\n?? ports/nomos-muse/preview/kernel-reasoning-desktop.png\n?? ports/nomos-muse/preview/live-1280.png\n?? ports/nomos-muse/preview/live-1440.png\n?? ports/nomos-muse/preview/live-320.png\n?? ports/nomos-muse/preview/live-375.png\n?? ports/nomos-muse/preview/live-768.png\n?? ports/nomos-muse/scripts/chat.mjs\n?? ports/nomos-muse/scripts/fake-kernel.mjs\n?? ports/nomos-muse/scripts/kernel-chat.mjs\n?? ports/nomos-muse/scripts/transport.mjs\n?? ports/nomos-muse/src/lib/components/LiveChat.svelte\n?? ports/nomos-muse/src/lib/components/LiveMetrics.svelte\n?? ports/nomos-muse/src/lib/live.ts\n?? ports/nomos-muse/src/lib/server/nomos.ts\n?? ports/nomos-muse/src/routes/+page.server.ts\n?? ports/nomos-muse/src/routes/api/nomos/chat/+server.ts\n?? ports/nomos-muse/src/routes/api/nomos/health/+server.ts\n?? ports/nomos-muse/src/routes/api/nomos/kvstore/+server.ts\n",
+  "excluded": [
+    "node_modules",
+    "build",
+    "dist",
+    ".svelte-kit",
+    ".git",
+    "preview",
+    ".hallmark",
+    ".unlazy",
+    ".env*",
+    "*.log",
+    ".unlazy-hook-state.json"
+  ],
+  "attribution_note": "Includes pre-existing Glimmer live-chat/serve plumbing and UI edits. No reliable session/author evidence was found in the inspected source documentation; authorship is left unknown rather than assigned to this migration. Every imported source file is preserved byte-for-byte. Timestamps are recorded only as file metadata.",
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "c24edd1544884a4d107e6ed152d10c112163f28788bd8cb7fb121bbd24c8f4ce",
+      "bytes": 112,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "c24edd1544884a4d107e6ed152d10c112163f28788bd8cb7fb121bbd24c8f4ce",
+      "source_mtime": "2026-10-13T21:25:28.640Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "GATES.md",
+      "sha256": "3217d3ba617742e9de8b6eeff0ba9140caaa67c799f730920a64eeea57837b11",
+      "bytes": 7231,
+      "mode": 384,
+      "source_state": "modified",
+      "base_sha256": "5862ab55bb3a0164b85cd2acec665e50623c10e533c986993ee981881a77ced3",
+      "source_mtime": "2026-10-16T21:44:15.933Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "README.md",
+      "sha256": "6ab6c3b732856a17b133d86ac4e5d179dd6b6ebd0c31474249ac521b50edb123",
+      "bytes": 7388,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "3adbfbabaf416bb6d473b5f3080a7287c8b11a53c93b01c450d3b3f3a73b0e37",
+      "source_mtime": "2026-10-16T21:44:15.933Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "docs/ATTRIBUTION.md",
+      "sha256": "2a25c5ca29772686774113a3fa66b8e73d2a6765635fe152ad14014106de81ad",
+      "bytes": 3005,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "16da91d31fae02ae222b749b3e1e2cd101913915957b3f8ead30be0ef6bee38f",
+      "source_mtime": "2026-10-16T21:38:14.651Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "docs/INTEGRATION.md",
+      "sha256": "bcdcd09b7a313ea62a26bcea3f8760532b87509c3df70cd53c1cf19b778f76eb",
+      "bytes": 9316,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "0ca01815f99ef33253c098e5a8ee7c6c4ebe6e9935931c897efacf4ed4877a46",
+      "source_mtime": "2026-10-16T21:38:14.650Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "docs/KERNEL_CONTRACT.md",
+      "sha256": "91db61d3e567583362ba4f2e4d9781b6336528f0a887718b584fe3e58674f8c7",
+      "bytes": 13470,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "91db61d3e567583362ba4f2e4d9781b6336528f0a887718b584fe3e58674f8c7",
+      "source_mtime": "2026-10-15T07:14:20.821Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "docs/REVIEW.md",
+      "sha256": "71a050bd52ec74a1291158a829267bbae9e23c2865d7bf66cd93fb9703a9ea53",
+      "bytes": 10454,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "daeac0ef2b180ae5dbf576c4950dee7775d47b45913fb4b31a24471d7b6573d0",
+      "source_mtime": "2026-10-16T21:42:18.490Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "docs/assets/PROMPTS.md",
+      "sha256": "f7cbba8e009bf92c256c07d8a148efb2db57fc1b9541d683e9eae13cea0dcd42",
+      "bytes": 1963,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "f7cbba8e009bf92c256c07d8a148efb2db57fc1b9541d683e9eae13cea0dcd42",
+      "source_mtime": "2026-10-14T03:49:55.353Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "docs/assets/muse-mascot-cutout.png",
+      "sha256": "d830968cde5389e34062ae179a65b53a72abb9ceb66ba8c15334463e51f481ee",
+      "bytes": 1788661,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-14T03:49:55.309Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "docs/assets/muse-source.png",
+      "sha256": "6de56fdc5b28d4012f75286c577b53c8454bad02eace0eb8214c72dca374e89a",
+      "bytes": 334163,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "6de56fdc5b28d4012f75286c577b53c8454bad02eace0eb8214c72dca374e89a",
+      "source_mtime": "2026-10-14T03:49:55.307Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "b88a9cd8b034005237065d2e93d369cab2796eaff184bc6bbf617fd536d1de23",
+      "bytes": 245177,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "b88a9cd8b034005237065d2e93d369cab2796eaff184bc6bbf617fd536d1de23",
+      "source_mtime": "2026-10-13T21:39:04.251Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "package.json",
+      "sha256": "6644d56c83b9e23dcfb2c9bdddd01afb97f99a1ef095e58c57f5726d092c226a",
+      "bytes": 1586,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "02713ed07c66fcd50b0326c011be2394212246f844b0781e20398945ae97b8d9",
+      "source_mtime": "2026-10-16T21:41:45.103Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "project.json",
+      "sha256": "163afa36bbcca5b2574392071e2a6676bf6f8be419ba9ab556c834022d9314c8",
+      "bytes": 8141,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "d9cf7f39bb5e49d49ef2756b71907737c6f11b34ab3f5ee254855d01d8d61adc",
+      "source_mtime": "2026-10-16T21:39:25.461Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "scripts/browser.mjs",
+      "sha256": "ab3565a037be587de46cc83ee6bca2ba5e1b6995b6a3a8ed66371bcb082f063b",
+      "bytes": 13008,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "f260b5d097efadb532e2a127b0407bfa4a27c0e0ed56b2bd0d44fee4b3ef5f99",
+      "source_mtime": "2026-10-16T21:32:52.741Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "scripts/chat.mjs",
+      "sha256": "4c8c5730c0352f275168564bd9324fa47ae60551991d61efe30c0453f36db9da",
+      "bytes": 6207,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:39:25.461Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "scripts/contrast.mjs",
+      "sha256": "98064aa723456f1fdc7f6a7b4a9ec808237031c6be64acf521ebd2452178b486",
+      "bytes": 6176,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "3e13bf8e7ac872bc6d233dde4d79e0c5fa0d30f145a20a2560ee27dd766c0e8d",
+      "source_mtime": "2026-10-16T21:32:52.742Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "scripts/fake-kernel.mjs",
+      "sha256": "5808867438e4facbc238b75beafa0441bc2ccaa21f62c2d808feba3e1e4bbbaf",
+      "bytes": 2908,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:39:25.460Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "scripts/harness.mjs",
+      "sha256": "a99fdeba9cfab00c5760e231dde591194a418aca160f7a2a7e60c665c5523f4c",
+      "bytes": 2891,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "10db4a8cd3bfc2b72beb6e248daef92232bd410afc9398f961f6b663d0f09d24",
+      "source_mtime": "2026-10-16T21:32:52.741Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "scripts/kernel-chat.mjs",
+      "sha256": "a0b881459100e62974226779895b1224fc4f75d662e11d168b1b9962aaa7a1f3",
+      "bytes": 2397,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:43:27.694Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "scripts/refresh-preview.mjs",
+      "sha256": "722b91f76a39215f48d5c1f9dd57efe6f6844b1ad8dcf241167896124d8ae451",
+      "bytes": 3658,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "d1ed926fa1693a442d688d95b717df6a76dbddac70bf9fef20564b8136a41d24",
+      "source_mtime": "2026-10-16T21:41:45.103Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "scripts/transport.mjs",
+      "sha256": "7d9f0a85136cc39ff5f2370474854afd33af3b13c5ffe912af1ecd26408265b7",
+      "bytes": 3058,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:34:44.825Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "scripts/ui.mjs",
+      "sha256": "9d1c82d3dca6cfa541988b3ff2a916d5fc1d7eadc97e8295d4c75d7dd66fccab",
+      "bytes": 13326,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "9d1c82d3dca6cfa541988b3ff2a916d5fc1d7eadc97e8295d4c75d7dd66fccab",
+      "source_mtime": "2026-10-14T16:41:57.128Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "scripts/verify.mjs",
+      "sha256": "68932a204a5ced47924a924c588581c7badcf30357da20210c3aea0fbd38be8d",
+      "bytes": 1058,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "68932a204a5ced47924a924c588581c7badcf30357da20210c3aea0fbd38be8d",
+      "source_mtime": "2026-10-13T21:39:03.186Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "src/app.css",
+      "sha256": "ff920798ed8b43abcadfbeef6c3623da384aa154a1816bf39ce5aa83cff39111",
+      "bytes": 26238,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "3e5053e77089d18f00488480e91f486a5b3e9eae60f1458ec13f9ce7f312110a",
+      "source_mtime": "2026-10-16T21:38:14.642Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "src/app.html",
+      "sha256": "451f1ea94536d72ae8c8b216ea3b1a6438cc1ee5fdf440b864a5b86cd2df1d4d",
+      "bytes": 361,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "451f1ea94536d72ae8c8b216ea3b1a6438cc1ee5fdf440b864a5b86cd2df1d4d",
+      "source_mtime": "2026-10-13T21:49:30.153Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "src/lib/components/EmotionDock.svelte",
+      "sha256": "36fc3e3bfbab72e06ec6f76c8844ff64d7c1ef2c321620230586869f9e86f066",
+      "bytes": 7646,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "36fc3e3bfbab72e06ec6f76c8844ff64d7c1ef2c321620230586869f9e86f066",
+      "source_mtime": "2026-10-14T16:41:57.128Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "src/lib/components/Inspector.svelte",
+      "sha256": "8e9be363da737043e80895a985d927b30aba196a7dc30ffc07614af886ed5528",
+      "bytes": 9363,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "b2aa977137e923525d6957073824294fa2b4acd5f173758b3ed4f9f7a223af7b",
+      "source_mtime": "2026-10-16T21:31:59.946Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "src/lib/components/LiveChat.svelte",
+      "sha256": "35d3724ff7381cb814fa5fca6a486114eb4cb8dd9121c59a7f9f692cb2548d18",
+      "bytes": 11199,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:38:14.641Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "src/lib/components/LiveMetrics.svelte",
+      "sha256": "10c89a63b0f1afca0403f08c35ae180b26e766a2dc5e810ea886046093d0446f",
+      "bytes": 2713,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:30:28.597Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "src/lib/components/MotionLabel.svelte",
+      "sha256": "e6529aecf1975610c088ee8250080e209fc2944918b044ea4f71d976c9704e75",
+      "bytes": 841,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "e6529aecf1975610c088ee8250080e209fc2944918b044ea4f71d976c9704e75",
+      "source_mtime": "2026-10-13T21:30:59.678Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "src/lib/components/SparkleTitle.svelte",
+      "sha256": "b8f6e4696cbbc13a7af4e5f0949c4f28cdb2b8fe015e1ae2c3e228a80c29f23c",
+      "bytes": 2061,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "b8f6e4696cbbc13a7af4e5f0949c4f28cdb2b8fe015e1ae2c3e228a80c29f23c",
+      "source_mtime": "2026-10-14T04:12:06.943Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "src/lib/components/WelcomeMotion.svelte",
+      "sha256": "6b7ae0f8e9cd98f8b5c9e0d22d2b59ae5118f9f4f7b45cd45e665a0d6e50bec1",
+      "bytes": 792,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "6b7ae0f8e9cd98f8b5c9e0d22d2b59ae5118f9f4f7b45cd45e665a0d6e50bec1",
+      "source_mtime": "2026-10-14T03:54:48.931Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "src/lib/demo.ts",
+      "sha256": "2b6fd2f64e4c3ff46899c6cd28371fc1ee35dfd8c0593e82568989f33b138583",
+      "bytes": 4306,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "2b6fd2f64e4c3ff46899c6cd28371fc1ee35dfd8c0593e82568989f33b138583",
+      "source_mtime": "2026-10-13T21:29:25.759Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "src/lib/live.ts",
+      "sha256": "4fa9581f6e336951a5e75c3d16640431259ddf9cfe4ba8933e0d43ff6eafa431",
+      "bytes": 4042,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:28:58.079Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "src/lib/server/nomos.ts",
+      "sha256": "335e9a41cc573ac3d589260e735d4e9de8d6c89d0eb62333d7b2dbff8054a937",
+      "bytes": 5780,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:28:58.081Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "src/lib/trace.ts",
+      "sha256": "b3cc84b03d689bc0ab972b7e7f0246b80936a0994fe10d6d6b5667588c0d7dbe",
+      "bytes": 5875,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "b3cc84b03d689bc0ab972b7e7f0246b80936a0994fe10d6d6b5667588c0d7dbe",
+      "source_mtime": "2026-10-13T21:29:25.759Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "src/routes/+layout.svelte",
+      "sha256": "931fd59dce8943d15ec28f2bd49fd085c9036a7938f5835286254ad15d4d9222",
+      "bytes": 241,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "931fd59dce8943d15ec28f2bd49fd085c9036a7938f5835286254ad15d4d9222",
+      "source_mtime": "2026-10-13T21:25:28.640Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "src/routes/+page.server.ts",
+      "sha256": "ac9a7438733c0abc16e24938ffa80b73a98d7c1c1e7101320125983f3b173fdc",
+      "bytes": 159,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:28:58.082Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "src/routes/+page.svelte",
+      "sha256": "fc0d0e085dd2eda3a542292ba797dbf6551dc7f28b8152cd19d1f2c883384568",
+      "bytes": 20447,
+      "mode": 436,
+      "source_state": "modified",
+      "base_sha256": "ed63221c7191b8e68c95d65a2743d4c9235d5c671706b9b463a106d37576882e",
+      "source_mtime": "2026-10-16T21:33:19.328Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "src/routes/api/nomos/chat/+server.ts",
+      "sha256": "10e7efbdfb5f2bf35cfd4d68b745cca2d5cfce2a709bb8a19f57fbbf7ec35fd1",
+      "bytes": 48,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:28:58.082Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "src/routes/api/nomos/health/+server.ts",
+      "sha256": "dc12d0afc96ad14189d732526ce164c193ff7d68101232b79aecc173f422233b",
+      "bytes": 49,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:28:58.081Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "src/routes/api/nomos/kvstore/+server.ts",
+      "sha256": "6e5a5f96494bf9868ba25fb5df502f0ce934bc5d7d52434e38a7b3644d398f69",
+      "bytes": 48,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-16T21:28:58.081Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "static/favicon.svg",
+      "sha256": "183309e46ba1931e42b8739206ae27369cb127713c55f68ad7491a71b57ecf52",
+      "bytes": 244,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "183309e46ba1931e42b8739206ae27369cb127713c55f68ad7491a71b57ecf52",
+      "source_mtime": "2026-10-13T21:49:30.153Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "static/img/muse-mascot.webp",
+      "sha256": "824fa0f118bd4aabeb572e91a5f700222a02978c2b48478784e4d7d7db7e9c51",
+      "bytes": 240774,
+      "mode": 420,
+      "source_state": "unchanged",
+      "base_sha256": "824fa0f118bd4aabeb572e91a5f700222a02978c2b48478784e4d7d7db7e9c51",
+      "source_mtime": "2026-10-14T03:51:39.311Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "svelte.config.js",
+      "sha256": "200829124573175559f73ab3aa10fc1399f2fcef2b72a2314b13fe70c68b5d65",
+      "bytes": 179,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "200829124573175559f73ab3aa10fc1399f2fcef2b72a2314b13fe70c68b5d65",
+      "source_mtime": "2026-10-13T21:25:28.640Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "tests/contract.test.mjs",
+      "sha256": "7229a1daac6284736b24e04df9f4e7cb5d8f978857ed78fb332d58f250938fd0",
+      "bytes": 3035,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "7229a1daac6284736b24e04df9f4e7cb5d8f978857ed78fb332d58f250938fd0",
+      "source_mtime": "2026-10-13T21:40:36.482Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "tokens.css",
+      "sha256": "d86fd23e0d4047bf2f8dcb21728f01c4c63d3550bb44e74fc0f4d930e74d200e",
+      "bytes": 2370,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "d86fd23e0d4047bf2f8dcb21728f01c4c63d3550bb44e74fc0f4d930e74d200e",
+      "source_mtime": "2026-10-13T22:01:09.453Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "9522cc5170f1202345b69f1c930d70c0cbf5ee908b02ef56f7789233cfc4023e",
+      "bytes": 263,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "9522cc5170f1202345b69f1c930d70c0cbf5ee908b02ef56f7789233cfc4023e",
+      "source_mtime": "2026-10-13T21:25:28.640Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "vendor/nomos-svelte-ai-elements-0.1.0.tgz",
+      "sha256": "1531f5b2fd54706df6d947bbd244ded96f3736c2fb276e48d4d970385c0c4099",
+      "bytes": 133598,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "1531f5b2fd54706df6d947bbd244ded96f3736c2fb276e48d4d970385c0c4099",
+      "source_mtime": "2026-10-13T21:27:58.502Z",
+      "attribution": "Committed source; no history imported"
+    },
+    {
+      "path": "vendor/nomos-svelte-fancy-0.1.0.tgz",
+      "sha256": "13680386688f3aa821172d537f44d53026ec88f3c25b8cb9708f741061e4a64a",
+      "bytes": 1826189,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-13T21:25:29.080Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "vendor/nomos-svelte-magic-0.1.0.tgz",
+      "sha256": "5b32bb53337bd23636a6ff2a73a39580e112d48a804dca92c37614b9aa688471",
+      "bytes": 1929640,
+      "mode": 436,
+      "source_state": "untracked",
+      "base_sha256": null,
+      "source_mtime": "2026-10-13T21:25:29.078Z",
+      "attribution": "Pre-existing uncommitted work, author/session not independently established; preserved as found. Source mtime is not authorship evidence."
+    },
+    {
+      "path": "vite.config.ts",
+      "sha256": "2f39e243e3c0918ca1df059e5e860041b425c58bfcaf2d28d9e0a4deabc4e5b8",
+      "bytes": 221,
+      "mode": 436,
+      "source_state": "unchanged",
+      "base_sha256": "2f39e243e3c0918ca1df059e5e860041b425c58bfcaf2d28d9e0a4deabc4e5b8",
+      "source_mtime": "2026-10-13T21:25:28.640Z",
+      "attribution": "Committed source; no history imported"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "name": "nomos-muse-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --host 127.0.0.1 --port 5226 --strictPort",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "build": "vite build",
+    "start": "node build/index.js",
+    "refresh:preview": "node scripts/refresh-preview.mjs --start-if-stopped",
+    "verify": "node scripts/verify.mjs",
+    "test:contract": "node --test tests/contract.test.mjs",
+    "test:browser": "node scripts/browser.mjs",
+    "test:ui": "node scripts/ui.mjs",
+    "test:contrast": "node scripts/contrast.mjs",
+    "test:live": "node scripts/browser.mjs --live",
+    "test:transport": "node scripts/transport.mjs",
+    "test:chat": "node scripts/chat.mjs",
+    "test:kernel": "node scripts/kernel-chat.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "5.3.0",
+    "@fontsource-variable/geist-mono": "5.3.0",
+    "@nomos/svelte-ai-elements": "file:vendor/nomos-svelte-ai-elements-0.1.0.tgz",
+    "@nomos/svelte-fancy": "file:vendor/nomos-svelte-fancy-0.1.0.tgz",
+    "@nomos/svelte-magic": "file:vendor/nomos-svelte-magic-0.1.0.tgz",
+    "bits-ui": "2.19.5",
+    "phosphor-svelte": "3.0.1"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-node": "5.5.7",
+    "@sveltejs/kit": "2.70.3",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "24.0.0",
+    "playwright": "1.58.2",
+    "svelte": "5.57.2",
+    "svelte-check": "4.7.6",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "vite": "8.3.3"
+  }
+}
