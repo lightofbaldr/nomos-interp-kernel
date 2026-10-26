@@ -164,6 +164,29 @@ class RunDoc(unittest.TestCase):
             run("joy", [1], mode="matched", reference=None)
 
 
+class Summaries(unittest.TestCase):
+    def comparison(self):
+        base = run("base", [1, 2, 3], mode="matched", reference="base")
+        steered = run("joy", [1, 2, 3], mode="matched", reference="base", ws=[TOP_B, TOP_A],
+                      emo=[[0.0, 0.0], [1.5, -0.5]])
+        steered["records"][4] = dict(steered["records"][4], workspace={"top": [TOP_A, TOP_A]})   # one position unchanged
+        return sd.compare(base, steered, display_k=2)
+
+    def test_movers_average_exact_deltas_and_count_entries_per_layer(self):
+        got = {m["id"]: m for m in sd.movers(self.comparison(), 0)}
+        # layer 36: positions 3 and 5 move 11 by +2.0 and 10 by -1.5; position 4 is unchanged (0.0 for 10 and 11)
+        self.assertEqual(got[11], {"id": 11, "mean_delta": 4.0 / 3, "count": 3, "entered": 0, "left": 0})
+        self.assertEqual(got[10], {"id": 10, "mean_delta": -1.0, "count": 3, "entered": 0, "left": 2})
+        # 14 has no exact delta anywhere (its baseline score is unknown), so no mean; it entered the shown list twice
+        self.assertEqual(got[14], {"id": 14, "mean_delta": None, "count": 0, "entered": 2, "left": 0})
+
+    def test_movers_sort_by_mean_delta_with_unknown_means_last(self):
+        self.assertEqual([m["id"] for m in sd.movers(self.comparison(), 0)], [11, 10, 14])
+
+    def test_emotion_means_over_aligned_generated_positions(self):
+        self.assertEqual(sd.emotion_means(self.comparison()), [[0.0, 0.0], [1.0, -0.5]])
+
+
 class Lexicons(unittest.TestCase):
     def test_counts_use_the_displayed_tokens_only(self):
         r = run("base", [1, 2], ws=[TOP_A, TOP_B])                 # layer 36 shows {10, 11}; layer 40 shows {11, 14}

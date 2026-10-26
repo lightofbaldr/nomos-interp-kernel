@@ -158,6 +158,36 @@ def compare(base: dict, steered: dict, display_k: int = 8) -> dict:
             "positions": positions}
 
 
+def movers(comparison: dict, layer_index: int) -> list[dict]:
+    """Per candidate token at one workspace layer, over the comparison's aligned generated positions: the mean of its
+    exact deltas (None when it has none), how many exact deltas that mean averages, and how often the token entered or
+    left the displayed list. Highest mean first; tokens without an exact delta come last."""
+    acc = {}
+    for p in comparison["positions"]:
+        if not p.get("workspace"):
+            continue
+        for c in p["workspace"][layer_index]["candidates"]:
+            a = acc.setdefault(c["id"], {"sum": 0.0, "count": 0, "entered": 0, "left": 0})
+            if c["delta"] is not None:
+                a["sum"] += c["delta"]
+                a["count"] += 1
+            a["entered"] += c["status"] == "entered"
+            a["left"] += c["status"] == "left"
+    out = [{"id": i, "mean_delta": a["sum"] / a["count"] if a["count"] else None, "count": a["count"],
+            "entered": a["entered"], "left": a["left"]} for i, a in acc.items()]
+    return sorted(out, key=lambda m: (m["mean_delta"] is None, -(m["mean_delta"] or 0.0), m["id"]))
+
+
+def emotion_means(comparison: dict):
+    """The mean emotion delta per layer and direction over the aligned generated positions (None without any)."""
+    rows = [p["emotion_delta"] for p in comparison["positions"]
+            if p["source"] == "generated" and p["emotion_delta"] is not None]
+    if not rows:
+        return None
+    return [[sum(r[layer][e] for r in rows) / len(rows) for e in range(len(rows[0][layer]))]
+            for layer in range(len(rows[0]))]
+
+
 def lexicon_counts(run: dict, lexicons: dict, display_k: int = 8) -> dict:
     """Per workspace layer: how many generated positions show any of a lexicon's token ids in the displayed top
     display_k, beside how many positions had a workspace at all. Membership only, so no score arithmetic."""
