@@ -2,84 +2,21 @@
 
 At a configured layer, right after plan B's steering point (post-steer), each computed row's projections onto unit
 emotion directions, and its residual L2 norm, go into a per-position table. A position reads valid only if a forward
-wrote it since the last begin_turn and it lies below the cache length at read time."""
+wrote it since the last begin_turn and it lies below the cache length at read time.
 
-from max.gpu.host import DeviceContext
-from std.gpu.primitives import thread_idx, block_idx, block_dim
-from max.gpu import barrier
-from max.gpu.memory import AddressSpace
+The GPU kernels and their launchers are in lib/readout_kernels.mojo: this module imports GemmaEngine and sits inside
+the engine's import cycle, where a kernel compiled here fails to infer its argument types."""
+
 from std.memory import UnsafePointer
 from std.math import sqrt
-from layout import row_major
-from layout import stack_allocation
 from lib.cuda import cuda_malloc, cuda_free, cuda_memcpy, cuda_sync, cuda_memset_2d
-from lib.q4_weights import _as_f32_ptr
 from lib.fp4_gemv_v2 import NVFP4_GEMV_SMAX
 from lib.dflash_drafter import DFLASH_MAX_VERIFY_ROWS
 from lib.model_config import D, VOCAB, TOTAL_LAYERS
 from lib.gemma4_engine import GemmaEngine
+from lib.readout_kernels import readout_launch_proj, readout_launch_mark
 
-comptime RO_TPB = 256
 comptime RO_STAGE_ROWS = DFLASH_MAX_VERIFY_ROWS   # a DFlash verify stages at most this many rows; a decode step 1
-
-
-@always_inline
-def _ro_u8(addr: UInt64) -> UnsafePointer[UInt8, MutAnyOrigin]:
-    return UnsafePointer[UInt8, MutAnyOrigin](unsafe_from_address=Int(addr))
-
-
-def readout_proj_kernel(
-    table: UnsafePointer[Float32, MutAnyOrigin],   # [positions, n_emo, E+1]
-    rows: UnsafePointer[Float32, MutAnyOrigin],    # [S, D]
-    dirs: UnsafePointer[Float32, MutAnyOrigin],    # [E, D]: this slot's unit directions
-    start_pos_arg: Int32,
-    S_arg: Int32,
-    E_arg: Int32,
-    n_emo_arg: Int32,
-    slot_arg: Int32,
-):
-    """One block per (row, output). Outputs 0..E-1 are row . dirs[e]; output E is the row's L2 norm. A fixed
-    per-thread stride and a fixed tree make every result deterministic."""
-    var E = Int(E_arg)
-    var b = Int(block_idx.x)
-    var r = b // (E + 1)
-    var e = b % (E + 1)
-    if r >= Int(S_arg):
-        return
-    var acc_s = stack_allocation[dtype=DType.float32, address_space=AddressSpace.SHARED](row_major[RO_TPB]())
-    var tid = Int(thread_idx.x)
-    var acc = Float32(0.0)
-    var i = tid
-    if e < E:
-        while i < D:
-            acc += rows[r * D + i] * dirs[e * D + i]
-            i += RO_TPB
-    else:
-        while i < D:
-            var x = rows[r * D + i]
-            acc += x * x
-            i += RO_TPB
-    acc_s[tid] = acc
-    barrier()
-    var stride = RO_TPB // 2
-    while stride > 0:
-        if tid < stride:
-            acc_s[tid] = acc_s[tid] + acc_s[tid + stride]
-        barrier()
-        stride //= 2
-    if tid == 0:
-        var v = acc_s[0]
-        if e == E:
-            v = sqrt(v)
-        var pos = Int(start_pos_arg) + r
-        table[(pos * Int(n_emo_arg) + Int(slot_arg)) * (E + 1) + e] = v
-
-
-def readout_mark_kernel(valid: UnsafePointer[UInt8, MutAnyOrigin], start_pos_arg: Int32, n_arg: Int32):
-    """valid[start_pos + i] = 1 for i < n."""
-    var i = Int(block_idx.x) * Int(block_dim.x) + Int(thread_idx.x)
-    if i < Int(n_arg):
-        valid[Int(start_pos_arg) + i] = UInt8(1)
 
 
 def readout_rows(mut self: GemmaEngine, d_rows: UInt64, S: Int, start_pos: Int, layer: Int, stage: Bool) raises:
@@ -90,19 +27,12 @@ def readout_rows(mut self: GemmaEngine, d_rows: UInt64, S: Int, start_pos: Int, 
     var n_emo = len(self.ro_emo_layers)
     for slot in range(n_emo):
         if self.ro_emo_layers[slot] == layer:
-            var kp = self.ctx.compile_function[readout_proj_kernel]()
-            self.ctx.enqueue_function(
-                kp, _as_f32_ptr(self.d_ro_emo), _as_f32_ptr(d_rows),
-                _as_f32_ptr(self.d_ro_dirs + UInt64(slot * self.ro_E * D * 4)),
-                Int32(start_pos), Int32(S), Int32(self.ro_E), Int32(n_emo), Int32(slot),
-                grid_dim=S * (self.ro_E + 1), block_dim=RO_TPB,
+            readout_launch_proj(
+                self.ctx, self.d_ro_emo, d_rows, self.d_ro_dirs + UInt64(slot * self.ro_E * D * 4),
+                start_pos, S, self.ro_E, n_emo, slot,
             )
     if layer == self.ro_emo_last:
-        var km = self.ctx.compile_function[readout_mark_kernel]()
-        self.ctx.enqueue_function(
-            km, _ro_u8(self.d_ro_emo_valid), Int32(start_pos), Int32(S),
-            grid_dim=(S + RO_TPB - 1) // RO_TPB, block_dim=RO_TPB,
-        )
+        readout_launch_mark(self.ctx, self.d_ro_emo_valid, start_pos, S)
 
 
 def readout_configure(
@@ -161,12 +91,8 @@ def readout_project_rows_debug(mut self: GemmaEngine, rows_host: UInt64, n: Int,
     var d_rows = cuda_malloc(n * D * 4)
     var d_out = cuda_malloc(n * (self.ro_E + 1) * 4)
     cuda_memcpy(d_rows, rows_host, n * D * 4, 1)
-    var kp = self.ctx.compile_function[readout_proj_kernel]()
-    self.ctx.enqueue_function(
-        kp, _as_f32_ptr(d_out), _as_f32_ptr(d_rows),
-        _as_f32_ptr(self.d_ro_dirs + UInt64(slot * self.ro_E * D * 4)),
-        Int32(0), Int32(n), Int32(self.ro_E), Int32(1), Int32(0),
-        grid_dim=n * (self.ro_E + 1), block_dim=RO_TPB,
+    readout_launch_proj(
+        self.ctx, d_out, d_rows, self.d_ro_dirs + UInt64(slot * self.ro_E * D * 4), 0, n, self.ro_E, 1, 0,
     )
     self.ctx.synchronize()
     cuda_memcpy(out_host, d_out, n * (self.ro_E + 1) * 4, 2)

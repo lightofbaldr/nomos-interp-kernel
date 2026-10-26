@@ -45,6 +45,7 @@ from lib.sampling import (
     mask_tool_grammar, mask_special_tokens,
 )
 from lib.spec_draft_e2b import e2b_draft_contract_ok
+from lib.engine_readout import readout_rows
 from std.ffi import external_call, c_size_t
 from std.math import sqrt
 from std.memory import UnsafePointer
@@ -877,6 +878,7 @@ def run_inference_impl(
                     cuda_sync()
                 else:
                     gpu_residual_add_mojo(self.ctx, self.d_x_buf, self.d_steer, D)
+            readout_rows(self, self.d_x_buf, 1, pos, layer, True)
 
         # Prefill fast-path: only the last prompt token onward needs logits.
         # The KV cache for this position is already populated by the layer

@@ -47,6 +47,7 @@ from std.time import perf_counter_ns
 from std.memory import UnsafePointer
 from std.collections import List
 from lib.dflash_drafter import DFlashDrafter, DFLASH_CTX_BATCH, DFLASH_TAPS, dflash_append_context_rows
+from lib.engine_readout import readout_rows
 
 
 def steer_batch_rows(mut self: GemmaEngine, d_x_b: UInt64, S: Int, start_pos: Int, layer: Int) raises:
@@ -1404,6 +1405,7 @@ def prefill_batch_impl(
                             )
                     cuda_sync()
         steer_batch_rows(self, d_x_b, S, start_pos, layer)
+        readout_rows(self, d_x_b, S, start_pos, layer, self.ro_stage_verify)
 
     if dflash_capture:
         var dp = UnsafePointer[DFlashDrafter, MutUntrackedOrigin](

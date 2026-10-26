@@ -335,5 +335,121 @@ class Configure(unittest.TestCase):
         np.testing.assert_allclose(got[:, E], norm, rtol=1e-5)
 
 
+def offline_rows(k, ids, layers, start_pos=0):
+    """nomos_debug_prefill_layers: the residual rows [n, len(layers), D] of ONE prefill_batch_impl call at start_pos.
+    start_pos 0 resets the KV; otherwise the cache must hold exactly start_pos tokens. At a steer layer the rows are
+    pre-steer. The call runs the readout hook too, so read the table before capturing."""
+    ids = np.ascontiguousarray(ids, np.int32)
+    lay = np.ascontiguousarray(layers, np.int32)
+    out = np.zeros((len(ids), len(lay), D), np.float32)
+    rc = k.lib.nomos_debug_prefill_layers(k.h, ids.ctypes.data, len(ids), start_pos, lay.ctypes.data, len(lay),
+                                          out.ctypes.data)
+    assert rc == 0, f"nomos_debug_prefill_layers rc={rc}"
+    return out
+
+
+class EmotionHooks(unittest.TestCase):
+    """Every path is compared bit for bit with the hook's own kernel on rows from the same arithmetic (ruling R2)."""
+
+    def setUp(self):
+        self.k = kernel()
+        self.k.lib.nomos_clear_steer(self.k.h)
+        self.dirs = unit_dirs(3, seed=3)
+        self.assertEqual(configure(self.k, dirs=self.dirs), 0)
+        self.assertEqual(self.k.lib.nomos_readout_begin_turn(self.k.h), 0)
+
+    def assert_slots_exact(self, emo, rows):
+        """emo [n, n_emo, E+1] from the table equals the hook kernel on rows [n, n_emo, D], bit for bit (ruling R2,
+        review R8): the rows, the table and the reference are all finite, and their float32 bit patterns are identical."""
+        assert_finite(rows, "the residual rows")
+        for slot in range(rows.shape[1]):
+            assert_bits_equal(emo[:, slot, :], project_rows(self.k, rows[:, slot, :], slot), f"slot {slot}")
+
+    def test_single_batch_prompt_is_the_hook_kernel_on_the_offline_rows(self):
+        """Within one chunk, the prompt's rows [0, n-1) are one prefill_batch_impl call of n-1 rows, as in the
+        offline capture. The last token runs in the decode loop."""
+        k, ids = self.k, PROMPT[:200]
+        k.prefill(ids)
+        rc, r = read(k, 0, len(ids))
+        self.assertEqual(rc, 0)
+        self.assertTrue(r["emo_valid"].all())
+        self.assert_slots_exact(r["emo"][:-1], offline_rows(k, ids[:-1], EMO))
+
+    def test_chunked_prompt_is_the_hook_kernel_on_the_same_chunks(self):
+        """The serve chunks long prompts at 256. NOMOS_CHUNK_NO_PREFIX=1 sends the later chunks through the per-token
+        attention route, which an offline capture at the same start positions reproduces."""
+        k, ids = self.k, PROMPT[:600]
+        with env(NOMOS_PREFILL_CHUNK="256", NOMOS_CHUNK_NO_PREFIX="1"):
+            k.prefill(ids)
+        rc, r = read(k, 0, len(ids))
+        self.assertEqual(rc, 0)
+        self.assertTrue(r["emo_valid"].all())
+        rows = np.concatenate([offline_rows(k, ids[a:b], EMO, start_pos=a)
+                               for a, b in ((0, 256), (256, 512), (512, 599))])
+        self.assert_slots_exact(r["emo"][:-1], rows)
+
+    def test_continuation_is_the_hook_kernel_on_offset_rows(self):
+        k = self.k
+        k.prefill(PROMPT[:200])
+        k.prefill_cont(PROMPT[200:260])
+        rc, r = read(k, 200, 60)
+        self.assertEqual(rc, 0)
+        self.assertTrue(r["emo_valid"].all())
+        self.assertEqual(k.set_len(200), 0)
+        self.assert_slots_exact(r["emo"][:-1], offline_rows(k, PROMPT[200:259], EMO, start_pos=200))
+
+    def test_decode_rows_are_the_hook_kernel_on_the_live_taps(self):
+        """With emotion layers on drafter tap layers and no steering, each decode step's live taps are the same
+        forward's rows at those layers."""
+        k = self.k
+        ensure_drafter(k)
+        layers = [13, 25, 37]
+        self.assertEqual(configure(k, emo=layers, dirs=unit_dirs(3, seed=8)), 0)
+        self.assertEqual(k.lib.nomos_readout_begin_turn(k.h), 0)
+        taps = np.zeros((len(TAPS), D), np.float32)
+        slots = [TAPS.index(layer) for layer in layers]
+        lg, pos = k.prefill(PROMPT[:64]), 63
+        for _ in range(12):
+            self.assertEqual(k.lib.nomos_dflash_get_taps(k.h, taps.ctypes.data), 0)
+            rc, r = read(k, pos, 1)
+            self.assertEqual((rc, int(r["emo_valid"][0])), (0, 1))
+            self.assert_slots_exact(r["emo"], taps[None, slots, :])
+            lg, pos = k.step(int(np.argmax(lg))), pos + 1
+
+    def test_steer_layer_reads_post_steer(self):
+        k, ids = self.k, PROMPT[:200]
+        vec = np.ascontiguousarray(unit_dirs(1, seed=4)[0, 0] * 6.0, np.float32)
+        self.assertEqual(k.lib.nomos_set_steer(k.h, 24, vec.ctypes.data), 0)
+        self.assertEqual(k.lib.nomos_set_steer_from(k.h, 0), 0)
+        try:
+            k.prefill(ids)
+            rc, r = read(k, 0, len(ids))
+            rows = offline_rows(k, ids[:-1], EMO)   # still steered: L29 carries it; the L24 capture is pre-steer
+        finally:
+            k.lib.nomos_clear_steer(k.h)
+        self.assertEqual(rc, 0)
+        rows[:, 1, :] += vec                         # the steering point's fp32 add, h + v
+        self.assert_slots_exact(r["emo"][:-1], rows)
+
+    def test_positions_not_recomputed_this_turn_are_invalid(self):
+        k = self.k
+        k.prefill(PROMPT[:200])
+        self.assertEqual(k.lib.nomos_readout_begin_turn(k.h), 0)
+        k.prefill_cont(PROMPT[200:250])
+        rc, r = read(k, 0, 250)
+        self.assertEqual(rc, 0)
+        self.assertFalse(r["emo_valid"][:200].any())
+        self.assertTrue(r["emo_valid"][200:].all())
+
+    def test_positions_past_the_cache_are_invalid(self):
+        k = self.k
+        k.prefill(PROMPT[:200])
+        self.assertEqual(k.set_len(150), 0)
+        rc, r = read(k, 0, 200)
+        self.assertEqual(rc, 0)
+        self.assertTrue(r["emo_valid"][:150].all())
+        self.assertFalse(r["emo_valid"][150:].any())
+
+
 if __name__ == "__main__":
     unittest.main()
