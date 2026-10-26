@@ -1138,6 +1138,9 @@ def nomos_debug_prefill_all_layers(
         return Int32(0)
     if ids_ptr == 0 or n == Int32(0):
         return Int32(-1)
+    var saved_live = engine_ptr[0].d_eagle3_tap_out
+    var saved_rows = engine_ptr[0].d_eagle3_tap_rows_out
+    var saved_layers = engine_ptr[0].drafter_tap_layers.copy()
     var d_rows = UInt64(0)
     try:
         var prompt = List[Int]()
@@ -1153,11 +1156,11 @@ def nomos_debug_prefill_all_layers(
             eagle_tap_rows=Int(n),
         )
         cuda_memcpy(UInt64(out_ptr), d_rows, Int(n) * TOTAL_LAYERS * D * 4, 2)
-        engine_ptr[0].clear_drafter_taps()
+        engine_ptr[0].configure_drafter_taps(saved_live, saved_rows, saved_layers)
         cuda_free(d_rows)
         return Int32(0)
     except e:
-        engine_ptr[0].clear_drafter_taps()
+        engine_ptr[0].configure_drafter_taps(saved_live, saved_rows, saved_layers)
         if d_rows != 0:
             cuda_free(d_rows)
         print("[nomos_debug_prefill_all_layers EXC]", e)
@@ -3983,6 +3986,8 @@ def nomos_set_steer(handle: Int64, layer: Int32, vec_ptr: Int64) -> Int32:
             engine[0].d_steer = cuda_malloc(D * 4)
         cuda_memcpy(engine[0].d_steer, UInt64(vec_ptr), D * 4, 1)   # 1 = HostToDevice
         engine[0].steer_layer = Int(layer)
+        engine[0].steer_ablate = False           # a set after an ablate is additive (it stayed ablating before)
+        engine[0].steer_alpha = Float32(0.0)
         engine[0].steer_active = True
         engine[0].mark_live_desync()   # KV already held was computed without this steering (ledger R17)
         return Int32(0)
