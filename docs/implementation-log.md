@@ -29,3 +29,8 @@ Implementation and verification evidence will be appended per task. GPU work is 
 - Added 13 fixtures emitted by the actual built Python serve (base/spec all, reuse, stripped BOS, budget, workspace unavailable, plus metadata-only, signed steering-only and emotion-only), with producer file hashes and kernel commit. Every fixture passes TurnCheck unchanged. Negative witnesses alter an ordinary completion ID or reused count and refuse.
 - Included the real e2e record's summary-only response and range/count checks. result.json is an aggregate, not full raw SSE; the CPU producer fixture supplies that missing coverage. No cross-plan mismatch found, and no kernel change needed.
 - The generator writes JSON only to stdout, fixes completion timestamps and uses CPU fake engines. Tests consume a checked-in fixture and need no Python, tokenizer or kernel checkout.
+
+### Task 3
+
+- Provider tests observed RED before src/provider.ts existed, then GREEN. All 25 CPU tests and typecheck pass with the pinned real Pi packages.
+- The provider implementation follows the reviewed plan: stock stream, caller hooks first, awaited intake, one terminal handoff, session/last-message matching to avoid compaction theft, signed steering unchanged. No API-signature deviation needed.
