@@ -2,7 +2,8 @@
   pixi run --no-install python3 tools/steerdiff_export.py ~/nomos_data/steering-diff/RUN [--display-k 8]
 Writes RUN/ui/index.json and RUN/ui/PROMPT/ARM.MODE.json. Every comparison file carries steerdiff.compare's own document
 (nomos.steerdiff/1), so the view only renders and never re-derives a delta or a bound. vocab decodes every token id
-the view can show (the prompt, both arms' tokens and every candidate), and text holds each arm's reasoning and answer."""
+the view can show (the prompt, both arms' tokens and every candidate), text holds each arm's reasoning and answer,
+and scenario carries the capture's own scenario record with its provenance (None for a capture without one)."""
 from __future__ import annotations
 
 import argparse
@@ -35,6 +36,8 @@ def export(out: str, tok, display_k: int = 8) -> str:
     ident, gates, runs = steerdiff_report.load(out)
     ui = os.path.join(out, "ui")
     os.makedirs(ui)
+    # Each scenario as the capture recorded it (its provenance included), titled; {} for a capture without them.
+    scenarios = {sc["key"]: dict(sc, title=ident["prompts"].get(sc["key"])) for sc in ident.get("scenarios", [])}
     comparisons = []
     for prompt in ident["prompts"]:
         for mode in ("free", "matched"):
@@ -52,7 +55,8 @@ def export(out: str, tok, display_k: int = 8) -> str:
                         ids.update(x["id"] for x in layer["candidates"])
                 rel = f"{prompt}/{arm['name']}.{mode}.json"
                 _write(os.path.join(ui, rel), {
-                    "schema": SCHEMA, "prompt": prompt, "arm": arm, "mode": mode, "comparison": c,
+                    "schema": SCHEMA, "prompt": prompt, "scenario": scenarios.get(prompt), "arm": arm, "mode": mode,
+                    "comparison": c,
                     "vocab": {str(i): tok.decode([i]) for i in sorted(ids)},
                     "text": {side: {ch: _channel(tok, r, ch) for ch in ("reasoning", "answer")}
                              for side, r in (("baseline", base), ("steered", doc))}})
@@ -60,7 +64,8 @@ def export(out: str, tok, display_k: int = 8) -> str:
                                     "divergence": c["divergence"]})
     _write(os.path.join(ui, "index.json"), {
         "schema": SCHEMA, "run": os.path.basename(os.path.normpath(out)), "identity": ident["identity"],
-        "settings": ident["settings"], "prompts": ident["prompts"], "arms": ident["arms"], "gates": gates,
+        "settings": ident["settings"], "prompts": ident["prompts"], "scenarios": scenarios, "arms": ident["arms"],
+        "gates": gates,
         "display_k": display_k, "comparisons": comparisons})
     return ui
 

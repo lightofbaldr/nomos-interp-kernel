@@ -451,5 +451,43 @@ class ReportSigns(unittest.TestCase):
         self.assertIn("- emotion L24: up joyful +2; down (none)\n", text)
 
 
+
+class ExportScenarios(unittest.TestCase):
+    """Codex 10-26: the view shows provenance from the bundle, never guessed from a scenario's name."""
+
+    def test_each_comparison_carries_its_scenario_and_the_index_keys_them_by_prompt(self):
+        import tempfile
+        import steerdiff_export as X
+        src = {"path": "/x/episode.json", "label": "lie", "classifier": "overclaim", "answer_start": 9}
+        with tempfile.TemporaryDirectory() as out:
+            synthetic_capture(out)
+            with open(os.path.join(out, "identity.json")) as f:
+                ident = json.load(f)
+            ident["scenarios"] = [{"key": "S1", "onset": 1, "modes": ["free", "matched"], "max_new": 8, "P": 2,
+                                   "reference_len": None, "source": src}]
+            with open(os.path.join(out, "identity.json"), "w") as f:
+                json.dump(ident, f)
+            X.export(out, ExportTok(), display_k=2)
+            with open(os.path.join(out, "ui", "index.json")) as f:
+                index = json.load(f)
+            with open(os.path.join(out, "ui", "S1", "joy_0.5.matched.json")) as f:
+                comp = json.load(f)
+        self.assertEqual(index["scenarios"]["S1"]["source"], src)
+        self.assertEqual(index["scenarios"]["S1"]["title"], "a prompt")
+        self.assertEqual(comp["scenario"], index["scenarios"]["S1"])
+
+    def test_a_capture_without_scenarios_says_so(self):
+        import tempfile
+        import steerdiff_export as X
+        with tempfile.TemporaryDirectory() as out:
+            synthetic_capture(out)
+            X.export(out, ExportTok(), display_k=2)
+            with open(os.path.join(out, "ui", "index.json")) as f:
+                index = json.load(f)
+            with open(os.path.join(out, "ui", "S1", "joy_0.5.free.json")) as f:
+                comp = json.load(f)
+        self.assertEqual((index["scenarios"], comp["scenario"]), ({}, None))
+
+
 if __name__ == "__main__":
     unittest.main()
