@@ -202,5 +202,61 @@ class ContinuityWithWsdiffV2(unittest.TestCase):
             self.assertEqual(C.build_prompt(serve, eng, text), openings[key], key)
 
 
+
+class Report(unittest.TestCase):
+    """tools/steerdiff_report.py on a synthetic capture: the gates line, the divergence column, the lexicon table and a
+    matched-replay movers line, decoded through a stand-in tokenizer."""
+
+    def test_the_report_names_gates_divergence_lexicons_and_movers(self):
+        import tempfile
+        import steerdiff
+        import steerdiff_report as R
+
+        class Tok:
+            def decode(self, ids, skip_special_tokens=False):
+                return "".join(f"<{i}>" for i in ids)
+
+        settings = {"emotion": {"layers": [20, 24], "names": ["joyful", "sad"]}, "workspace": {"layers": [36, 48], "k": 4}}
+        top_a, top_b = [[10, 5.0], [11, 4.0], [12, 3.0], [13, 2.0]], [[11, 6.0], [14, 4.5], [10, 3.5], [15, 1.0]]
+
+        def doc(name, mode, tokens, top, joy):
+            recs = [{"pos": i, "token": t, "source": "prompt", "channel": None, "missing": [],
+                     "emotion": {"proj": [[0.0, 0.0], [0.0, 0.0]], "norm": [1.0, 1.0]}, "workspace": None}
+                    for i, t in enumerate([1, 2])]
+            recs += [{"pos": 2 + j, "token": t, "source": "generated", "channel": "answer", "missing": [],
+                      "emotion": {"proj": [[0.0, 0.0], [joy, 0.0]], "norm": [1.0, 1.0]}, "workspace": {"top": [top, top]}}
+                     for j, t in enumerate(tokens)]
+            d = steerdiff.run_doc(run_id=f"S1.{name}.{mode}", arm={"name": name, "steer": None}, mode=mode,
+                                  reference="S1.base.free" if mode == "matched" else None, prompt_ids=[1, 2],
+                                  tokens=tokens, records=recs, settings=settings, identity={"x": 1})
+            d.update(saw_stop=False, lexicons=steerdiff.lexicon_counts(d, {"celebration": [14]}, display_k=2))
+            return d
+
+        with tempfile.TemporaryDirectory() as out:
+            ident = {"identity": {"library_sha256": "c660" * 16, "library_build_id": "b1", "directions": "d" * 64,
+                                  "lens": "e" * 64, "tokenizer_sha256": "f" * 64, "steer_layer": 24, "schedule": "M=1",
+                                  "route": {}},
+                     "settings": settings, "prompts": {"S1": "a prompt"}, "max_new": 8, "system": "s",
+                     "provenance": {}, "lexicons": {"celebration": [14]},
+                     "arms": [{"name": "base", "kind": None, "s": None}, {"name": "joy_0.5", "kind": "joyful", "s": 0.5}]}
+            os.makedirs(os.path.join(out, "S1", "runs"))
+            for name, value in (("identity.json", ident),
+                                ("gates.json", {"S1": {"G1_repeat": {"pass": True, "detail": ""}}})):
+                with open(os.path.join(out, name), "w") as f:
+                    json.dump(value, f)
+            runs = [doc("base", "free", [5] * 8, top_a, 0.0), doc("joy_0.5", "free", [5, 5, 6] + [5] * 5, top_b, 2.0),
+                    doc("base", "matched", [5] * 8, top_a, 0.0), doc("joy_0.5", "matched", [5] * 8, top_b, 2.0)]
+            for d in runs:
+                with open(os.path.join(out, "S1", "runs", f"{d['arm']['name']}.{d['mode']}.json"), "w") as f:
+                    json.dump(d, f)
+            text = R.report(out, Tok(), display_k=2)
+        self.assertIn("Gates: G1_repeat **PASS**.", text)
+        self.assertIn("| joy_0.5 | token 2: '<5>' -> '<6>' | False |", text)
+        self.assertIn("| joy_0.5 | free | 8/8 | 8/8 |", text)
+        self.assertIn("- L36 up: '<11>' +2 (8)", text)
+        self.assertIn("- L36 entered the top 2: '<14>' x8", text)
+        self.assertIn("- emotion L24: up joyful +2", text)    # only the capture's own emotion layers
+
+
 if __name__ == "__main__":
     unittest.main()
