@@ -86,6 +86,14 @@ nomos_prefill_mm
 nomos_prefill_mm_mrope
 nomos_pwrite
 nomos_read
+nomos_readout_begin_turn
+nomos_readout_configure
+nomos_readout_debug_stage
+nomos_readout_debug_topk
+nomos_readout_disable
+nomos_readout_project_rows
+nomos_readout_read
+nomos_readout_workspace_commit
 nomos_recv
 nomos_reset_kv
 nomos_reset_violations
