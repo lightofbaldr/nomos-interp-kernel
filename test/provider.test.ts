@@ -79,6 +79,41 @@ test("provider: its events equal the stock provider's for the same stream, and n
 	}
 });
 
+test("provider: fragmented tool calls and toolUse completion are identical to the stock stream", async () => {
+	const serve = await fakeServe(() => ({ chunks: [
+		chunk("chatcmpl-tool", { role: "assistant" }),
+		chunk("chatcmpl-tool", { tool_calls: [{ index: 0, id: "call_lookup", type: "function", function: { name: "lookup", arguments: '{"city":' } }] }),
+		chunk("chatcmpl-tool", { tool_calls: [{ index: 0, function: { arguments: '"Lisbon"}' } }] }),
+		chunk("chatcmpl-tool", {}, "tool_calls"),
+	] }));
+	try {
+		const requests = new ReadoutRequests();
+		const models = createModels();
+		models.setProvider(nomosProvider({ baseUrl: serve.url, requests }));
+		models.setProvider(createProvider({
+			id: "plain", baseUrl: serve.url,
+			auth: { apiKey: { name: "plain", resolve: async () => ({ auth: { apiKey: "x" } }) } },
+			models: [{ ...nomosModel({ baseUrl: serve.url }), provider: "plain" }],
+			api: { stream: stockStream as any, streamSimple: stockSimple as any },
+		}));
+		const c = context();
+		const log = sinkLog();
+		requests.register("tool", { block: BLOCK, sink: log.sink, last: c.messages.at(-1) });
+		const ours = await run(models, models.getModel(NOMOS_PROVIDER, NOMOS_MODEL)!, { context: c, sessionId: "tool" });
+		const stock = await run(models, models.getModel("plain", NOMOS_MODEL)!);
+		assert.deepEqual(ours.events, stock.events);
+		assert.deepEqual(ours.message.content, stock.message.content);
+		assert.equal(ours.message.stopReason, "toolUse");
+		assert.ok(ours.events.includes("toolcall_delta"));
+		assert.deepEqual(ours.message.content[0], { type: "toolCall", id: "call_lookup", name: "lookup", arguments: { city: "Lisbon" } });
+		await waitFor(() => log.ends.length === 1);
+		assert.equal(log.ends[0].message.stopReason, "toolUse");
+		assert.equal(log.ends[0].afterChunks, 4);
+	} finally {
+		await serve.close();
+	}
+});
+
 test("provider: the request carries the block, every chunk reaches the sink in order, and the sink sees the end last", async () => {
 	const serve = await fakeServe(readoutHandler(6, 4));
 	try {

@@ -50,3 +50,17 @@ Implementation and verification evidence will be appended per task. GPU work is 
 - Prime was notified (local-comms 1400) and explicitly released the GPU, with no concurrent CPU-heavy work. The GPU attempt is not yet recorded as passed.
 - Launcher deviation: a fresh exclusively created run directory replaces deletion of the plan's reusable store/database. The shell delegates to a small Python supervisor for checked environment resolution, pinned kernel/library identity, PSI/tmp/port admission, bounded readiness and cleanup of only its own process groups. A separate systemd user unit remains inside with_serve_down, as the brief requires.
 - The conversation retains every plan assertion, including real turn-2 KV reuse; it additionally writes its summary/counts to result.json. CPU witnesses cover bad route, existing run, pressure and failed environment resolution. Full suite: 52/52 plus typecheck.
+
+### Task 6 result
+
+- One attempt, clean source 028f684; private run `~/nomos_data/readout-spine/pi-e2e-20261026-plan3-a/`, wrapper logs `~/nomos_data/readout-spine/logs/pi-e2e-20261026-plan3-a/`.
+- `PI E2E OK`. Own systemd unit `codex-pi-e2e-20261026a.service`, exit 0, 36.247 s, memory peak 8.4G with swap 0B. Wrapper exit 0. Serve down 15:32:13 CDT, command exited 15:32:49, production serve READY 15:33:12; health ready/spec/KV store open.
+- Both turns complete: first reused [0,0], prompt [0,74], generated [74,401], 401 records; second reused [0,401], prompt [401,412], generated [412,668], 267 records. Every generated record has both readouts; host.errors empty. Bridge delivered 158 events. Signed steering is CPU-covered; this GPU check is the plan's unsteered two-turn test, not a steering efficacy experiment.
+- Result SHA256 `868b3bce92c522a24ddd98a1c6df8a7d40a42347e2dce876d1e1f24493c820c6`; launch `2bf01fe06aaa25f27b1a27e907e09085941877442398548445b59e4ab3b5d203`; run.log `4ae2004bd8e36346717b02aa99da1b25b4419a3bb24948203e35df6db32985b8`; wrapper.out `9a889c144521125f6b66ddb20550d0811b85fa4161b9aa9f572d7f1445b3cfe2`.
+- Production wrapper SHA256 `f2a3206e150ee09789122675f00441720d32fb939c243e339438d8f0773f3918`. Kernel remains clean at 5e4a100; library SHA256 `c660097f7bec116210c06ed67e83bc07139b8eea3da850cec7d45d9a1f0628f9`, unchanged. No kernel build, source/library edit or dependency install there.
+- Prime notified of success and GPU release (local-comms 1402). No further GPU work.
+
+### Final integration pass
+
+- Added explicit fragmented-tool-call parity against the stock provider and a real SQLite close/reopen test (records, settings and signed steering retained; projections excluded from later model messages). Both pass without implementation changes.
+- Expanded integration docs: independent chats versus the singleton root, lifetime and shutdown, reconnect ordering, report traversal, no duplicate counting, interpretation and deployment limits.

@@ -20,7 +20,7 @@ Scope: Implement all six tasks on a review branch in private GitHub lightofbaldr
   EVIDENCE: pending
 
 - [ ] G4: Durable lifecycle, fork, continuity, abort, close races and bridge ordering tests pass together.
-  CHECK: node --test --test-reporter=tap test/extension.test.ts test/bridge.test.ts
+  CHECK: node --test --test-reporter=tap test/extension.test.ts test/bridge.test.ts test/sqlite.test.ts
   EXPECT: # fail 0
   EVIDENCE: pending
 
@@ -29,8 +29,8 @@ Scope: Implement all six tasks on a review branch in private GitHub lightofbaldr
   EXPECT: # fail 0
   EVIDENCE: pending
 
-- [ ] G6: Task 6 is coordinated with Prime, isolated from production, passes its real two-turn Pi bridge assertions, and restores the serve.
-  EVIDENCE: pending; manual because this launches shared GPU work only after coordination and health checks.
+- [x] G6: Task 6 is coordinated with Prime, isolated from production, passes its real two-turn Pi bridge assertions, and restores the serve.
+  EVIDENCE: 2026-10-26, source 028f684, local-comms 1400 coordination and 1402 GPU release. Separate systemd user unit inside with_serve_down; run.log sha256 4ae2004bd8e36346717b02aa99da1b25b4419a3bb24948203e35df6db32985b8 contains PI E2E OK; unit and wrapper exit 0. Result 868b3bce92c522a24ddd98a1c6df8a7d40a42347e2dce876d1e1f24493c820c6: 401/267 complete records, second turn reused 401, both readouts on every generated record, no host errors. Production serve READY 15:33:12 CDT and health ready/spec/KV store open. Paths and full identity in docs/implementation-log.md.
 
 - [ ] G7: Every commit has repo-local Light of Baldr identity, the review branch is pushed without merging, deviations and evidence are reported to Prime, and the kernel checkout is unchanged.
   EVIDENCE: pending
