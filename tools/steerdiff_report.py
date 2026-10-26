@@ -42,6 +42,22 @@ def channel_text(tok, doc, channel: str, limit: int = 420) -> str:
     return text[:limit] + ("..." if len(text) > limit else "")
 
 
+def _channels(runs, prompt) -> list:
+    """The reply channels (reasoning, answer) present among a prompt's generated records, in that order."""
+    seen = {r["channel"] for (p, _, _), doc in runs.items() if p == prompt
+            for r in doc["records"] if r["source"] == "generated"}
+    return [ch for ch in ("reasoning", "answer") if ch in seen]
+
+
+def _signed(names, row, n_up: int = 4, n_down: int = 3) -> str:
+    """The largest rises and the largest falls, each list holding only its own sign."""
+    order = sorted(range(len(names)), key=lambda e: row[e])
+    up = [e for e in order[::-1] if row[e] > 0][:n_up]
+    down = [e for e in order if row[e] < 0][:n_down]
+    fmt = lambda es: ", ".join(f"{names[e]} {row[e]:+.3g}" for e in es) or "(none)"   # noqa: E731
+    return f"up {fmt(up)}; down {fmt(down)}"
+
+
 def label(tok, i: int) -> str:
     return repr(tok.decode([int(i)]))
 
@@ -105,6 +121,21 @@ def report(out: str, tok, display_k: int = DISPLAY_K) -> str:
                 cells = [f"{lx[lex][ws_layers.index(l)]}/{lx['positions'][ws_layers.index(l)]}"
                          for lex in ident["lexicons"] for l in show]
                 L.append(f"| {arm['name']} | {mode} | " + " | ".join(cells) + " |")
+        chans = _channels(runs, prompt)
+        if len(chans) > 1:                       # thinking and answering: the decision and the reply, read apart
+            L += ["", "### Lexicons by channel", "",
+                  "| arm | mode | channel | " + " | ".join(f"{lex} L{l}" for lex in ident["lexicons"] for l in show) + " |",
+                  "|---|---|---|" + "---|" * (len(ident["lexicons"]) * len(show))]
+            for mode in ("free", "matched"):
+                for arm in ident["arms"]:
+                    doc = runs.get((prompt, arm["name"], mode))
+                    if doc is None:
+                        continue
+                    for ch in chans:
+                        lx = steerdiff.lexicon_counts(doc, ident["lexicons"], display_k, channels={ch})
+                        cells = [f"{lx[lex][ws_layers.index(l)]}/{lx['positions'][ws_layers.index(l)]}"
+                                 for lex in ident["lexicons"] for l in show]
+                        L.append(f"| {arm['name']} | {mode} | {ch} | " + " | ".join(cells) + " |")
         ref = runs.get((prompt, "base", "matched"))
         if ref is None:
             continue
@@ -118,8 +149,9 @@ def report(out: str, tok, display_k: int = DISPLAY_K) -> str:
             L.append("")
             for layer in show:
                 mv = steerdiff.movers(c, ws_layers.index(layer))
-                up = [m for m in mv if m["mean_delta"] is not None and m["count"] >= 8][:6]
-                down = [m for m in reversed(mv) if m["mean_delta"] is not None and m["count"] >= 8][:6]
+                up = [m for m in mv if m["mean_delta"] is not None and m["mean_delta"] > 0 and m["count"] >= 8][:6]
+                down = [m for m in reversed(mv) if m["mean_delta"] is not None and m["mean_delta"] < 0
+                        and m["count"] >= 8][:6]
                 entered = sorted((m for m in mv if m["entered"]), key=lambda m: -m["entered"])[:6]
                 L.append(f"- L{layer} up: " + ", ".join(f"{label(tok, m['id'])} {m['mean_delta']:+.3g} ({m['count']})"
                                                         for m in up))
@@ -127,12 +159,13 @@ def report(out: str, tok, display_k: int = DISPLAY_K) -> str:
                                                           for m in down))
                 L.append(f"- L{layer} entered the top {display_k}: " + ", ".join(
                     f"{label(tok, m['id'])} x{m['entered']}" for m in entered))
-            means = steerdiff.emotion_means(c)
-            for layer in emo_show:
-                row = means[emo_layers.index(layer)]
-                order = sorted(range(len(names)), key=lambda e: row[e])
-                L.append(f"- emotion L{layer}: up " + ", ".join(f"{names[e]} {row[e]:+.3g}" for e in order[::-1][:4])
-                         + "; down " + ", ".join(f"{names[e]} {row[e]:+.3g}" for e in order[:3]))
+            for ch in (chans if len(chans) > 1 else [None]):
+                means = steerdiff.emotion_means(c, channels=None if ch is None else {ch})
+                if means is None:
+                    continue
+                for layer in emo_show:
+                    L.append(f"- emotion L{layer}{'' if ch is None else f' ({ch})'}: "
+                             + _signed(names, means[emo_layers.index(layer)]))
             L.append("")
     return "\n".join(L) + "\n"
 

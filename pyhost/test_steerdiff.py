@@ -187,6 +187,30 @@ class Summaries(unittest.TestCase):
         self.assertEqual(sd.emotion_means(self.comparison()), [[0.0, 0.0], [1.0, -0.5]])
 
 
+class Channels(unittest.TestCase):
+    """The decision (the thinking tail) and the lie (the answer) are read separately."""
+
+    def mixed(self, name, emo):
+        r = run(name, [1, 2], ws=[TOP_A, TOP_B], emo=emo)
+        r["records"][3] = dict(r["records"][3], channel="reasoning")
+        return r
+
+    def test_lexicon_counts_can_read_one_channel(self):
+        r = self.mixed("base", None)
+        self.assertEqual(sd.lexicon_counts(r, {"help": [10]}, display_k=2, channels={"reasoning"}),
+                         {"positions": [1, 1], "help": [1, 0]})
+        self.assertEqual(sd.lexicon_counts(r, {"help": [10]}, display_k=2, channels={"answer"})["positions"], [1, 1])
+
+    def test_emotion_means_can_read_one_channel(self):
+        a = self.mixed("base", [[0.0, 0.0], [0.0, 0.0]])
+        b = self.mixed("joy", [[0.0, 0.0], [1.0, 0.0]])
+        b["records"][4] = dict(b["records"][4], emotion={"proj": [[0.0, 0.0], [3.0, 0.0]], "norm": [1.0, 1.0]})
+        c = sd.compare(a, b, display_k=2)
+        self.assertEqual(sd.emotion_means(c, channels={"reasoning"}), [[0.0, 0.0], [1.0, 0.0]])
+        self.assertEqual(sd.emotion_means(c, channels={"answer"}), [[0.0, 0.0], [3.0, 0.0]])
+        self.assertIsNone(sd.emotion_means(c, channels={"tool"}))
+
+
 class Lexicons(unittest.TestCase):
     def test_counts_use_the_displayed_tokens_only(self):
         r = run("base", [1, 2], ws=[TOP_A, TOP_B])                 # layer 36 shows {10, 11}; layer 40 shows {11, 14}

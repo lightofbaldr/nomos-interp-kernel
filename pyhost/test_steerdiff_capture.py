@@ -414,5 +414,42 @@ class ExportTok:
         return "".join(f"<{i}>" for i in ids)
 
 
+
+class ReportByChannel(unittest.TestCase):
+    def test_the_report_splits_lexicons_and_emotion_by_channel(self):
+        import tempfile
+        import steerdiff_report as R
+        with tempfile.TemporaryDirectory() as out:
+            synthetic_capture(out)
+            d = os.path.join(out, "S1", "runs")
+            for name in os.listdir(d):
+                with open(os.path.join(d, name)) as f:
+                    doc = json.load(f)
+                for r in doc["records"]:
+                    if r["source"] == "generated" and r["pos"] < 5:
+                        r["channel"] = "reasoning"      # positions 2-4 think, 5-9 answer
+                with open(os.path.join(d, name), "w") as f:
+                    json.dump(doc, f)
+            text = R.report(out, ExportTok(), display_k=2)
+        self.assertIn("### Lexicons by channel", text)
+        self.assertIn("| joy_0.5 | matched | reasoning | 3/3 | 3/3 |", text)
+        self.assertIn("| joy_0.5 | matched | answer | 5/5 | 5/5 |", text)
+        self.assertIn("- emotion L24 (answer): up joyful +2", text)
+        self.assertIn("- emotion L24 (reasoning): up joyful +2", text)
+
+
+
+class ReportSigns(unittest.TestCase):
+    def test_up_lists_carry_only_rises_and_down_lists_only_falls(self):
+        import tempfile
+        import steerdiff_report as R
+        with tempfile.TemporaryDirectory() as out:
+            synthetic_capture(out)
+            text = R.report(out, ExportTok(), display_k=2)
+        self.assertIn("- L36 up: '<11>' +2 (8)\n", text)          # '<10>' fell, so it is not a rise
+        self.assertIn("- L36 down: '<10>' -1.5 (8)\n", text)       # '<11>' rose, so it is not a fall
+        self.assertIn("- emotion L24: up joyful +2; down (none)\n", text)
+
+
 if __name__ == "__main__":
     unittest.main()

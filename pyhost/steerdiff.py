@@ -178,17 +178,19 @@ def movers(comparison: dict, layer_index: int) -> list[dict]:
     return sorted(out, key=lambda m: (m["mean_delta"] is None, -(m["mean_delta"] or 0.0), m["id"]))
 
 
-def emotion_means(comparison: dict):
-    """The mean emotion delta per layer and direction over the aligned generated positions (None without any)."""
+def emotion_means(comparison: dict, channels=None):
+    """The mean emotion delta per layer and direction over the aligned generated positions (None without any);
+    with channels, only positions whose channel is one of them (the thinking tail, the answer)."""
     rows = [p["emotion_delta"] for p in comparison["positions"]
-            if p["source"] == "generated" and p["emotion_delta"] is not None]
+            if p["source"] == "generated" and p["emotion_delta"] is not None
+            and (channels is None or p.get("channel") in channels)]
     if not rows:
         return None
     return [[sum(r[layer][e] for r in rows) / len(rows) for e in range(len(rows[0][layer]))]
             for layer in range(len(rows[0]))]
 
 
-def lexicon_counts(run: dict, lexicons: dict, display_k: int = 8) -> dict:
+def lexicon_counts(run: dict, lexicons: dict, display_k: int = 8, channels=None) -> dict:
     """Per workspace layer: how many generated positions show any of a lexicon's token ids in the displayed top
     display_k, beside how many positions had a workspace at all. Membership only, so no score arithmetic."""
     layers = (run["settings"].get("workspace") or {}).get("layers") or []
@@ -196,6 +198,8 @@ def lexicon_counts(run: dict, lexicons: dict, display_k: int = 8) -> dict:
     out = {"positions": [0] * len(layers), **{name: [0] * len(layers) for name in sets}}
     for r in run["records"]:
         if r["source"] != "generated" or not r.get("workspace"):
+            continue
+        if channels is not None and r.get("channel") not in channels:
             continue
         for i, top in enumerate(r["workspace"]["top"]):
             shown = {int(t) for t, _ in top[:display_k]}
