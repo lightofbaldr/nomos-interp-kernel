@@ -242,5 +242,98 @@ class BitOracle(unittest.TestCase):
         assert_bits_equal(a[:, 1, :], a.copy()[:, 1, :], "one strided slot")
 
 
+def configure(k, emo=EMO, dirs=None, ws=(), lens=None, norm_w=None, topk=K, e=E):
+    dirs = unit_dirs(len(emo)) if dirs is None else dirs
+    emo_a = np.ascontiguousarray(emo, np.int32)
+    ws_a = np.ascontiguousarray(ws, np.int32)
+    return k.lib.nomos_readout_configure(
+        k.h, emo_a.ctypes.data, len(emo_a), dirs.ctypes.data, e,
+        ws_a.ctypes.data if len(ws_a) else 0, len(ws_a),
+        0 if lens is None else lens.ctypes.data, 0 if norm_w is None else norm_w.ctypes.data, topk)
+
+
+def read(k, pos0, n, n_emo=len(EMO), n_ws=0, topk=K):
+    """nomos_readout_read into fresh arrays. The workspace pointers are 0 when n_ws is 0."""
+    r = {"emo": np.zeros((n, n_emo, E + 1), np.float32), "emo_valid": np.zeros(n, np.uint8),
+         "ids": np.zeros((n, max(n_ws, 1), topk), np.int32), "scores": np.zeros((n, max(n_ws, 1), topk), np.float32),
+         "ws_valid": np.zeros(n, np.uint8)}
+    w = n_ws > 0
+    rc = k.lib.nomos_readout_read(k.h, pos0, n, r["emo"].ctypes.data, r["emo_valid"].ctypes.data,
+                                  r["ids"].ctypes.data if w else 0, r["scores"].ctypes.data if w else 0,
+                                  r["ws_valid"].ctypes.data if w else 0)
+    return rc, r
+
+
+def project_rows(k, rows, slot):
+    """The hook's own projection kernel, applied to host rows [n, D] for emotion slot `slot`. Returns [n, E+1]."""
+    rows = np.ascontiguousarray(rows, np.float32)
+    out = np.zeros((len(rows), E + 1), np.float32)
+    rc = k.lib.nomos_readout_project_rows(k.h, rows.ctypes.data, len(rows), slot, out.ctypes.data)
+    assert rc == 0, f"nomos_readout_project_rows rc={rc}"
+    return out
+
+
+def f64_project(rows, dirs_slot):
+    """An independent float64 reference: projections [n, E] and norms [n]."""
+    r = rows.astype(np.float64)
+    return r @ dirs_slot.astype(np.float64).T, np.linalg.norm(r, axis=-1)
+
+
+class Configure(unittest.TestCase):
+    def setUp(self):
+        self.k = kernel()
+        self.k.lib.nomos_readout_disable(self.k.h)
+
+    def test_bad_arguments_are_refused(self):
+        k = self.k
+        self.assertEqual(configure(k, emo=[20, 20, 29]), -1)                 # duplicate layer
+        self.assertEqual(configure(k, emo=[20, 24, 52]), -1)                 # out of range
+        self.assertEqual(configure(k, emo=[20, 24, -1]), -1)
+        self.assertEqual(configure(k, e=0), -1)
+        d = unit_dirs(3)
+        d[1, 3] *= 2.0
+        self.assertEqual(configure(k, dirs=d), -1)                           # not unit
+        d = unit_dirs(3)
+        d[2, 0, 5] = np.nan
+        self.assertEqual(configure(k, dirs=d), -1)                           # not finite
+        lens, nw = np.zeros((1, D, D), np.float32), np.ones(D, np.float32)
+        self.assertEqual(configure(k, ws=[44], lens=lens, norm_w=nw, topk=0), -1)
+        self.assertEqual(configure(k, ws=[44], lens=lens, norm_w=nw, topk=17), -1)
+        self.assertEqual(configure(k, ws=[44], lens=None, norm_w=nw), -1)    # a workspace layer without a lens
+        lens[0, 1, 2] = np.inf
+        self.assertEqual(configure(k, ws=[44], lens=lens, norm_w=nw), -1)
+        self.assertEqual(read(k, 0, 1)[0], -2)                               # nothing configured
+
+    def test_configure_disable_reconfigure(self):
+        k = self.k
+        self.assertEqual(configure(k), 0)
+        self.assertEqual(read(k, 0, 4)[0], 0)
+        self.assertEqual(configure(k, emo=[10, 30], dirs=unit_dirs(2)), 0)  # frees and replaces
+        rc, r = read(k, 0, 4, n_emo=2)
+        self.assertEqual((rc, int(r["emo_valid"].sum())), (0, 0))
+        self.assertEqual(k.lib.nomos_readout_disable(k.h), 0)
+        self.assertEqual(k.lib.nomos_readout_disable(k.h), 0)               # idempotent
+        self.assertEqual(read(k, 0, 1)[0], -2)
+        self.assertEqual(k.lib.nomos_readout_begin_turn(k.h), -2)
+
+    def test_read_bounds(self):
+        k = self.k
+        self.assertEqual(configure(k), 0)
+        self.assertEqual(read(k, -1, 1)[0], -1)
+        self.assertEqual(read(k, 0, 0)[0], -1)
+        self.assertEqual(read(k, k.max_seq - 1, 2)[0], -1)
+        self.assertEqual(read(k, k.max_seq - 1, 1)[0], 0)
+
+    def test_project_rows_matches_float64(self):
+        k = self.k
+        dirs = unit_dirs(3, seed=1)
+        self.assertEqual(configure(k, dirs=dirs), 0)
+        rows = (np.random.default_rng(2).standard_normal((5, D)) * 30).astype(np.float32)
+        got = project_rows(k, rows, 1)
+        proj, norm = f64_project(rows, dirs[1])
+        np.testing.assert_allclose(got[:, :E], proj, rtol=1e-4, atol=1e-3)
+        np.testing.assert_allclose(got[:, E], norm, rtol=1e-5)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -36,6 +36,10 @@ from lib.model_config import (
 from lib.gdn_scan import gpu_gdn_bf16_to_f32
 from lib.mtp_drafter import MTPDrafter, mtp_draft_k, release_mtp_drafter_handle
 from lib.engine_prefill import prefill_batch_impl
+from lib.engine_readout import (
+    readout_configure, readout_begin_turn, readout_project_rows_debug,
+    ro_layers_from_host, ro_finite_host, ro_unit_rows_host,
+)
 from lib.eagle3_drafter import (
     Eagle3Drafter,
     eagle3_draft_k,
@@ -4050,6 +4054,137 @@ def nomos_clear_steer(handle: Int64) -> Int32:
     if was_steered:
         engine[0].mark_live_desync()
     return Int32(0)
+
+
+@export
+def nomos_readout_configure(
+    handle: Int64, emo_layers_ptr: Int64, n_emo: Int32, dirs_ptr: Int64, E: Int32,
+    ws_layers_ptr: Int64, n_ws: Int32, lens_ptr: Int64, norm_w_ptr: Int64, k: Int32,
+) -> Int32:
+    """Readout spine: unit emotion directions [n_emo, E, D] for emo_layers. When n_ws > 0, also the J-lens matrices
+    [n_ws, D, D] (lens(h) = h @ J^T), the final-norm weights [D] and k, for ws_layers. Every argument is validated
+    before the engine is touched. 0 ok, -1 bad argument, -2 state (the workspace needs the W4A4 NVFP4 lm-head),
+    -99 exception."""
+    if handle == 0 or emo_layers_ptr == 0 or dirs_ptr == 0:
+        return Int32(-1)
+    var ne = Int(n_emo)
+    var ee = Int(E)
+    var nw = Int(n_ws)
+    if ne < 1 or ne > TOTAL_LAYERS or ee < 1 or ee > 256 or nw < 0 or nw > TOTAL_LAYERS:
+        return Int32(-1)
+    var emo = ro_layers_from_host(emo_layers_ptr, ne)
+    if len(emo) == 0:
+        return Int32(-1)
+    var ws = List[Int]()
+    if nw > 0:
+        if ws_layers_ptr == 0 or lens_ptr == 0 or norm_w_ptr == 0 or Int(k) < 1 or Int(k) > 16:
+            return Int32(-1)
+        ws = ro_layers_from_host(ws_layers_ptr, nw)
+        if len(ws) == 0:
+            return Int32(-1)
+    if not ro_unit_rows_host(dirs_ptr, ne * ee):
+        return Int32(-1)
+    if nw > 0 and (not ro_finite_host(lens_ptr, nw * D * D) or not ro_finite_host(norm_w_ptr, D)):
+        return Int32(-1)
+    try:
+        var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+        if nw > 0 and (not engine[0].w4a4 or engine[0].d_embed_nvfp4 == UInt64(0)):
+            return Int32(-2)
+        readout_configure(engine[0], emo, ee, UInt64(dirs_ptr), ws, Int(k), UInt64(lens_ptr), UInt64(norm_w_ptr))
+        return Int32(0)
+    except err:
+        print("[nomos_readout_configure EXC]", err)
+        return Int32(-99)
+
+
+@export
+def nomos_readout_disable(handle: Int64) -> Int32:
+    """Readout spine: frees all readout state (idempotent). 0 ok, -1 null handle."""
+    if handle == 0:
+        return Int32(-1)
+    var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+    engine[0].readout_free()
+    return Int32(0)
+
+
+@export
+def nomos_readout_begin_turn(handle: Int64) -> Int32:
+    """Readout spine: clears every position's validity; call before a turn's first forward. 0 ok, -1 null handle,
+    -2 not configured, -99 exception."""
+    if handle == 0:
+        return Int32(-1)
+    try:
+        var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+        if not engine[0].ro_active:
+            return Int32(-2)
+        readout_begin_turn(engine[0])
+        return Int32(0)
+    except err:
+        print("[nomos_readout_begin_turn EXC]", err)
+        return Int32(-99)
+
+
+@export
+def nomos_readout_read(
+    handle: Int64, pos0: Int32, n: Int32, emo_out: Int64, emo_valid_out: Int64,
+    ws_ids_out: Int64, ws_scores_out: Int64, ws_valid_out: Int64,
+) -> Int32:
+    """Readout spine: copies positions [pos0, pos0 + n) to host: the emotion table [n, n_emo, E+1] and its validity
+    [n]. When the workspace is configured and all three of its pointers are non-null, it also copies ids and scores
+    [n, n_ws, k] and their validity [n]. A position at or past the cache length reads invalid. 0 ok, -1 bad
+    argument, -2 not configured, -99 exception."""
+    if handle == 0 or emo_out == 0 or emo_valid_out == 0:
+        return Int32(-1)
+    try:
+        var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+        if not engine[0].ro_active:
+            return Int32(-2)
+        var p0 = Int(pos0)
+        var nn = Int(n)
+        if p0 < 0 or nn < 1 or p0 + nn > engine[0].max_seq:
+            return Int32(-1)
+        var row = len(engine[0].ro_emo_layers) * (engine[0].ro_E + 1) * 4
+        engine[0].ctx.synchronize()
+        cuda_memcpy(UInt64(emo_out), engine[0].d_ro_emo + UInt64(p0 * row), nn * row, 2)
+        cuda_memcpy(UInt64(emo_valid_out), engine[0].d_ro_emo_valid + UInt64(p0), nn, 2)
+        var n_ws = len(engine[0].ro_ws_layers)
+        var want_ws = n_ws > 0 and ws_ids_out != 0 and ws_scores_out != 0 and ws_valid_out != 0
+        if want_ws:
+            var wrow = n_ws * engine[0].ro_k * 4
+            cuda_memcpy(UInt64(ws_ids_out), engine[0].d_ro_ws_ids + UInt64(p0 * wrow), nn * wrow, 2)
+            cuda_memcpy(UInt64(ws_scores_out), engine[0].d_ro_ws_scores + UInt64(p0 * wrow), nn * wrow, 2)
+            cuda_memcpy(UInt64(ws_valid_out), engine[0].d_ro_ws_valid + UInt64(p0), nn, 2)
+        var cl = engine[0].cache_len()
+        var ev = UnsafePointer[UInt8, MutAnyOrigin](unsafe_from_address=Int(emo_valid_out))
+        var wv = UnsafePointer[UInt8, MutAnyOrigin](unsafe_from_address=Int(ws_valid_out))
+        for i in range(nn):
+            if p0 + i >= cl:
+                ev[i] = UInt8(0)
+                if want_ws:
+                    wv[i] = UInt8(0)
+        return Int32(0)
+    except err:
+        print("[nomos_readout_read EXC]", err)
+        return Int32(-99)
+
+
+@export
+def nomos_readout_project_rows(handle: Int64, rows_ptr: Int64, n: Int32, slot: Int32, out_ptr: Int64) -> Int32:
+    """Test hook: the readout projection kernel applied to host rows [n, D] for emotion slot `slot`, writing
+    [n, E+1] to host. 0 ok, -1 bad argument, -2 not configured, -99 exception."""
+    if handle == 0 or rows_ptr == 0 or out_ptr == 0 or n < 1:
+        return Int32(-1)
+    try:
+        var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
+        if not engine[0].ro_active:
+            return Int32(-2)
+        if slot < 0 or Int(slot) >= len(engine[0].ro_emo_layers):
+            return Int32(-1)
+        readout_project_rows_debug(engine[0], UInt64(rows_ptr), Int(n), Int(slot), UInt64(out_ptr))
+        return Int32(0)
+    except err:
+        print("[nomos_readout_project_rows EXC]", err)
+        return Int32(-99)
 
 
 @export

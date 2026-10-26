@@ -277,6 +277,27 @@ struct GemmaEngine(Movable, KvSessionEngine):
     var steer_alpha: Float32        # ablation strength (1.0 = full removal of the d_hat component)
     var steer_from_pos: Int         # absolute position steering starts at on every path (decode, verify,
                                     # prefill); -1 = legacy: decode only, from the last prompt token (SP1 plan B)
+    # -- readout spine (glimmer-emotions docs/superpowers/specs/2026-10-20-readout-spine-design.md) --
+    var ro_active: Bool             # emotion readouts configured
+    var ro_emo_layers: List[Int]    # model layer of each emotion slot
+    var ro_emo_last: Int            # the highest emotion layer: its hook marks the rows valid
+    var ro_E: Int                   # directions per emotion layer
+    var d_ro_dirs: UInt64           # f32 [n_emo, E, D] unit directions
+    var d_ro_emo: UInt64            # f32 [max_seq, n_emo, E+1]: E projections, then the residual L2 norm
+    var d_ro_emo_valid: UInt64      # u8 [max_seq]: 1 = written by a forward since begin_turn
+    var ro_ws_layers: List[Int]     # model layer of each workspace slot (empty = workspace off)
+    var ro_k: Int                   # workspace top-k
+    var d_ro_lens: UInt64           # f32 [n_ws, D, D]: J_l as stored, lens(h) = h @ J_l^T
+    var d_ro_norm_w: UInt64         # f32 [D] final-norm weights (the engine keeps them host-only)
+    var d_ro_stage: UInt64          # f32 [n_ws, RO_STAGE_ROWS, D]: the last staged forward's rows, slot-major
+    var ro_stage_pos: List[Int]     # absolute position of each staged row
+    var ro_stage_verify: Bool       # set by nomos_dflash_verify_fused around its batched forward
+    var d_ro_lensed: UInt64         # f32 [n_ws * RO_STAGE_ROWS, D] lens outputs, (slot, row) pairs
+    var d_ro_normed: UInt64         # f32 [n_ws * RO_STAGE_ROWS, D]
+    var d_ro_logits: UInt64         # f32 [NVFP4_GEMV_SMAX, VOCAB] one lm-head pass
+    var d_ro_ws_ids: UInt64         # i32 [max_seq, n_ws, k]
+    var d_ro_ws_scores: UInt64      # f32 [max_seq, n_ws, k]
+    var d_ro_ws_valid: UInt64       # u8 [max_seq]
 
     # (research-only engine state removed — perf-clean product tree)
 
@@ -310,6 +331,26 @@ struct GemmaEngine(Movable, KvSessionEngine):
         self.steer_ablate = False
         self.steer_alpha = Float32(0.0)
         self.steer_from_pos = -1
+        self.ro_active = False
+        self.ro_emo_layers = List[Int]()
+        self.ro_emo_last = -1
+        self.ro_E = 0
+        self.d_ro_dirs = UInt64(0)
+        self.d_ro_emo = UInt64(0)
+        self.d_ro_emo_valid = UInt64(0)
+        self.ro_ws_layers = List[Int]()
+        self.ro_k = 0
+        self.d_ro_lens = UInt64(0)
+        self.d_ro_norm_w = UInt64(0)
+        self.d_ro_stage = UInt64(0)
+        self.ro_stage_pos = List[Int]()
+        self.ro_stage_verify = False
+        self.d_ro_lensed = UInt64(0)
+        self.d_ro_normed = UInt64(0)
+        self.d_ro_logits = UInt64(0)
+        self.d_ro_ws_ids = UInt64(0)
+        self.d_ro_ws_scores = UInt64(0)
+        self.d_ro_ws_valid = UInt64(0)
         self.precision_bits = Int(_env_float("NOMOS_PRECISION_BITS", 32.0))
         self.weight_nvfp4 = _env_float("NOMOS_WEIGHT_NVFP4", 0.0) > 0.5
         # W4A4 needs NVFP4 weights (it MMAs FP4 act × FP4 weight), so it implies weight_nvfp4.
@@ -1194,6 +1235,29 @@ struct GemmaEngine(Movable, KvSessionEngine):
         var L = self.cache_len()
         prefill_batch_impl(self, drafts, L, out_g)
 
+    def readout_free(mut self):
+        """Readout spine: frees every readout buffer and turns readouts off (idempotent)."""
+        _ro_release(self.d_ro_dirs)
+        _ro_release(self.d_ro_emo)
+        _ro_release(self.d_ro_emo_valid)
+        _ro_release(self.d_ro_lens)
+        _ro_release(self.d_ro_norm_w)
+        _ro_release(self.d_ro_stage)
+        _ro_release(self.d_ro_lensed)
+        _ro_release(self.d_ro_normed)
+        _ro_release(self.d_ro_logits)
+        _ro_release(self.d_ro_ws_ids)
+        _ro_release(self.d_ro_ws_scores)
+        _ro_release(self.d_ro_ws_valid)
+        self.ro_active = False
+        self.ro_emo_layers = List[Int]()
+        self.ro_emo_last = -1
+        self.ro_E = 0
+        self.ro_ws_layers = List[Int]()
+        self.ro_k = 0
+        self.ro_stage_pos = List[Int]()
+        self.ro_stage_verify = False
+
     def set_cache_len(mut self, n: Int):
         """KV reuse: set every layer's cache valid length to n (truncate/position). The KV
         memory [0,n) stays valid; the next append goes at n. SWA-off (linear cache) only.
@@ -1320,6 +1384,13 @@ struct GemmaEngine(Movable, KvSessionEngine):
 
 
 
+def _ro_release(mut p: UInt64):
+    """Frees a readout device buffer and zeroes its handle (readout spine)."""
+    if p != UInt64(0):
+        cuda_free(p)
+        p = UInt64(0)
+
+
 def _env_float(name: String, default: Float32) -> Float32:
     """Parse a simple decimal env var (e.g. "0.2", "1.05", "0", "-1") to Float32.
     Returns `default` if unset or empty. Byte-level parse to sidestep Mojo 1.0's
@@ -1377,6 +1448,7 @@ def release_engine_handle(handle: UInt64):
     # Qwen recurrent/conv pools; empty and idempotent on Gemma/Muse.
     ptr[0].gdn_state.free()
     ptr[0].gdn_weights.free()
+    ptr[0].readout_free()   # readout spine buffers (idempotent; frees nothing if readouts were never configured)
 
     # Free per-layer weight pointers
     for layer in range(TOTAL_LAYERS):
