@@ -4194,7 +4194,8 @@ def nomos_readout_project_rows(handle: Int64, rows_ptr: Int64, n: Int32, slot: I
 @export
 def nomos_readout_workspace_commit(handle: Int64, row0: Int32, nrows: Int32) -> Int32:
     """Readout spine: J-lens top-k for the last staged forward's rows [row0, row0 + nrows), after the host's keep
-    decision. 0 ok, -1 a range outside what the last forward staged, -2 workspace not configured, -99 exception."""
+    decision. 0 ok, -1 a range outside what the last forward staged, -2 workspace not configured, -3 some positions'
+    logits were non-finite: those positions stay workspace-invalid (a diagnostic is printed), -99 exception."""
     if handle == 0:
         return Int32(-1)
     try:
@@ -4203,7 +4204,8 @@ def nomos_readout_workspace_commit(handle: Int64, row0: Int32, nrows: Int32) -> 
             return Int32(-2)
         if row0 < 0 or nrows < 1 or Int(row0) + Int(nrows) > len(engine[0].ro_stage_pos):
             return Int32(-1)
-        readout_commit(engine[0], Int(row0), Int(nrows))
+        if readout_commit(engine[0], Int(row0), Int(nrows)) > 0:
+            return Int32(-3)
         return Int32(0)
     except err:
         print("[nomos_readout_workspace_commit EXC]", err)
@@ -4212,12 +4214,14 @@ def nomos_readout_workspace_commit(handle: Int64, row0: Int32, nrows: Int32) -> 
 
 @export
 def nomos_readout_debug_topk(handle: Int64, logits_ptr: Int64, k: Int32, ids_ptr: Int64, scores_ptr: Int64) -> Int32:
-    """Test hook: the readout top-k kernel on host logits [VOCAB]. 0 ok, -1 bad argument, -99 exception."""
+    """Test hook: the readout top-k kernel on host logits [VOCAB]. 0 ok, -1 bad argument, -3 refused because a logit
+    is non-finite (ids and scores are then unspecified), -99 exception."""
     if handle == 0 or logits_ptr == 0 or ids_ptr == 0 or scores_ptr == 0 or k < 1 or k > 16:
         return Int32(-1)
     try:
         var engine = UnsafePointer[GemmaEngine, MutUntrackedOrigin](unsafe_from_address=Int(handle))
-        readout_topk_debug(engine[0], UInt64(logits_ptr), Int(k), UInt64(ids_ptr), UInt64(scores_ptr))
+        if readout_topk_debug(engine[0], UInt64(logits_ptr), Int(k), UInt64(ids_ptr), UInt64(scores_ptr)):
+            return Int32(-3)
         return Int32(0)
     except err:
         print("[nomos_readout_debug_topk EXC]", err)

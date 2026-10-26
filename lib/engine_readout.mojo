@@ -9,14 +9,16 @@ the engine's import cycle, where a kernel compiled here fails to infer its argum
 
 from std.memory import UnsafePointer
 from std.math import sqrt
-from lib.cuda import cuda_malloc, cuda_free, cuda_memcpy, cuda_sync, cuda_memset_2d
+from lib.cuda import cuda_malloc, cuda_free, cuda_memcpy, cuda_sync, cuda_memset_2d, cuda_download_i32
 from lib.cublas import cublas_sgemm
 from lib.ops_gpu_mojo_reductions import gpu_rmsnorm_batched_mojo
 from lib.fp4_gemv_v2 import NVFP4_GEMV_SMAX, gpu_matmul_nvfp4_fused_v3_multirow_dev
 from lib.dflash_drafter import DFLASH_MAX_VERIFY_ROWS
 from lib.model_config import D, VOCAB, TOTAL_LAYERS, RMS_EPS_FINAL
 from lib.gemma4_engine import GemmaEngine
-from lib.readout_kernels import readout_launch_proj, readout_launch_mark, readout_launch_copy, readout_launch_topk
+from lib.readout_kernels import (
+    readout_launch_proj, readout_launch_mark, readout_launch_copy, readout_launch_topk, readout_launch_mark_kept,
+)
 
 comptime RO_STAGE_ROWS = DFLASH_MAX_VERIFY_ROWS   # a DFlash verify stages at most this many rows; a decode step 1
 
@@ -84,6 +86,7 @@ def readout_configure(
         self.d_ro_ws_scores = cuda_malloc(ms * n_ws * k * 4)
         self.d_ro_ws_valid = cuda_malloc(ms)
         cuda_memset_2d(self.d_ro_ws_valid, ms, 0, ms, 1)
+        self.d_ro_bad = cuda_malloc(n_ws * RO_STAGE_ROWS * 4)
         self.ro_ws_layers = ws_layers.copy()
         self.ro_k = k
     cuda_sync()
@@ -116,14 +119,15 @@ def readout_project_rows_debug(mut self: GemmaEngine, rows_host: UInt64, n: Int,
     cuda_free(d_out)
 
 
-def readout_commit(mut self: GemmaEngine, row0: Int, nrows: Int) raises:
+def readout_commit(mut self: GemmaEngine, row0: Int, nrows: Int) raises -> Int:
     """J-lens top-k for staged rows [row0, row0 + nrows) of every workspace slot, written at their positions:
     - the lens, h @ J^T, per slot: cuBLAS on the default stream, between barriers;
     - the final RMS norm over all (slot, row) pairs;
     - the decode lm-head over all pairs: the exact NVFP4 multirow GEMV, NVFP4_GEMV_SMAX pairs per pass, so its
       weights stream once per pass rather than once per slot;
-    - top-k per pair.
-    The positions become workspace-valid."""
+    - top-k per pair, which refuses a pair whose logits hold a non-finite value (Codex 10-26 F1).
+    Each position becomes workspace-valid when all its pairs were ranked, and invalid otherwise. Returns how many
+    positions were refused (0 when every pair was ranked)."""
     var n_ws = len(self.ro_ws_layers)
     var total = n_ws * nrows
     self.ctx.synchronize()          # the staged rows were written by ctx kernels
@@ -152,26 +156,49 @@ def readout_commit(mut self: GemmaEngine, row0: Int, nrows: Int) raises:
             var pos = self.ro_stage_pos[row0 + (p0 + i) % nrows]
             readout_launch_topk(
                 self.ctx, self.d_ro_ws_ids, self.d_ro_ws_scores, self.d_ro_logits + UInt64(i * VOCAB * 4),
-                VOCAB, self.ro_k, (pos * n_ws + slot) * self.ro_k,
+                VOCAB, self.ro_k, (pos * n_ws + slot) * self.ro_k, self.d_ro_bad, p0 + i,
             )
         p0 += cs
-    readout_launch_mark(self.ctx, self.d_ro_ws_valid, self.ro_stage_pos[row0], nrows)
+    readout_launch_mark_kept(self.ctx, self.d_ro_ws_valid, self.d_ro_bad, self.ro_stage_pos[row0], nrows, n_ws)
     self.ctx.synchronize()
+    var flags = List[Int32](capacity=total)
+    for _ in range(total):
+        flags.append(Int32(0))
+    cuda_download_i32(flags, self.d_ro_bad, total)
+    var refused = 0
+    for r in range(nrows):
+        for slot in range(n_ws):
+            if flags[slot * nrows + r] != Int32(0):
+                refused += 1
+                break
+    if refused > 0:
+        print("[readout] workspace commit: ", refused, " of ", nrows, " positions from ", self.ro_stage_pos[row0],
+              " had non-finite logits and stay workspace-invalid")
+    return refused
 
 
-def readout_topk_debug(mut self: GemmaEngine, logits_host: UInt64, k: Int, ids_host: UInt64, scores_host: UInt64) raises:
-    """Test hook: readout_topk_kernel on host logits [VOCAB]."""
+def readout_topk_debug(
+    mut self: GemmaEngine, logits_host: UInt64, k: Int, ids_host: UInt64, scores_host: UInt64,
+) raises -> Bool:
+    """Test hook: readout_topk_kernel on host logits [VOCAB]. Returns True when the kernel refused them (a non-finite
+    logit); ids and scores are then unspecified."""
     var d_lg = cuda_malloc(VOCAB * 4)
     var d_ids = cuda_malloc(k * 4)
     var d_sc = cuda_malloc(k * 4)
+    var d_bad = cuda_malloc(4)
     cuda_memcpy(d_lg, logits_host, VOCAB * 4, 1)
-    readout_launch_topk(self.ctx, d_ids, d_sc, d_lg, VOCAB, k, 0)
+    readout_launch_topk(self.ctx, d_ids, d_sc, d_lg, VOCAB, k, 0, d_bad, 0)
     self.ctx.synchronize()
     cuda_memcpy(ids_host, d_ids, k * 4, 2)
     cuda_memcpy(scores_host, d_sc, k * 4, 2)
+    var flag = List[Int32](capacity=1)
+    flag.append(Int32(0))
+    cuda_download_i32(flag, d_bad, 1)
     cuda_free(d_lg)
     cuda_free(d_ids)
     cuda_free(d_sc)
+    cuda_free(d_bad)
+    return flag[0] != Int32(0)
 
 
 def readout_stage_debug(mut self: GemmaEngine, out_host: UInt64, n: Int) raises:

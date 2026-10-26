@@ -298,6 +298,7 @@ struct GemmaEngine(Movable, KvSessionEngine):
     var d_ro_ws_ids: UInt64         # i32 [max_seq, n_ws, k]
     var d_ro_ws_scores: UInt64      # f32 [max_seq, n_ws, k]
     var d_ro_ws_valid: UInt64       # u8 [max_seq]
+    var d_ro_bad: UInt64            # i32 [n_ws * RO_STAGE_ROWS]: 1 = that (slot, row) pair's top-k was refused
 
     # (research-only engine state removed — perf-clean product tree)
 
@@ -351,6 +352,7 @@ struct GemmaEngine(Movable, KvSessionEngine):
         self.d_ro_ws_ids = UInt64(0)
         self.d_ro_ws_scores = UInt64(0)
         self.d_ro_ws_valid = UInt64(0)
+        self.d_ro_bad = UInt64(0)
         self.precision_bits = Int(_env_float("NOMOS_PRECISION_BITS", 32.0))
         self.weight_nvfp4 = _env_float("NOMOS_WEIGHT_NVFP4", 0.0) > 0.5
         # W4A4 needs NVFP4 weights (it MMAs FP4 act × FP4 weight), so it implies weight_nvfp4.
@@ -1249,6 +1251,7 @@ struct GemmaEngine(Movable, KvSessionEngine):
         _ro_release(self.d_ro_ws_ids)
         _ro_release(self.d_ro_ws_scores)
         _ro_release(self.d_ro_ws_valid)
+        _ro_release(self.d_ro_bad)
         self.ro_active = False
         self.ro_emo_layers = List[Int]()
         self.ro_emo_last = -1

@@ -337,6 +337,32 @@ class Configure(unittest.TestCase):
         np.testing.assert_allclose(got[:, :E], proj, rtol=1e-4, atol=1e-3)
         np.testing.assert_allclose(got[:, E], norm, rtol=1e-5)
 
+    def test_reconfigure_after_valid_rows_starts_invalid(self):
+        """Codex 10-26 F4: with rows already valid in both tables, every reconfiguration (workspace -> workspace,
+        workspace -> emotion only, disable -> configure) starts with nothing valid until a forward writes it."""
+        k = self.k
+        lens, norm_w = lens_assets()
+        self.assertEqual(configure(k, ws=WS, lens=lens, norm_w=norm_w), 0)
+        self.assertEqual(k.lib.nomos_readout_begin_turn(k.h), 0)
+        k.prefill(np.asarray([T.BOS, 1000, 1001], np.int32))
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 1), 0)
+        rc, r = read(k, 0, 3, n_ws=len(WS))
+        self.assertEqual(rc, 0)
+        self.assertTrue(r["emo_valid"].all() and r["ws_valid"][2])
+        for step, n_ws in (("workspace -> workspace", 2), ("workspace -> emotion", 0), ("disable -> configure", 4)):
+            if step == "workspace -> workspace":
+                self.assertEqual(configure(k, ws=WS[:2], lens=np.ascontiguousarray(lens[:2]), norm_w=norm_w), 0)
+            elif step == "workspace -> emotion":
+                self.assertEqual(configure(k), 0)
+            else:
+                self.assertEqual(k.lib.nomos_readout_disable(k.h), 0)
+                self.assertEqual(configure(k, ws=WS, lens=lens, norm_w=norm_w), 0)
+            rc, r = read(k, 0, 3, n_ws=n_ws)
+            self.assertEqual(rc, 0)
+            self.assertFalse(r["emo_valid"].any(), step)
+            if n_ws:
+                self.assertFalse(r["ws_valid"].any(), step)
+
 
 def offline_rows(k, ids, layers, start_pos=0):
     """nomos_debug_prefill_layers: the residual rows [n, len(layers), D] of ONE prefill_batch_impl call at start_pos.
@@ -514,6 +540,22 @@ class TopK(unittest.TestCase):
         self.assertEqual(k.lib.nomos_readout_debug_topk(k.h, logits.ctypes.data, 17, ids.ctypes.data,
                                                         sc.ctypes.data), -1)
 
+    def test_topk_refuses_non_finite_logits(self):
+        """Codex 10-26 F1: a non-finite logit is refused (-3), never ranked. The witnesses are a NaN as thread 0's
+        first candidate; a NaN in the same thread as the true maximum, which an unchecked scan loses while returning
+        a finite-looking wrong answer; and both infinities."""
+        k = kernel()
+        base = np.zeros(T.VOCAB, np.float32)
+        base[1500] = 5.0
+        ids, sc = np.zeros(8, np.int32), np.zeros(8, np.float32)
+        self.assertEqual(k.lib.nomos_readout_debug_topk(k.h, base.ctypes.data, 8, ids.ctypes.data, sc.ctypes.data), 0)
+        self.assertEqual(int(ids[0]), 1500)
+        for pos, val in ((0, np.nan), (476, np.nan), (9000, np.inf), (11, -np.inf)):
+            logits = base.copy()
+            logits[pos] = val
+            self.assertEqual(k.lib.nomos_readout_debug_topk(k.h, logits.ctypes.data, 8, ids.ctypes.data,
+                                                            sc.ctypes.data), -3, f"logit {val} at {pos}")
+
 
 class Workspace(unittest.TestCase):
     @classmethod
@@ -538,6 +580,43 @@ class Workspace(unittest.TestCase):
         self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 1), -1)
         self.assertEqual(configure(k), 0)                                        # emotion only
         self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 1), -2)
+
+    def test_commit_refuses_non_finite_logits(self):
+        """Codex 10-26 F1, the commit path: a finite lens with 1e38 on its diagonal overflows the staged row, so the
+        final norm and the logits go non-finite. The commit returns -3 and the position stays workspace-invalid."""
+        k = self.k
+        big = np.zeros((len(WS), D, D), np.float32)
+        big[:, np.arange(D), np.arange(D)] = np.float32(1e38)
+        self.assertEqual(configure(k, ws=WS, lens=big, norm_w=self.norm_w), 0)
+        self.assertEqual(k.lib.nomos_readout_begin_turn(k.h), 0)
+        k.prefill(np.asarray([T.BOS, 1000, 1001], np.int32))                    # the decode loop stages position 2
+        self.assertGreater(float(np.abs(staged_rows(k)).max()), 3.5, "the overflow needs some |h| > 3.4")
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 1), -3)
+        rc, r = read(k, 2, 1, n_ws=len(WS))
+        self.assertEqual(rc, 0)
+        self.assertFalse(r["ws_valid"].any())
+
+    def test_commit_of_a_later_slice_lands_at_its_positions(self):
+        """Codex 10-26 F4: a commit with row0 > 0 covers exactly staged rows [row0, row0 + nrows), at their own
+        positions, and gives what a full commit of the same staged rows gives there."""
+        k = self.k
+        ensure_drafter(k)
+        ids = fixture_ids()[:48]
+        k.prefill(ids[:40])
+        blk = np.ascontiguousarray(ids[40:48])
+        vlog = np.zeros((8, T.VOCAB), np.float32)
+        self.assertEqual(k.lib.nomos_dflash_verify_fused(k.h, blk.ctypes.data, len(blk), 40, vlog.ctypes.data), 0)
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 3, 5), 0)
+        rc, part = read(k, 40, 8, n_ws=len(WS))
+        self.assertEqual(rc, 0)
+        self.assertFalse(part["ws_valid"][:3].any())
+        self.assertTrue(part["ws_valid"][3:].all())
+        self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 8), 0)
+        rc, full = read(k, 40, 8, n_ws=len(WS))
+        self.assertEqual(rc, 0)
+        self.assertTrue(full["ws_valid"].all())
+        np.testing.assert_array_equal(part["ids"][3:], full["ids"][3:])
+        assert_bits_equal(part["scores"][3:], full["scores"][3:], "the slice's scores")
 
     def test_workspace_matches_the_host_reference_on_the_staged_rows(self):
         """Ruling R4. Positions 1-100 come from decode steps (one staged row each); positions 101-200 from
@@ -664,6 +743,39 @@ class Speculative(unittest.TestCase):
             for slot in range(len(EMO)):
                 assert_bits_equal(emo[:, slot, :], project_rows(k, off[:, slot, :], slot),
                                   f"the verify rows at {L}, slot {slot}")
+
+
+class NonInterference(unittest.TestCase):
+    """Codex 10-26 F4: readouts never change what the model computes. Each mode replays the same greedy decode and
+    the same speculative cycles; an off -> off control first shows the engine is bit-deterministic across runs."""
+
+    def run_mode(self, k, mode, lens, norm_w, ids):
+        k.lib.nomos_readout_disable(k.h)
+        if mode == "emotion":
+            self.assertEqual(configure(k), 0)
+        elif mode == "workspace":
+            self.assertEqual(configure(k, ws=WS, lens=lens, norm_w=norm_w), 0)
+        if mode in ("emotion", "workspace"):
+            self.assertEqual(k.lib.nomos_readout_begin_turn(k.h), 0)
+        steps = [np.array(k.prefill(ids), np.float32)]
+        for _ in range(24):
+            steps.append(np.array(k.step(int(np.argmax(steps[-1]))), np.float32))
+            if mode == "workspace":
+                self.assertEqual(k.lib.nomos_readout_workspace_commit(k.h, 0, 1), 0)
+        emitted, _ = spec_cycles(k, *spec_prefill(k, ids), 32, commit=(mode == "workspace"))
+        return np.stack(steps), emitted
+
+    def test_readouts_leave_logits_and_tokens_bit_identical(self):
+        k = kernel()
+        k.lib.nomos_clear_steer(k.h)
+        ensure_drafter(k)
+        lens, norm_w = lens_assets()
+        ids = fixture_ids()[:64]
+        runs = {mode: self.run_mode(k, mode, lens, norm_w, ids) for mode in ("off", "off2", "emotion", "workspace")}
+        k.lib.nomos_readout_disable(k.h)
+        for mode in ("off2", "emotion", "workspace"):
+            assert_bits_equal(runs[mode][0], runs["off"][0], f"the greedy decode's logits with readouts {mode}")
+            self.assertEqual(runs[mode][1], runs["off"][1], f"the speculative tokens with readouts {mode}")
 
 
 class BenchGate(unittest.TestCase):

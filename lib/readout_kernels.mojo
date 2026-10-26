@@ -31,6 +31,12 @@ def _ro_i32(addr: UInt64) -> UnsafePointer[Int32, MutAnyOrigin]:
     return UnsafePointer[Int32, MutAnyOrigin](unsafe_from_address=Int(addr))
 
 
+@always_inline
+def _ro_nonfinite(v: Float32) -> Bool:
+    """NaN, either infinity, or a magnitude past 3e38 (the host checks' bound): a logit no ranking can trust."""
+    return not (v == v) or v > Float32(3.0e38) or v < Float32(-3.0e38)
+
+
 def readout_proj_kernel(
     table: UnsafePointer[Float32, MutAnyOrigin],   # [positions, n_emo, E+1]
     rows: UnsafePointer[Float32, MutAnyOrigin],    # [S, D]
@@ -101,19 +107,29 @@ def readout_topk_kernel(
     vocab_arg: Int32,
     k_arg: Int32,
     off_arg: Int32,
+    bad: UnsafePointer[Int32, MutAnyOrigin],        # one flag per (slot, row) pair: 1 = refused
+    pair_arg: Int32,
 ):
     """k rounds of block argmax, in one block; a chosen id is excluded from later rounds. The order is the higher
-    score first and, on equal scores, the lower index first: the first k of a stable descending sort."""
+    score first and, on equal scores, the lower index first: the first k of a stable descending sort.
+    Round 0's scan also checks every logit, and one non-finite logit refuses the row (Codex 10-26 F1): comparisons
+    with NaN can otherwise hide the true maximum behind a finite-looking answer. A refused row sets bad[pair] = 1 and
+    leaves ids and scores unwritten; a ranked row sets bad[pair] = 0."""
     var n = Int(vocab_arg)
     var kk = Int(k_arg)
     var off = Int(off_arg)
     var score_s = stack_allocation[dtype=DType.float32, address_space=AddressSpace.SHARED](row_major[RO_TOPK_TPB]())
     var idx_s = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[RO_TOPK_TPB]())
     var chosen = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[RO_MAX_K]())
+    var flag_s = stack_allocation[dtype=DType.int32, address_space=AddressSpace.SHARED](row_major[1]())
     var tid = Int(thread_idx.x)
+    if tid == 0:
+        flag_s[0] = Int32(0)
+    barrier()
     for rnd in range(kk):
         var best = Float32(-3.4e38)
         var best_i = Int32(-1)
+        var seen = False
         var i = tid
         while i < n:
             var skip = False
@@ -122,13 +138,23 @@ def readout_topk_kernel(
                     skip = True
             if not skip:
                 var v = logits[i]
+                if rnd == 0 and _ro_nonfinite(v):
+                    seen = True
                 if best_i < 0 or v > best:
                     best = v
                     best_i = Int32(i)
             i += RO_TOPK_TPB
+        if seen:
+            flag_s[0] = Int32(1)
         score_s[tid] = best
         idx_s[tid] = best_i
         barrier()
+        if rnd == 0:
+            var refused = flag_s[0] != Int32(0)     # read by every thread after the barrier: a uniform decision
+            if tid == 0:
+                bad[Int(pair_arg)] = Int32(1) if refused else Int32(0)
+            if refused:
+                return
         var stride = RO_TOPK_TPB // 2
         while stride > 0:
             if tid < stride:
@@ -182,10 +208,41 @@ def readout_launch_copy(ctx: DeviceContext, d_dst: UInt64, d_src: UInt64, n: Int
 
 def readout_launch_topk(
     ctx: DeviceContext, d_ids: UInt64, d_scores: UInt64, d_logits: UInt64, vocab: Int, k: Int, off: Int,
+    d_bad: UInt64, pair: Int,
 ) raises:
-    """Enqueues readout_topk_kernel on ctx: the top k of one logits row [vocab], written to ids and scores at off."""
+    """Enqueues readout_topk_kernel on ctx: the top k of one logits row [vocab], written to ids and scores at off, or
+    refused (bad[pair] = 1) when the row holds a non-finite logit."""
     var kt = ctx.compile_function[readout_topk_kernel]()
     ctx.enqueue_function(
         kt, _ro_i32(d_ids), _as_f32_ptr(d_scores), _as_f32_ptr(d_logits), Int32(vocab), Int32(k), Int32(off),
+        _ro_i32(d_bad), Int32(pair),
         grid_dim=1, block_dim=RO_TOPK_TPB,
+    )
+
+
+def readout_mark_kept_kernel(
+    valid: UnsafePointer[UInt8, MutAnyOrigin], bad: UnsafePointer[Int32, MutAnyOrigin],
+    start_pos_arg: Int32, n_arg: Int32, n_ws_arg: Int32,
+):
+    """valid[start_pos + r] for r < n: 1 when all n_ws of its (slot, row) pairs were ranked (pair = slot * n + r),
+    else 0. A refused position is cleared, so no earlier commit's result stays readable there."""
+    var r = Int(block_idx.x) * Int(block_dim.x) + Int(thread_idx.x)
+    var n = Int(n_arg)
+    if r < n:
+        var ok = True
+        for slot in range(Int(n_ws_arg)):
+            if bad[slot * n + r] != Int32(0):
+                ok = False
+        valid[Int(start_pos_arg) + r] = UInt8(1) if ok else UInt8(0)
+
+
+def readout_launch_mark_kept(
+    ctx: DeviceContext, d_valid: UInt64, d_bad: UInt64, start_pos: Int, n: Int, n_ws: Int,
+) raises:
+    """Enqueues readout_mark_kept_kernel on ctx: each of n positions from start_pos becomes workspace-valid only if all
+    its n_ws pairs were ranked."""
+    var km = ctx.compile_function[readout_mark_kept_kernel]()
+    ctx.enqueue_function(
+        km, _ro_u8(d_valid), _ro_i32(d_bad), Int32(start_pos), Int32(n), Int32(n_ws),
+        grid_dim=(n + RO_TPB - 1) // RO_TPB, block_dim=RO_TPB,
     )
