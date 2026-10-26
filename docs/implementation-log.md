@@ -34,3 +34,8 @@ Implementation and verification evidence will be appended per task. GPU work is 
 
 - Provider tests observed RED before src/provider.ts existed, then GREEN. All 25 CPU tests and typecheck pass with the pinned real Pi packages.
 - The provider implementation follows the reviewed plan: stock stream, caller hooks first, awaited intake, one terminal handoff, session/last-message matching to avoid compaction theft, signed steering unchanged. No API-signature deviation needed.
+
+### Task 4
+
+- Extension tests observed RED before implementation, then GREEN. All 44 CPU tests and typecheck pass.
+- Includes the reviewed finalization barrier, one-transaction terminal/state update, inherited-batch reconciliation, retry/abort/restart, post-summary failures, and close-during-write-ahead admission race. Implementation required no API changes.
