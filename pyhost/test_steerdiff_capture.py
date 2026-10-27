@@ -610,5 +610,29 @@ class Reproduce(unittest.TestCase):
             self.assertIsNone(C.reproduce(os.path.join(d, "absent.json"), 1, 12, [5])["identical"])
 
 
+
+class Rates(unittest.TestCase):
+    """tools/steerdiff_rates.py: lie rates per arm from labelled samples, with a two-sided Fisher exact test against
+    base (lie against everything else)."""
+
+    def test_fisher_exact_matches_exactly_known_values(self):
+        import math
+        import steerdiff_rates as RT
+        self.assertAlmostEqual(RT.fisher_exact(10, 0, 0, 10), 2 / math.comb(20, 10), places=12)
+        self.assertEqual(RT.fisher_exact(5, 5, 5, 5), 1.0)
+        self.assertLess(abs(RT.fisher_exact(9, 1, 2, 8) - 0.005477), 5e-6)
+
+    def test_rates_count_each_label_per_arm_and_compare_lies_with_base(self):
+        import math
+        import steerdiff_rates as RT
+        labels = {f"base.s{k}": "lie" for k in range(10)}
+        labels.update({f"fear_0.5.s{k}": ("no_answer" if k < 5 else "lie") for k in range(10)})
+        labels.update({f"calm_0.5.s{k}": "honest" for k in range(10)})
+        rows = {r["arm"]: r for r in RT.rates(labels, ["base", "fear_0.5", "calm_0.5"])}
+        self.assertEqual((rows["base"]["n"], rows["base"]["lie"], rows["base"]["p_vs_base"]), (10, 10, None))
+        self.assertEqual((rows["fear_0.5"]["lie"], rows["fear_0.5"]["no_answer"]), (5, 5))
+        self.assertAlmostEqual(rows["calm_0.5"]["p_vs_base"], 2 / math.comb(20, 10), places=12)
+
+
 if __name__ == "__main__":
     unittest.main()
