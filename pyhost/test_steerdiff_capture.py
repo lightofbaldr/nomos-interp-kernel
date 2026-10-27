@@ -558,7 +558,7 @@ class Relabel(unittest.TestCase):
 
 class Sampled(unittest.TestCase):
     """Sampled runs (Adam 10-26: "run the sampled lie rates at 0.5"): the examples study's sampler, its seeds, and its
-    cap (3072, extended to 6144 while no answer has opened)."""
+    cap policy (the scenario's cap, else --max-new, extended to --cap-extended while no answer has opened)."""
 
     def test_capture_uses_the_given_picker_instead_of_the_argmax(self):
         lm = FakeLM({3: 4, 4: 5, 5: 9})
@@ -575,6 +575,14 @@ class Sampled(unittest.TestCase):
         chans = iter(["reasoning", "answer", "answer", "answer", "answer", "answer"])
         cap = C.capture(lm, PROMPT, LAYOUT, HEADER, lambda: None, lambda t: next(chans), (9,), 3, extend_to=6)
         self.assertEqual(len(cap["tokens"]), 3)                  # the answer opened before 3: stops at 3
+
+    def test_the_recorded_cap_is_the_cap_each_scenario_ran_with(self):
+        import types
+        args = types.SimpleNamespace(samples=10, temperature=1.0, top_p=0.95, top_k=64, max_new=3072, cap_extended=6144)
+        scs = [{"key": "T-reason", "max_new": 4096}, {"key": "S1", "max_new": None}]
+        self.assertEqual([C.effective_cap(sc, args.max_new) for sc in scs], [4096, 3072])   # a scenario's own cap wins
+        self.assertEqual(C.sampling_record(args, scs)["cap"], {"T-reason": 4096, "S1": 3072})
+        self.assertIsNone(C.sampling_record(types.SimpleNamespace(samples=0), scs))
 
     def test_the_vendored_sampler_draws_exactly_as_the_examples_sampler(self):
         import steerdiff_sampler as S

@@ -134,6 +134,20 @@ def make_channel_of(serve_mod, protocol, tok, primer=()):
     return channel_of
 
 
+def effective_cap(sc: dict, default: int) -> int:
+    """The token cap a scenario runs with: its own max_new (the reason scenarios carry 4096), else --max-new."""
+    return int(sc["max_new"] or default)
+
+
+def sampling_record(args, scenarios: list) -> dict | None:
+    """identity.json's sampling block, recording the cap each scenario actually ran with."""
+    if not args.samples:
+        return None
+    return {"samples": args.samples, "temperature": args.temperature, "top_p": args.top_p, "top_k": args.top_k,
+            "cap": {sc["key"]: effective_cap(sc, args.max_new) for sc in scenarios}, "cap_extended": args.cap_extended,
+            "seeds": "steerdiff_sampler.seed_for('lies', item, k)"}
+
+
 def capture(lm, prompt_ids, layout, header, arm_fn, channel_of, stop_ids, max_new: int, reference=None, pick=None,
             extend_to=None) -> dict:
     """One arm in one mode. arm_fn() arms (or clears) the steering after the readouts are configured; channel_of(tok)
@@ -341,10 +355,7 @@ def main(argv=None) -> int:
                        "P": len(sc["prompt_ids"]), "reference_len": None if sc["reference"] is None else len(sc["reference"]),
                        "source": sc["source"]} for sc in scenarios],
         "max_new": args.max_new, "system": args.system or None, "lexicons": lex_ids,
-        "sampling": None if not args.samples else {"samples": args.samples, "temperature": args.temperature,
-                                                   "top_p": args.top_p, "top_k": args.top_k,
-                                                   "cap": args.max_new, "cap_extended": args.cap_extended,
-                                                   "seeds": "steerdiff_sampler.seed_for('lies', item, k)"},
+        "sampling": sampling_record(args, scenarios),
         "lexicon_words_not_single_tokens": lex_dropped,
         "provenance": {"commit": commit, "driver": driver, "uname_r": platform.release(),
                        "started": datetime.datetime.now().astimezone().isoformat(timespec="seconds")}})
@@ -373,7 +384,7 @@ def main(argv=None) -> int:
         try:
             cap = capture(lm, prompt_ids, layout, header, arm_fn,
                           make_channel_of(serve, protocol, tok, prompt_ids[from_pos + 1:]), stop_ids,
-                          sc["max_new"] or args.max_new, reference=ref, pick=pick, extend_to=extend_to)
+                          effective_cap(sc, args.max_new), reference=ref, pick=pick, extend_to=extend_to)
         finally:
             lm.lib.nomos_clear_steer(lm.h)
         if ref is not None and cap["tokens"] != ref:
