@@ -22,7 +22,7 @@ portalled dialog), the external data adapter, error wording and test harnesses.
 npm ci --ignore-scripts
 npm run verify
 GLIMMER_STEERDIFF_DATA_DIR=/path/to/local/catalog-directory \
-  HOST=127.0.0.1 PORT=5241 ORIGIN=http://127.0.0.1:5241 node build/index.js
+  PORT=5241 ORIGIN=http://127.0.0.1:5241 npm start
 ```
 
 The private workstation default is
@@ -38,6 +38,10 @@ Keep it and its files quiescent while reviewing.
 Do not expose this unauthenticated private local application publicly. It can
 serve provenance and recorded text to anyone who can reach it. Keep the bind
 address loopback until a separate authenticated deployment is designed.
+`npm start` binds `127.0.0.1` when `HOST` is unset or empty. An explicit `HOST`
+is an opt-in to that address; the launcher does not add authentication. Use
+`npm run test:start` after building to verify the real default listener. Direct
+`node build/index.js` invocation bypasses this default.
 
 The current catalog covers S1 (15 comparisons), tone prompts (60), and recorded
 lie scenarios (56). Only index documents and the selected comparison are loaded;

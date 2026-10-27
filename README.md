@@ -5,6 +5,11 @@ snapshot's provenance and [the steering-diff guide](docs/STEERING-DIFF.md) for
 the integrated recorded-data route. The original setup below is retained as
 source context; port 5226 still belongs to design-kits, not this checkout.
 
+Use `npm start` for production: it defaults an unset or empty `HOST` to
+`127.0.0.1`. A wider `HOST` is an explicit opt-in and needs separate access
+controls for the private captures and kernel proxies. Direct `node build/index.js`
+bypasses that default; the legacy commands below set `HOST` explicitly.
+
 A **chat-first, dark Svelte 5 application prototype** with read-only workspace and emotion-concept inspection. Local preview: http://127.0.0.1:5226/. An independent Nomos frontend inspired by the Muse/Meta blue-and-dark direction, not an official Meta product.
 
 With `NOMOS_API_BASE_URL` configured, the app opens a blank **Live kernel** conversation and connects to the already-running Glimmer serve. Answers and real `reasoning_content` stream separately. Health and KV session-store counters come from the server; workspace/emotion probes and steering are **not connected**. Offline kernels disable sending rather than falling back to scripted output.

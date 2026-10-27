@@ -34,11 +34,19 @@ npm run verify
 npm run test:contract
 npm run test:transport
 npm run test:chat
-HOST=127.0.0.1 PORT=5241 ORIGIN=http://127.0.0.1:5241 node build/index.js
+npm run test:start
+PORT=5241 ORIGIN=http://127.0.0.1:5241 npm start
 ```
 
 With no private upstream setting, the application is a labelled demo. The
 transport and chat checks use an isolated CPU fake, never the live kernel.
+`npm start` defaults an unset or empty `HOST` to `127.0.0.1`. Setting `HOST`
+explicitly overrides it; for example, `HOST=0.0.0.0` deliberately exposes all IPv4
+interfaces. Wider binding is **not** an authenticated deployment: this app serves
+private captures and kernel proxies. Do not enable it without separate access
+controls. Directly running `node build/index.js` bypasses the safe launcher and
+must supply `HOST` explicitly. `test:start` checks real loopback listeners with
+Linux `ss`; wider opt-ins are inspected before binding, never opened by the test.
 `MIGRATION-GATES.md` is this migration's acceptance ledger. Git uses the local
 identity `Light of Baldr <oss@lightofbaldr.dev>`; inspect every reachable commit
 before pushing. Only the private GitHub repository is a push destination.

@@ -7,7 +7,7 @@
     "dev": "vite dev --host 127.0.0.1 --port 5226 --strictPort",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "build": "vite build",
-    "start": "node build/index.js",
+    "start": "node scripts/start.mjs",
     "refresh:preview": "node scripts/refresh-preview.mjs --start-if-stopped",
     "verify": "node scripts/verify.mjs",
     "test:contract": "node --test tests/contract.test.mjs",
@@ -19,7 +19,8 @@
     "test:chat": "node scripts/chat.mjs",
     "test:kernel": "node scripts/kernel-chat.mjs",
     "test:steering": "node scripts/steering-tests.mjs",
-    "test:integration": "node scripts/lab-integration.mjs && npm run test:browser && npm run test:ui && npm run test:contrast"
+    "test:integration": "node scripts/lab-integration.mjs && npm run test:browser && npm run test:ui && npm run test:contrast",
+    "test:start": "node scripts/start-check.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "5.3.0",
