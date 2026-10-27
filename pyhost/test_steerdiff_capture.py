@@ -555,5 +555,60 @@ class Relabel(unittest.TestCase):
         self.assertEqual(doc["records"][1]["channel"], "template")  # the input is not mutated
 
 
+
+class Sampled(unittest.TestCase):
+    """Sampled runs (Adam 10-26: "run the sampled lie rates at 0.5"): the examples study's sampler, its seeds, and its
+    cap (3072, extended to 6144 while no answer has opened)."""
+
+    def test_capture_uses_the_given_picker_instead_of_the_argmax(self):
+        lm = FakeLM({3: 4, 4: 5, 5: 9})
+        picks = iter([7, 8, 9])
+        cap = C.capture(lm, PROMPT, LAYOUT, HEADER, lambda: None, lambda t: "answer", (9,), 10,
+                        pick=lambda logits: next(picks))
+        self.assertEqual((cap["tokens"], lm.fed), ([7, 8, 9], [7, 8]))
+
+    def test_the_cap_extends_only_while_no_answer_has_opened(self):
+        lm = FakeLM({})                                          # the argmax is always 0: never a stop
+        cap = C.capture(lm, PROMPT, LAYOUT, HEADER, lambda: None, lambda t: "reasoning", (9,), 3, extend_to=6)
+        self.assertEqual(len(cap["tokens"]), 6)                  # no answer by 3: runs on to 6
+        lm = FakeLM({})
+        chans = iter(["reasoning", "answer", "answer", "answer", "answer", "answer"])
+        cap = C.capture(lm, PROMPT, LAYOUT, HEADER, lambda: None, lambda t: next(chans), (9,), 3, extend_to=6)
+        self.assertEqual(len(cap["tokens"]), 3)                  # the answer opened before 3: stops at 3
+
+    def test_the_vendored_sampler_draws_exactly_as_the_examples_sampler(self):
+        import steerdiff_sampler as S
+        ref = "/home/adam/Projects/glimmer-emotions-runs/examples-8037a03/examples/sampler.py"
+        if not os.path.exists(ref):
+            self.skipTest("the examples sampler is absent")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("examples_sampler", ref)
+        E = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(E)
+        self.assertEqual(S.seed_for("lies", "8b241c2db1d5", 2), E.seed_for("lies", "8b241c2db1d5", 2))
+        rng = np.random.RandomState(0)
+        a, b = S.Sampler(12345), E.Sampler(12345)
+        for _ in range(200):
+            logits = rng.standard_normal(5000).astype(np.float32) * 3
+            logits[rng.randint(5000)] = logits.max()            # an exact tie at the top now and then
+            self.assertEqual(a(logits), b(logits))
+
+
+
+class Reproduce(unittest.TestCase):
+    def test_reproduce_compares_the_handed_out_tokens_with_the_recorded_episode(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "ep.json")
+            with open(path, "w") as f:
+                json.dump({"replies": [{"tokens": [5, 6, 7, 9]}]}, f)
+            self.assertEqual(C.reproduce(path, 0, 11, [5, 6, 7, 9])["identical"], True)
+            r = C.reproduce(path, 0, 11, [5, 6, 8, 9])
+            self.assertEqual((r["identical"], r["first_difference"]), (False, 2))
+            r = C.reproduce(path, 0, 11, [5, 6])
+            self.assertEqual((r["identical"], r["first_difference"], r["recorded_len"], r["len"]), (False, 2, 4, 2))
+            self.assertIsNone(C.reproduce(os.path.join(d, "absent.json"), 1, 12, [5])["identical"])
+
+
 if __name__ == "__main__":
     unittest.main()

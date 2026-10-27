@@ -28,6 +28,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "pyhost"))
 import readout     # noqa: E402
 import steerdiff   # noqa: E402
+import steerdiff_sampler   # noqa: E402
 
 # wsdiff discovery 1, protocol v2 (glimmer-emotions wsdiff/protocol_v2.json): the frozen prompts, arms and lexicons.
 PROMPTS = {
@@ -133,10 +134,13 @@ def make_channel_of(serve_mod, protocol, tok, primer=()):
     return channel_of
 
 
-def capture(lm, prompt_ids, layout, header, arm_fn, channel_of, stop_ids, max_new: int, reference=None) -> dict:
+def capture(lm, prompt_ids, layout, header, arm_fn, channel_of, stop_ids, max_new: int, reference=None, pick=None,
+            extend_to=None) -> dict:
     """One arm in one mode. arm_fn() arms (or clears) the steering after the readouts are configured; channel_of(tok)
-    names a token's channel before the protocol parser takes it. Free: the argmax, until a stop token (handed out, never
-    fed) or max_new tokens (the last one fed). Matched: exactly the reference's ids, each fed."""
+    names a token's channel before the protocol parser takes it. Free: pick(logits) (the argmax by default; a seeded
+    sampler for sampled runs), until a stop token (handed out, never fed) or max_new tokens (the last one fed); with
+    extend_to, a run that has not opened its answer by max_new continues to extend_to (the examples' cap policy).
+    Matched: exactly the reference's ids, each fed."""
     raws = {}
 
     def take(pos0, toks, generated):
@@ -148,21 +152,41 @@ def capture(lm, prompt_ids, layout, header, arm_fn, channel_of, stop_ids, max_ne
     arm_fn()
     logits = lm.prefill(list(prompt_ids))
     turn = readout.ReadoutTurn(layout, header, list(prompt_ids), take=take, kv_len=lm.cache_len)
-    tokens, saw_stop = [], False
+    tokens, saw_stop, answered = [], False, False
     stop = {int(s) for s in stop_ids}
-    n = len(reference) if reference is not None else int(max_new)
-    for j in range(n):
-        tok = int(reference[j]) if reference is not None else int(np.argmax(logits))
-        turn.note_token(tok, channel_of(tok))
+    choose = pick or (lambda x: int(np.argmax(x)))
+    limit, j = (len(reference) if reference is not None else int(max_new)), 0
+    while j < limit:
+        tok = int(reference[j]) if reference is not None else int(choose(logits))
+        ch = channel_of(tok)
+        answered = answered or ch == "answer"
+        turn.note_token(tok, ch)
         tokens.append(tok)
         if reference is None and tok in stop:
             saw_stop = True
             break
         logits = lm.step(tok)
+        j += 1
+        if reference is None and extend_to and j == int(max_new) and not answered:
+            limit = int(extend_to)      # the examples' cap: no answer opened by the base cap extends it, once
     if not saw_stop:
         turn.end()
     return {"tokens": tokens, "records": turn.records, "raws": raws, "saw_stop": saw_stop,
             "summary": turn.summary(saw_stop)}
+
+
+def reproduce(path: str, k: int, seed: int, tokens) -> dict:
+    """Whether a sampled base run handed out exactly the recorded episode's tokens (the same prompt, seed and sampler)."""
+    if not os.path.exists(path):
+        return {"k": k, "seed": seed, "recorded": None, "identical": None, "first_difference": None}
+    with open(path) as f:
+        want = [int(t) for t in json.load(f)["replies"][0]["tokens"]]
+    got = [int(t) for t in tokens]
+    first = next((i for i, (x, y) in enumerate(zip(want, got)) if x != y), None)
+    if first is None and len(want) != len(got):
+        first = min(len(want), len(got))
+    return {"k": k, "seed": seed, "recorded": path, "identical": want == got, "first_difference": first,
+            "recorded_len": len(want), "len": len(got)}
 
 
 def _first_difference(a: dict, b: dict, positions=None):
@@ -251,6 +275,12 @@ def main(argv=None) -> int:
     ap.add_argument("--system", default=SYSTEM, help="the system message; empty for the template's default")
     ap.add_argument("--scenarios", help="a JSON list of scenarios (tools/steerdiff_scenarios.py) instead of --prompts")
     ap.add_argument("--lexicons", choices=("default", "lies"), default="default")
+    ap.add_argument("--samples", type=int, default=0, help="sampled free runs per arm (the examples' seeds and sampler)")
+    ap.add_argument("--temperature", type=float, default=1.0)
+    ap.add_argument("--top-p", type=float, default=0.95)
+    ap.add_argument("--top-k", type=int, default=64)
+    ap.add_argument("--cap-extended", type=int, default=6144, help="sampled runs: no answer by --max-new extends to this")
+    ap.add_argument("--no-workspace", action="store_true", help="emotion readouts only (no J-lens workspace)")
     args = ap.parse_args(argv)
     if os.environ.get("STEERDIFF_ROUTE") != "1":       # the launcher's environment must be in place before host loads
         os.execve(sys.executable, [sys.executable] + sys.argv, {**os.environ, **_launcher_env()})
@@ -279,8 +309,10 @@ def main(argv=None) -> int:
     eng = SimpleNamespace(protocol=protocol, tok=tok)
     units = reg.directions(dirs_id, [STEER_LAYER])[0]
     vectors = {a["name"]: arm_vector(a, units, names, dset["layer_sizes"][STEER_LAYER], D) for a in arms}
-    layout = readout.Layout(len(EMO_LAYERS), len(names), len(WS_LAYERS), K)
-    settings = {"emotion": {"layers": EMO_LAYERS, "names": names}, "workspace": {"layers": WS_LAYERS, "k": K}}
+    ws_layers = [] if args.no_workspace else WS_LAYERS
+    layout = readout.Layout(len(EMO_LAYERS), len(names), len(ws_layers), K if ws_layers else 0)
+    settings = {"emotion": {"layers": EMO_LAYERS, "names": names},
+                "workspace": {"layers": ws_layers, "k": K} if ws_layers else None}
     build = subprocess.run(["readelf", "-n", os.environ["SO_PATH"]], capture_output=True, text=True).stdout
     identity = {"library_sha256": _sha256(os.environ["SO_PATH"]),
                 "library_build_id": (re.findall(r"Build ID: ([0-9a-f]+)", build) or [None])[0],
@@ -309,11 +341,57 @@ def main(argv=None) -> int:
                        "P": len(sc["prompt_ids"]), "reference_len": None if sc["reference"] is None else len(sc["reference"]),
                        "source": sc["source"]} for sc in scenarios],
         "max_new": args.max_new, "system": args.system or None, "lexicons": lex_ids,
+        "sampling": None if not args.samples else {"samples": args.samples, "temperature": args.temperature,
+                                                   "top_p": args.top_p, "top_k": args.top_k,
+                                                   "cap": args.max_new, "cap_extended": args.cap_extended,
+                                                   "seeds": "steerdiff_sampler.seed_for('lies', item, k)"},
         "lexicon_words_not_single_tokens": lex_dropped,
         "provenance": {"commit": commit, "driver": driver, "uname_r": platform.release(),
                        "started": datetime.datetime.now().astimezone().isoformat(timespec="seconds")}})
     stop_ids = list(protocol.stop_ids)
-    all_gates, failed = {}, False
+    all_gates, all_repro, failed = {}, {}, False
+
+    def run_one(sc, prompt_ids, from_pos, arm, mode, run_id, file_tag, ref=None, pick=None, extend_to=None,
+                extra=None):
+        """One capture; its run document goes to SCENARIO/runs/FILE_TAG.json. Returns the capture."""
+        vec = vectors[arm["name"]]
+
+        def arm_fn():
+            lm.readout_config(EMO_LAYERS, dirs_id, ws_layers, lens_id, K)
+            lm.lib.nomos_clear_steer(lm.h)
+            if vec is not None:
+                rc = lm.lib.nomos_set_steer(lm.h, STEER_LAYER, vec.ctypes.data)
+                rc = rc or lm.lib.nomos_set_steer_from(lm.h, from_pos)
+                if rc != 0:
+                    lm.lib.nomos_clear_steer(lm.h)
+                    raise RuntimeError(f"the kernel refused the steering (rc={rc})")
+
+        steer = None if vec is None else {"layer": STEER_LAYER, "kind": arm["kind"], "s": arm["s"],
+                                         "from_pos": from_pos}
+        header = {"v": readout.V, "conversation": sc["key"], "turn": None, "response_id": run_id,
+                  "settings": settings, "steer": steer}
+        try:
+            cap = capture(lm, prompt_ids, layout, header, arm_fn,
+                          make_channel_of(serve, protocol, tok, prompt_ids[from_pos + 1:]), stop_ids,
+                          sc["max_new"] or args.max_new, reference=ref, pick=pick, extend_to=extend_to)
+        finally:
+            lm.lib.nomos_clear_steer(lm.h)
+        if ref is not None and cap["tokens"] != ref:
+            raise SystemExit(f"{run_id}: G6 the replay did not consume its reference's ids")
+        reference = None
+        if mode == "matched":
+            reference = (sc["source"] or {}).get("path") if sc["reference"] is not None else f"{sc['key']}.base.free"
+        doc = steerdiff.run_doc(run_id=run_id, arm={"name": arm["name"], "steer": steer, **(extra or {})}, mode=mode,
+                                reference=reference, prompt_ids=prompt_ids, tokens=cap["tokens"],
+                                records=cap["records"], settings=settings, identity=identity)
+        doc.update(saw_stop=cap["saw_stop"], summary=cap["summary"],
+                   text=tok.decode(cap["tokens"], skip_special_tokens=False),
+                   lexicons=steerdiff.lexicon_counts(doc, lex_ids, display_k=8))
+        _write(os.path.join(out, sc["key"], "runs", f"{file_tag}.json"), doc)
+        print(f"[steerdiff] {run_id}: {len(cap['tokens'])} tokens, {len(cap['records'])} records, "
+              f"stop={cap['saw_stop']}", flush=True)
+        return cap
+
     try:
         for sc in scenarios:
             pkey, prompt_ids = sc["key"], [int(t) for t in sc["prompt_ids"]]
@@ -322,53 +400,40 @@ def main(argv=None) -> int:
             # names the original prompt's last token as its onset
             from_pos = P - 1 if sc["onset"] is None else int(sc["onset"])
             free, matched = {}, {}
-            for mode in sc["modes"]:
-                for arm in arms:
-                    if mode == "matched" and arm["name"] == "base_repeat" and "free" in sc["modes"]:
-                        continue                              # G1 reads free generation when there is some
-                    vec = vectors[arm["name"]]
-
-                    def arm_fn(vec=vec):
-                        lm.readout_config(EMO_LAYERS, dirs_id, WS_LAYERS, lens_id, K)
-                        lm.lib.nomos_clear_steer(lm.h)
-                        if vec is not None:
-                            rc = lm.lib.nomos_set_steer(lm.h, STEER_LAYER, vec.ctypes.data)
-                            rc = rc or lm.lib.nomos_set_steer_from(lm.h, from_pos)
-                            if rc != 0:
-                                lm.lib.nomos_clear_steer(lm.h)
-                                raise RuntimeError(f"the kernel refused the steering (rc={rc})")
-
-                    channel_of = make_channel_of(serve, protocol, tok, prompt_ids[from_pos + 1:])
-
-                    run_id = f"{pkey}.{arm['name']}.{mode}"
-                    steer = None if vec is None else {"layer": STEER_LAYER, "kind": arm["kind"], "s": arm["s"],
-                                                     "from_pos": from_pos}
-                    header = {"v": readout.V, "conversation": pkey, "turn": None, "response_id": run_id,
-                              "settings": settings, "steer": steer}
-                    ref = None
-                    if mode == "matched" and sc["reference"] is not None:
-                        ref = [int(t) for t in sc["reference"]]
-                    elif mode == "matched":
-                        ref = free["base"]["tokens"][:len(free["base"]["tokens"]) - int(free["base"]["saw_stop"])]
-                    try:
-                        cap = capture(lm, prompt_ids, layout, header, arm_fn, channel_of, stop_ids, sc["max_new"] or args.max_new,
-                                      reference=ref)
-                    finally:
-                        lm.lib.nomos_clear_steer(lm.h)
-                    if ref is not None and cap["tokens"] != ref:
-                        raise SystemExit(f"{run_id}: G6 the replay did not consume its reference's ids")
-                    (free if mode == "free" else matched)[arm["name"]] = cap
-                    doc = steerdiff.run_doc(run_id=run_id, arm={"name": arm["name"], "steer": steer}, mode=mode,
-                                            reference=((sc["source"] or {}).get("path") if sc["reference"] is not None
-                                                       else f"{pkey}.base.free") if mode == "matched" else None,
-                                            prompt_ids=prompt_ids, tokens=cap["tokens"], records=cap["records"],
-                                            settings=settings, identity=identity)
-                    doc.update(saw_stop=cap["saw_stop"], summary=cap["summary"],
-                               text=tok.decode(cap["tokens"], skip_special_tokens=False),
-                               lexicons=steerdiff.lexicon_counts(doc, lex_ids, display_k=8))
-                    _write(os.path.join(out, pkey, "runs", f"{arm['name']}.{mode}.json"), doc)
-                    print(f"[steerdiff] {run_id}: {len(cap['tokens'])} tokens, {len(cap['records'])} records, "
-                          f"stop={cap['saw_stop']}", flush=True)
+            if args.samples:            # sampled free runs: the examples' seeds, sampler and cap, sample-major
+                if sc["modes"] != ["free"] or not sc.get("source"):
+                    raise SystemExit(f"{pkey}: sampled runs need a free scenario built from a recorded episode")
+                item, rec_dir, repro = sc["source"]["item"], os.path.dirname(sc["source"]["path"]), []
+                for k in range(args.samples):
+                    seed = steerdiff_sampler.seed_for("lies", item, k)
+                    for arm in arms:
+                        if arm["name"] in ("base_repeat", "zero") and k > 0:
+                            continue            # G1 and G2 read sample 0
+                        cap = run_one(sc, prompt_ids, from_pos, arm, "free", f"{pkey}.{arm['name']}.s{k}",
+                                      f"{arm['name']}.s{k}.free",
+                                      pick=steerdiff_sampler.Sampler(seed, args.temperature, args.top_p, args.top_k),
+                                      extend_to=args.cap_extended, extra={"sample": k, "seed": seed})
+                        if k == 0:
+                            free[arm["name"]] = cap
+                        if arm["name"] == "base":
+                            r = reproduce(os.path.join(rec_dir, f"{item}-{k}.json"), k, seed, cap["tokens"])
+                            repro.append(r)
+                            print(f"[steerdiff] {pkey} base s{k}: reproduces the recorded episode: "
+                                  f"{r['identical']} (first difference {r['first_difference']})", flush=True)
+                all_repro[pkey] = repro
+            else:
+                for mode in sc["modes"]:
+                    for arm in arms:
+                        if mode == "matched" and arm["name"] == "base_repeat" and "free" in sc["modes"]:
+                            continue                    # G1 reads free generation when there is some
+                        ref = None
+                        if mode == "matched" and sc["reference"] is not None:
+                            ref = [int(t) for t in sc["reference"]]
+                        elif mode == "matched":
+                            ref = free["base"]["tokens"][:len(free["base"]["tokens"]) - int(free["base"]["saw_stop"])]
+                        cap = run_one(sc, prompt_ids, from_pos, arm, mode, f"{pkey}.{arm['name']}.{mode}",
+                                      f"{arm['name']}.{mode}", ref=ref)
+                        (free if mode == "free" else matched)[arm["name"]] = cap
             g = gates(free, matched, layout, P, from_pos, EMO_LAYERS.index(STEER_LAYER))
             all_gates[pkey] = g
             failed = failed or not all(v["pass"] for v in g.values())
@@ -377,6 +442,8 @@ def main(argv=None) -> int:
     finally:
         lm.lib.nomos_clear_steer(lm.h)
         lm.readout_off()
+    if all_repro:
+        _write(os.path.join(out, "reproduction.json"), all_repro)
     _write(os.path.join(out, "gates.json"), all_gates)
     print("STEERDIFF GATES " + ("FAIL" if failed else "PASS"), flush=True)
     return 1 if failed else 0
