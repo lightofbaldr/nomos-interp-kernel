@@ -160,6 +160,16 @@ class Arms(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 p(bad)
 
+    def test_any_numbered_random_direction_is_its_own_seeded_push(self):
+        p = lambda n: C.parse_arm(n, self.NAMES)            # noqa: E731
+        self.assertEqual(p("random7_0.5"), {"name": "random7_0.5", "kind": "random7", "s": 0.5})
+        units = np.eye(4, 6, dtype=np.float32)
+        v = C.arm_vector(p("random7_-0.5"), units, self.NAMES, 3.0, 6)
+        self.assertTrue(np.array_equal(v, (-0.5 * 3.0 * C.random_unit(7, 6)).astype(np.float32)))
+        for bad in ("random0_0.5", "random07_0.5", "randomx_0.5", "random_0.5"):
+            with self.assertRaises(ValueError, msg=bad):
+                p(bad)
+
     def test_an_arm_without_steering_has_no_vector_and_zero_is_exactly_zero(self):
         units = np.eye(4, 6, dtype=np.float32)
         self.assertIsNone(C.arm_vector(C.parse_arm("base", self.NAMES), units, self.NAMES, 3.0, 6))

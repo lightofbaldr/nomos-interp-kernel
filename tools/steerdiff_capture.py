@@ -66,7 +66,11 @@ WS_LAYERS = [36, 40, 44, 48]
 K = 16
 STEER_LAYER = 24
 ALIASES = {"joy": "joyful", "rand": "random1", "fear": "afraid", "anger": "angry", "sadness": "sad"}
-RANDOM_SEEDS = {"random1": 1, "random2": 2}      # glimmer-emotions sp1/steer.py
+def random_seed(kind: str):
+    """randomN (N = 1, 2, ...) is a standard normal push seeded with N: random1 and random2 are glimmer-emotions
+    sp1/steer.py's, the rest extend them for a random-direction base rate. None for any other kind."""
+    m = re.fullmatch(r"random([1-9][0-9]*)", kind)
+    return int(m.group(1)) if m else None
 ROUTE_KEYS = ("NOMOS_MODEL", "NOMOS_WEIGHT_NVFP4", "NOMOS_W4A4", "NOMOS_PRECISION_BITS", "NOMOS_KV_QUANT", "NOMOS_KV_INT4",
               "NOMOS_KV_I4_BLOCK", "NOMOS_KV_SWA", "NOMOS_KVSTORE", "NOMOS_MAX_SEQ", "NOMOS_PREFILL_CHUNK",
               "NOMOS_BATCHED_PREFILL", "CUBLAS_WORKSPACE_CONFIG", "WEIGHTS", "TOK_DIR")
@@ -74,7 +78,7 @@ ROUTE_KEYS = ("NOMOS_MODEL", "NOMOS_WEIGHT_NVFP4", "NOMOS_W4A4", "NOMOS_PRECISIO
 
 def parse_arm(name: str, names) -> dict:
     """base and base_repeat steer nothing; zero arms a zero vector; KIND_S steers KIND (an emotion of the direction set,
-    random1 or random2; joy and rand are short for joyful and random1) at strength S."""
+    or randomN; joy and rand are short for joyful and random1) at strength S."""
     if name in ("base", "base_repeat"):
         return {"name": name, "kind": None, "s": None}
     if name == "zero":
@@ -85,8 +89,8 @@ def parse_arm(name: str, names) -> dict:
         s = float(s)
     except ValueError:
         raise ValueError(f"arm {name!r}: expected KIND_STRENGTH") from None
-    if kind not in RANDOM_SEEDS and kind not in names:
-        raise ValueError(f"arm {name!r}: {kind!r} is neither a direction of the set nor random1/random2")
+    if random_seed(kind) is None and kind not in names:
+        raise ValueError(f"arm {name!r}: {kind!r} is neither a direction of the set nor randomN")
     if not math.isfinite(s) or abs(s) > readout.MAX_STRENGTH:
         raise ValueError(f"arm {name!r}: strength outside [-{readout.MAX_STRENGTH}, {readout.MAX_STRENGTH}]")
     return {"name": name, "kind": kind, "s": s}
@@ -105,8 +109,8 @@ def arm_vector(arm: dict, units, names, layer_size: float, d: int):
         return None
     if arm["kind"] == "zero":
         return np.zeros(d, dtype=np.float32)
-    if arm["kind"] in RANDOM_SEEDS:
-        unit = random_unit(RANDOM_SEEDS[arm["kind"]], d)
+    if random_seed(arm["kind"]) is not None:
+        unit = random_unit(random_seed(arm["kind"]), d)
     else:
         unit = np.asarray(units[list(names).index(arm["kind"])], dtype=np.float64)
     return np.ascontiguousarray(arm["s"] * float(layer_size) * unit, dtype=np.float32)
