@@ -586,6 +586,23 @@ class Sampled(unittest.TestCase):
         cap = C.capture(lm, PROMPT, LAYOUT, HEADER, lambda: None, lambda t: next(chans), (9,), 3, extend_to=6)
         self.assertEqual(len(cap["tokens"]), 3)                  # the answer opened before 3: stops at 3
 
+    def test_the_schedule_is_sample_major_with_the_gate_arms_on_the_first_sample_only(self):
+        arms = ["base", "base_repeat", "zero", "joy_0.5"]
+        self.assertEqual(C.sample_schedule(arms, 0, 2),
+                         [(0, "base"), (0, "base_repeat"), (0, "zero"), (0, "joy_0.5"), (1, "base"), (1, "joy_0.5")])
+
+    def test_a_resumed_run_starts_at_its_first_sample_and_gates_on_it(self):
+        arms = ["base", "base_repeat", "zero", "joy_0.5"]
+        self.assertEqual(C.sample_schedule(arms, 5, 7),
+                         [(5, "base"), (5, "base_repeat"), (5, "zero"), (5, "joy_0.5"), (6, "base"), (6, "joy_0.5")])
+        for bad in ((-1, 3), (3, 3), (4, 3)):
+            with self.assertRaises(ValueError, msg=str(bad)):
+                C.sample_schedule(arms, *bad)
+        import types
+        args = types.SimpleNamespace(samples=10, first_sample=5, temperature=1.0, top_p=0.95, top_k=64, max_new=3072,
+                                     cap_extended=6144)
+        self.assertEqual(C.sampling_record(args, [{"key": "T", "max_new": 4096}])["first_sample"], 5)
+
     def test_the_recorded_cap_is_the_cap_each_scenario_ran_with(self):
         import types
         args = types.SimpleNamespace(samples=10, temperature=1.0, top_p=0.95, top_k=64, max_new=3072, cap_extended=6144)

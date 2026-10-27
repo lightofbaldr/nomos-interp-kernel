@@ -143,11 +143,20 @@ def effective_cap(sc: dict, default: int) -> int:
     return int(sc["max_new"] or default)
 
 
+def sample_schedule(arm_names, first: int, n: int) -> list[tuple[int, str]]:
+    """Sampled runs, sample-major: every arm at each sample from first to n-1, except base_repeat and zero, which run on
+    the first sample only (G1 and G2 read it). A first sample above 0 resumes an interrupted run into a new --out."""
+    if not 0 <= first < n:
+        raise ValueError(f"first sample {first} is outside [0, {n})")
+    return [(k, a) for k in range(first, n) for a in arm_names if k == first or a not in ("base_repeat", "zero")]
+
+
 def sampling_record(args, scenarios: list) -> dict | None:
     """identity.json's sampling block, recording the cap each scenario actually ran with."""
     if not args.samples:
         return None
-    return {"samples": args.samples, "temperature": args.temperature, "top_p": args.top_p, "top_k": args.top_k,
+    return {"samples": args.samples, "first_sample": getattr(args, "first_sample", 0),
+            "temperature": args.temperature, "top_p": args.top_p, "top_k": args.top_k,
             "cap": {sc["key"]: effective_cap(sc, args.max_new) for sc in scenarios}, "cap_extended": args.cap_extended,
             "seeds": "steerdiff_sampler.seed_for('lies', item, k)"}
 
@@ -294,6 +303,8 @@ def main(argv=None) -> int:
     ap.add_argument("--scenarios", help="a JSON list of scenarios (tools/steerdiff_scenarios.py) instead of --prompts")
     ap.add_argument("--lexicons", choices=("default", "lies"), default="default")
     ap.add_argument("--samples", type=int, default=0, help="sampled free runs per arm (the examples' seeds and sampler)")
+    ap.add_argument("--first-sample", type=int, default=0,
+                    help="resume an interrupted sampled run at this sample, into a new --out; the gates read it")
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--top-p", type=float, default=0.95)
     ap.add_argument("--top-k", type=int, default=64)
@@ -419,22 +430,20 @@ def main(argv=None) -> int:
                 if sc["modes"] != ["free"] or not sc.get("source"):
                     raise SystemExit(f"{pkey}: sampled runs need a free scenario built from a recorded episode")
                 item, rec_dir, repro = sc["source"]["item"], os.path.dirname(sc["source"]["path"]), []
-                for k in range(args.samples):
-                    seed = steerdiff_sampler.seed_for("lies", item, k)
-                    for arm in arms:
-                        if arm["name"] in ("base_repeat", "zero") and k > 0:
-                            continue            # G1 and G2 read sample 0
-                        cap = run_one(sc, prompt_ids, from_pos, arm, "free", f"{pkey}.{arm['name']}.s{k}",
-                                      f"{arm['name']}.s{k}.free",
-                                      pick=steerdiff_sampler.Sampler(seed, args.temperature, args.top_p, args.top_k),
-                                      extend_to=args.cap_extended, extra={"sample": k, "seed": seed})
-                        if k == 0:
-                            free[arm["name"]] = cap
-                        if arm["name"] == "base":
-                            r = reproduce(os.path.join(rec_dir, f"{item}-{k}.json"), k, seed, cap["tokens"])
-                            repro.append(r)
-                            print(f"[steerdiff] {pkey} base s{k}: reproduces the recorded episode: "
-                                  f"{r['identical']} (first difference {r['first_difference']})", flush=True)
+                by_name = {a["name"]: a for a in arms}
+                for k, name in sample_schedule([a["name"] for a in arms], args.first_sample, args.samples):
+                    arm, seed = by_name[name], steerdiff_sampler.seed_for("lies", item, k)
+                    cap = run_one(sc, prompt_ids, from_pos, arm, "free", f"{pkey}.{arm['name']}.s{k}",
+                                  f"{arm['name']}.s{k}.free",
+                                  pick=steerdiff_sampler.Sampler(seed, args.temperature, args.top_p, args.top_k),
+                                  extend_to=args.cap_extended, extra={"sample": k, "seed": seed})
+                    if k == args.first_sample:      # G1 and G2 read the first sample
+                        free[arm["name"]] = cap
+                    if arm["name"] == "base":
+                        r = reproduce(os.path.join(rec_dir, f"{item}-{k}.json"), k, seed, cap["tokens"])
+                        repro.append(r)
+                        print(f"[steerdiff] {pkey} base s{k}: reproduces the recorded episode: "
+                              f"{r['identical']} (first difference {r['first_difference']})", flush=True)
                 all_repro[pkey] = repro
             else:
                 for mode in sc["modes"]:
