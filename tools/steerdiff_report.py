@@ -19,20 +19,43 @@ SHOW_LAYERS = (36, 48)          # the first and last workspace layers, to keep t
 EMO_SHOW = (24, 29, 51)         # the intervention layer, one downstream, the last
 
 
-def load(out: str):
+def _identity_gates(out: str):
     with open(os.path.join(out, "identity.json")) as f:
         ident = json.load(f)
     gates = {}
     if os.path.exists(os.path.join(out, "gates.json")):
         with open(os.path.join(out, "gates.json")) as f:
             gates = json.load(f)
-    runs = {}
+    return ident, gates
+
+
+def _run_docs(out: str, ident: dict):
+    """Every run document of the capture, with its prompt: the *.json files under PROMPT/runs."""
     for prompt in ident["prompts"]:
         d = os.path.join(out, prompt, "runs")
         for name in sorted(os.listdir(d)) if os.path.isdir(d) else ():
-            with open(os.path.join(d, name)) as f:
-                doc = json.load(f)
-            runs[(prompt, doc["arm"]["name"], doc["mode"])] = doc
+            if name.endswith(".json"):
+                with open(os.path.join(d, name)) as f:
+                    yield prompt, json.load(f)
+
+
+def load(out: str):
+    """identity, gates and the runs keyed (prompt, arm, mode). A sampled capture holds one run per arm AND sample, which
+    this key cannot hold, so it is refused rather than reduced to one sample per arm: use load_sampled."""
+    ident, gates = _identity_gates(out)
+    runs = {}
+    for prompt, doc in _run_docs(out, ident):
+        if doc["arm"].get("sample") is not None:
+            raise ValueError(f"{out} is a sampled capture (one run per arm and sample): use load_sampled")
+        runs[(prompt, doc["arm"]["name"], doc["mode"])] = doc
+    return ident, gates, runs
+
+
+def load_sampled(out: str):
+    """A sampled capture's identity, gates and runs keyed (prompt, arm, mode, sample)."""
+    ident, gates = _identity_gates(out)
+    runs = {(prompt, doc["arm"]["name"], doc["mode"], int(doc["arm"]["sample"])): doc
+            for prompt, doc in _run_docs(out, ident)}
     return ident, gates, runs
 
 

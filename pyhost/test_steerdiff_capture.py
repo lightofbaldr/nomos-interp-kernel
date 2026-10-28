@@ -434,6 +434,85 @@ class ExportTok:
         return "".join(f"<{i}>" for i in ids)
 
 
+def synthetic_sampled_capture(out):
+    """A sampled capture (base and fear_0.5, samples 0 and 1, free only) with its labels.json, like
+    tools/steerdiff_capture.py --samples writes: one file per arm and sample, the sample in arm.sample."""
+    import steerdiff
+    settings = {"emotion": {"layers": [20, 24], "names": ["afraid", "sad"]}, "workspace": None}
+
+    def doc(name, k, tokens):
+        recs = [{"pos": i, "token": t, "source": "prompt", "channel": None, "missing": [],
+                 "emotion": {"proj": [[0.0, 0.0], [0.0, 0.0]], "norm": [1.0, 1.0]}, "workspace": None}
+                for i, t in enumerate([1, 2])]
+        recs += [{"pos": 2 + j, "token": t, "source": "generated", "channel": "answer", "missing": [],
+                  "emotion": {"proj": [[0.0, 0.0], [float(name != "base"), 0.0]], "norm": [1.0, 1.0]},
+                  "workspace": None} for j, t in enumerate(tokens)]
+        d = steerdiff.run_doc(run_id=f"S1.{name}.s{k}", arm={"name": name, "steer": None, "sample": k, "seed": 100 + k},
+                              mode="free", reference=None, prompt_ids=[1, 2], tokens=tokens, records=recs,
+                              settings=settings, identity={"x": 1})
+        d.update(saw_stop=True, lexicons={})
+        return d
+
+    ident = {"identity": {"route": {}}, "settings": settings, "prompts": {"S1": "a prompt"},
+             "sampling": {"samples": 2, "first_sample": 0},
+             "arms": [{"name": "base", "kind": None, "s": None}, {"name": "fear_0.5", "kind": "afraid", "s": 0.5}]}
+    os.makedirs(os.path.join(out, "S1", "runs"))
+    with open(os.path.join(out, "identity.json"), "w") as f:
+        json.dump(ident, f)
+    runs = {(n, k): doc(n, k, toks) for n, k, toks in (("base", 0, [5, 6]), ("fear_0.5", 0, [5, 7]),
+                                                       ("base", 1, [8, 6]), ("fear_0.5", 1, [9, 9]))}
+    for (n, k), d in runs.items():
+        with open(os.path.join(out, "S1", "runs", f"{n}.s{k}.free.json"), "w") as f:
+            json.dump(d, f)
+    labels = {"by": "Prime", "rule": "r", "labels": {"base.s0": {"label": "lie"}, "fear_0.5.s0": {"label": "honest"},
+                                                     "base.s1": {"label": "lie"}, "fear_0.5.s1": {"label": "lie"}}}
+    with open(os.path.join(out, "labels.json"), "w") as f:
+        json.dump(labels, f)
+    return runs, labels
+
+
+class ExportSampled(unittest.TestCase):
+    """Sampled captures hold one run per arm AND sample. load() keyed (prompt, arm, mode) kept only the last sample per
+    arm, silently; it now refuses, and the export pairs each arm with base at the same sample."""
+
+    def test_load_refuses_a_sampled_capture_instead_of_keeping_one_sample_per_arm(self):
+        import tempfile
+        import steerdiff_report as R
+        with tempfile.TemporaryDirectory() as out:
+            synthetic_sampled_capture(out)
+            with self.assertRaises(ValueError):
+                R.load(out)
+
+    def test_a_sampled_capture_exports_each_arm_against_base_at_the_same_sample(self):
+        import tempfile
+        import steerdiff
+        import steerdiff_export as X
+        with tempfile.TemporaryDirectory() as out:
+            runs, labels = synthetic_sampled_capture(out)
+            X.export(out, ExportTok(), display_k=2)
+            with open(os.path.join(out, "ui", "index.json")) as f:
+                index = json.load(f)
+            self.assertEqual([(c["prompt"], c["arm"], c["mode"], c["sample"]) for c in index["comparisons"]],
+                             [("S1", "fear_0.5", "free", 0), ("S1", "fear_0.5", "free", 1)])
+            with open(os.path.join(out, "ui", index["comparisons"][1]["path"])) as f:
+                got = json.load(f)
+        self.assertEqual(index["comparisons"][1]["path"], "S1/fear_0.5.s1.free.json")
+        self.assertEqual(got["sample"], 1)
+        self.assertEqual(got["comparison"], json.loads(json.dumps(
+            steerdiff.compare(runs[("base", 1)], runs[("fear_0.5", 1)], 2))))
+        self.assertEqual(got["labels"], {"by": "Prime", "baseline": {"label": "lie"}, "steered": {"label": "lie"}})
+
+    def test_the_export_takes_only_the_named_pairs(self):
+        import tempfile
+        import steerdiff_export as X
+        with tempfile.TemporaryDirectory() as out:
+            synthetic_sampled_capture(out)
+            X.export(out, ExportTok(), display_k=2, pairs=["fear_0.5.s0"])
+            with open(os.path.join(out, "ui", "index.json")) as f:
+                index = json.load(f)
+        self.assertEqual([c["path"] for c in index["comparisons"]], ["S1/fear_0.5.s0.free.json"])
+
+
 
 class ReportByChannel(unittest.TestCase):
     def test_the_report_splits_lexicons_and_emotion_by_channel(self):
