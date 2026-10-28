@@ -5,7 +5,9 @@ export type KVStats=Record<typeof statKeys[number],number>;
 export type LiveState={health:Health|null;stats:KVStats|null;statsAt:string|null;error:string;statsError:string;busy:boolean;firstTextMs:number|null;elapsedMs:number|null;finish:string|null;pi?:import('./pi/model').PiView;assets?:import('./pi/model').Assets;conversation?:string;labels?:Record<string,string|null>;
   selection?:{request:string;pos:number};emotionLayer?:number;
   select?:(selection?:{request:string;pos:number})=>void;selectLayer?:(layer:number)=>void;
-  command?:(action:'readout'|'steer',value:unknown)=>Promise<void>};
+  command?:(action:'readout'|'steer',value:unknown)=>Promise<void>;
+  alertRules?:import('./pi/alerts').AlertRules;alerts?:import('./pi/alerts').AlertResult;
+  setAlertRules?:(rules:import('./pi/alerts').AlertRules)=>void};
 export const emptyLiveState=():LiveState=>({health:null,stats:null,statsAt:null,error:'',statsError:'',busy:false,firstTextMs:null,elapsedMs:null,finish:null});
 // Fixed for the entire conversation. In particular, never inject a changing
 // date into the system prompt: that destroys the KV prefix across midnight.

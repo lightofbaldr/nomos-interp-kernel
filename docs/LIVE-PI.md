@@ -59,6 +59,37 @@ off until explicitly enabled. Tools, retries and automatic compaction are disabl
 in this initial local chat host. The session cap is 100 and each submitted message
 is limited to 4,000 characters. The model output cap is 2,048 tokens.
 
+## Observational alerts
+
+The Alerts tab configures page-local rules and re-evaluates this conversation's
+loaded records. It does not modify the model or produce a durable scientific
+label. Emotion alerts are off by default; the reasoning workspace watch-list is
+on at L44. The seed prefixes are ` can't`, ` cannot`, ` couldn't`, ` hallucin`,
+and ` invent`. These are exploratory internal-signal alerts, **not a lie detector**.
+
+Emotion crossings use **raw projection minus the running mean of all earlier
+defined generated reasoning positions**, with the same direction asset, name and
+layer in this conversation. There must be 32 earlier samples. The current sample
+is tested before joining that mean. A crossing needs two adjacent eligible rows,
+below then at/above the chosen positive difference (or the mirrored below rule).
+The default difference of 5 is a UI starting value, not calibrated. A gap, missing
+measurement, non-reasoning row or turn boundary resets crossing history; it does
+not erase the prior mean. Steering/context changes can themselves change this
+statistic. It is not a causal or significance claim.
+
+Watch-list matching ignores edge whitespace and case and matches isolated-token
+prefixes; it does not reconstruct split words. An entry needs an adjacent known
+reasoning row where that prefix was absent from the same supplied top-k. A missing
+workspace, missing token label, gap, new turn or first observed row cannot supply
+negative evidence. A new match after such a gap is not called an entry. Word-piece
+splits may be missed. Token IDs and top-k ranks remain visible in badge details.
+
+Badges identify their rule, turn and consumed position, and can select that row in
+the inspector. Terminal records and reconnect snapshots do not double-count.
+The latest 200 badges are shown, with full counts for the loaded records. Signals
+from incomplete/error turns are explicitly provisional. Switching conversations
+resets the statistical history; rules remain page-local until reload.
+
 ## Recorded steering catalog
 
 The read-only default is `~/nomos_data/steering-diff/catalog`, not the prototype

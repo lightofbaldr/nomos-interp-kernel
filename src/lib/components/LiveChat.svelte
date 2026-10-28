@@ -8,6 +8,8 @@
   import {emptyLiveState,type LiveState} from '$lib/live';
   import {emptyPi,reducePi,messagesOf,textOf,type Assets} from '$lib/pi/model';
   import {readBridge} from '$lib/pi/stream';
+  import {defaultRules,evaluateAlerts,validRules,type AlertRules,type AlertResult} from '$lib/pi/alerts';
+  import AlertTrail from './AlertTrail.svelte';
 
   let {onState}:{onState:(state:LiveState)=>void}=$props();
   let view=$state.raw<LiveState>(emptyLiveState()),pi=$state.raw(emptyPi()),text=$state(''),error=$state('');
@@ -15,9 +17,14 @@
   let scroll:HTMLDivElement,textarea:HTMLTextAreaElement|null=$state(null);
   let alive=false,revision=0,controller:AbortController|undefined,follow=true,frame=0,labelTimer:ReturnType<typeof setTimeout>|undefined;
   let labelFlight=false,labelFailed=false;const labels:Record<string,string|null>={};
+  let rules=defaultRules(),labelVersion=0,alertKey='',alertRows:unknown[]=[],alerts:AlertResult|undefined;
   const messages=$derived(messagesOf(pi));
-  function update(next:Partial<LiveState>={}){if(!alive)return;view={...view,...next,pi,busy:pi.busy,conversation,labels:{...labels},command,
-    select:(selection)=>update({selection}),selectLayer:(emotionLayer)=>update({emotionLayer})};onState(view);}
+  function setAlertRules(next:AlertRules){validRules(next);rules=structuredClone(next);update();}
+  function update(next:Partial<LiveState>={}){if(!alive)return;
+    const key=`${conversation}:${labelVersion}:${JSON.stringify(rules)}`,rows=pi.turns.map(t=>t.records);
+    if(key!==alertKey||rows.length!==alertRows.length||rows.some((r,i)=>r!==alertRows[i])){alerts=evaluateAlerts(pi,rules,labels);alertKey=key;alertRows=rows;}
+    view={...view,...next,pi,busy:pi.busy,conversation,labels:{...labels},command,alertRules:rules,alerts,setAlertRules,
+      select:(selection)=>update({selection}),selectLayer:(emotionLayer)=>update({emotionLayer})};onState(view);}
   function latest(){if(!follow)return;cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{if(scroll)scroll.scrollTop=scroll.scrollHeight;});}
   async function api(body:Record<string,unknown>){
     const r=await fetch('/api/pi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -41,7 +48,7 @@
     if(!ids.size)return;labelFlight=true;
     try{const data=await api({action:'labels',ids:[...ids].slice(0,2048)});
       if(data.sha256!==view.assets?.tokenizer)throw Error('Token-label identity changed.');
-      Object.assign(labels,data.labels);update();
+      Object.assign(labels,data.labels);labelVersion++;update();
     }catch{labelFailed=true;update({error:'Token labels unavailable. Raw token IDs are shown; unknown is not absence.'});}
     finally{labelFlight=false;if(alive)scheduleLabels();}
   }
@@ -105,6 +112,7 @@
           <div class="live-turn-footer">{entry.streaming?'Generating':entry.message.role==='assistant'?`Generation: ${entry.message.stopReason}`:''}</div>
         </article>{/if}
       {/each}
+      <AlertTrail live={view}/>
     </div>
   </div>
 </div>

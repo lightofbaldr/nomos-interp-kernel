@@ -12,6 +12,7 @@ try{
   await page.getByLabel('Workspace top-16',{exact:true}).check();await page.getByRole('button',{name:'Apply readout settings',exact:true}).click();
   await page.getByLabel('Signed steering strength').fill('-0.5');await page.getByRole('button',{name:'Apply steering',exact:true}).click();
   await page.getByTestId('steer-setting').filter({hasText:'afraid -0.5 at L24'}).waitFor();
+  await page.getByRole('tab',{name:'Alerts',exact:true}).click();await page.getByLabel('Enable projection crossing',{exact:true}).check();await page.getByRole('button',{name:'Apply alert rules',exact:true}).click();
   await page.getByLabel('Message Muse',{exact:true}).fill('Hello');await page.getByRole('button',{name:'Send message',exact:true}).click();
   await page.getByText('Hello from Pi.',{exact:true}).waitFor();
   await until(async()=>!(await page.getByRole('button',{name:'Stop generating',exact:true}).count()));
@@ -21,6 +22,9 @@ try{
   assert.equal(await page.locator('.workspace-tokens li').count(),16);
   assert.match(await page.locator('.live-dock').innerText(),/Position|position/);
   const before=await page.locator('.live-dock').innerText();assert.match(before,/15\.00/);
+  const trail=page.getByRole('region',{name:'Signal alert badges'});await trail.locator('summary').click();
+  await trail.getByRole('button',{name:/Projection crossing/}).click();await page.locator('.signal-badge').filter({hasText:'afraid L29'}).waitFor();
+  assert.equal(await trail.getByRole('button',{name:/Watch-list entry/}).count(),2);
   const slider=page.getByRole('slider',{name:'Live consumed position'});await slider.fill('0');
   await page.getByText('Workspace unavailable at this position.',{exact:false}).waitFor();
   assert.equal(await page.locator('.workspace-tokens li').count(),0);

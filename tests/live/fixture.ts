@@ -18,7 +18,7 @@ export async function fakeKernel(){
     await writeFile(path.join(dir,'manifest.json'),manifest);assets.push({id:hash(manifest),kind,dir});
   }
   const registry=path.join(root,'registry.json');await writeFile(registry,JSON.stringify({v:1,assets}));
-  const tokenizer=JSON.stringify({model:{type:'BPE',vocab:{'Ġcannot':501,'Ġinvent':502,'hello':503,'Ġword':504}},decoder:{type:'ByteLevel'},added_tokens:[]});
+  const tokenizer=JSON.stringify({model:{type:'BPE',vocab:{...Object.fromEntries(Array.from({length:30},(_,i)=>[`Ġword${i}`,503+i])),'Ġcannot':501,'Ġinvent':502}},decoder:{type:'ByteLevel'},added_tokens:[]});
   const tokenizerPath=path.join(root,'tokenizer.json');await writeFile(tokenizerPath,tokenizer);
   const requests:any[]=[];let fault='',hold=false;
   const server=http.createServer(async(req,res)=>{
@@ -28,8 +28,8 @@ export async function fakeKernel(){
     const id=`chatcmpl-${requests.length}`,header={v:'nomos.readout/1',conversation:n?.conversation??null,turn:n?.turn??null,response_id:id,
       settings:r?{...r,emotion:{...r.emotion,names},workspace:r.workspace??null}:null,steer:n?.steer?{...n.steer,from_pos:2}:null};
     const records=Array.from({length:43},(_,pos)=>({pos,token:pos===42?503:504,source:pos<3?'prompt':'generated',channel:pos<3?null:pos<41?'reasoning':'answer',
-      emotion:{proj:r?.emotion.layers.map(()=>names.map((_,i)=>(pos<35?1:12)+i)),norm:r?.emotion.layers.map(()=>100)},
-      workspace:pos<3||!r?.workspace?null:{top:r.workspace.layers.map(()=>Array.from({length:r.workspace.k},(_,i)=>[501+i,10-i]))},
+      emotion:{proj:r?.emotion.layers.map(()=>names.map((_,i)=>(pos<36?1:12)+i)),norm:r?.emotion.layers.map(()=>100)},
+      workspace:pos<3||!r?.workspace?null:{top:r.workspace.layers.map(()=>Array.from({length:r.workspace.k},(_,i)=>[(pos<36?503:501)+i,10-i]))},
       missing:pos<3?(r?.workspace?['channel_prompt_v1','workspace_prompt_v1']:['channel_prompt_v1']):[]}));
     res.writeHead(200,{'Content-Type':'text/event-stream'});
     const send=(delta:unknown,finish:string|null=null,nomos?:unknown)=>res.write(`data: ${JSON.stringify({id,object:'chat.completion.chunk',created:1,model:'nomos-muse-glimmer-30b',choices:[{index:0,delta,finish_reason:finish}],...(nomos?{nomos}:{})})}\n\n`);
