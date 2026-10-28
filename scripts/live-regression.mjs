@@ -2,6 +2,7 @@ import {spawnSync} from 'node:child_process';
 // Read-only and fixture/browser checks only. No live model request here.
 for(const args of [
   ['--test','tests/contract.test.mjs'],
+  ['scripts/transport.mjs'],
   ['scripts/steering-tests.mjs'],
   ['scripts/lab-integration.mjs'],
   ['scripts/browser.mjs'],

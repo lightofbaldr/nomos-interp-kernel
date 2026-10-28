@@ -16,8 +16,8 @@
     "test:contrast": "node scripts/contrast.mjs",
     "test:live": "node scripts/browser.mjs --live",
     "test:transport": "node scripts/transport.mjs",
-    "test:chat": "node scripts/chat.mjs",
-    "test:kernel": "node scripts/kernel-chat.mjs",
+    "test:chat": "node scripts/live-browser.mjs",
+    "test:kernel": "node scripts/live-e2e.mjs",
     "test:steering": "node scripts/steering-tests.mjs",
     "test:integration": "node scripts/lab-integration.mjs && npm run test:browser && npm run test:ui && npm run test:contrast",
     "test:start": "node scripts/start-check.mjs"
