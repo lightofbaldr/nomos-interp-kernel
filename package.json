@@ -30,7 +30,7 @@
     "@nomos/svelte-fancy": "file:vendor/nomos-svelte-fancy-0.1.0.tgz",
     "@nomos/svelte-magic": "file:vendor/nomos-svelte-magic-0.1.0.tgz",
     "bits-ui": "2.19.5",
-    "glimmer-agent": "file:vendor/glimmer-agent-181a25a.tgz",
+    "glimmer-agent": "file:vendor/glimmer-agent-a287b8c.tgz",
     "phosphor-svelte": "3.0.1"
   },
   "devDependencies": {

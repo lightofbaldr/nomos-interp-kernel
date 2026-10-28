@@ -1,9 +1,9 @@
 # Pinned agent package
 
-`glimmer-agent-181a25a.tgz` is an npm package built by `npm pack` from private
-`lightofbaldr/glimmer-agent`, commit `181a25a6e1092738f6942e61854168e06c813ff8`.
+`glimmer-agent-a287b8c.tgz` is an npm package built by `npm pack` from private
+`lightofbaldr/glimmer-agent`, commit `a287b8c257ad46f9d0350f25487020ecc9e2256d`.
 
-Archive SHA-256: `6b2ee37a64bcc3479f77308c7a803f20d46671f76d4bf9b8548748b4a9b11231`.
+Archive SHA-256: `21571442d1d9d7dcf991fb91bc2c8e51383d6c0d61873708efdb724c75990126`.
 The npm lock also binds SHA-512 integrity and Pi dependencies at 1.3.0.
 
 The five modules have unchanged semantics from reviewed `6ea3078`; the successor

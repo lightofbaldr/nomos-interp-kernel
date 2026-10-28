@@ -14,7 +14,7 @@ const hash=b=>createHash('sha256').update(b).digest('hex');
 function noClients(){const s=execFileSync('ss',['-Htn','state','established','( sport = :8091 )'],{encoding:'utf8'});assert.equal(s.trim(),'','Another client is using the serve');}
 async function identity(){assert.equal(execFileSync('git',['rev-parse','HEAD'],{cwd:kernel,encoding:'utf8'}).trim(),rev);assert.equal(hash(await readFile(path.join(kernel,'libnomos_kernel-muse.so'))),so);}
 await identity();noClients();
-const health=await(await fetch(base+'/health')).json();assert.equal(health.ready,true);assert.equal(health.readout?.supported,true);
+const health=await(await fetch(base+'/health',{headers:{Connection:'close'}})).json();assert.equal(health.ready,true);assert.equal(health.readout?.supported,true);
 const tokenizer=path.join(home,'nomos_data/muse-glimmer-tokenizer/tokenizer.json'),tokenPin='c9dbee66967b58f31a7c27f723c3760da3526ccd0427578e8905b0abb0031c4d';
 assert.equal(hash(await readFile(tokenizer)),tokenPin);
 const evidence=await mkdtemp(path.join(home,'nomos_data/readout-spine/live-lab-'));
@@ -57,6 +57,6 @@ const result=await new Promise(resolve=>{
   child.on('error',e=>resolve({code:1,output:String(e)}));child.on('exit',code=>resolve({code,output}));
 });
 await writeFile(path.join(evidence,'pi-e2e.log'),result.output,{flag:'wx'});assert.equal(result.code,0);assert.match(result.output,/PI E2E OK/);
-await identity();const after=await(await fetch(base+'/health')).json();assert.equal(after.ready,true);
+await identity();const after=await(await fetch(base+'/health',{headers:{Connection:'close'}})).json();assert.equal(after.ready,true);
 await writeFile(path.join(evidence,'complete.json'),JSON.stringify({status:'pass',piClientSha256:sourceSha,ui:hash(await readFile(path.join(evidence,'ui-result.json'))),pi:hash(await readFile(path.join(evidence,'result.json'))),serveReady:after.ready},null,2),{flag:'wx'});
 console.log('Evidence:',evidence);console.log('LIVE PI E2E VERIFIED');

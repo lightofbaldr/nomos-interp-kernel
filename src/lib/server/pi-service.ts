@@ -14,7 +14,7 @@ export function service(){
 }
 export async function capabilities(){
   const base=checkedBase(env.NOMOS_API_BASE_URL??'');
-  const response=await fetch(base+'/health',{signal:AbortSignal.timeout(5000),redirect:'error'});
+  const response=await fetch(base+'/health',{signal:AbortSignal.timeout(5000),redirect:'error',headers:{Connection:'close'}});
   if(!response.ok)throw Error('Kernel health unavailable.');
   const h=await response.json();
   const tokenPin=env.NOMOS_TOKENIZER_SHA256||null;
