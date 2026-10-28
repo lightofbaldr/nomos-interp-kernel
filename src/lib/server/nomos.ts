@@ -2,6 +2,7 @@ import {env} from '$env/dynamic/private';
 import {json} from '@sveltejs/kit';
 import type {RequestEvent} from '@sveltejs/kit';
 import {readStats,type ChatMessage} from '$lib/live';
+import {sameOrigin} from './origin';
 
 export function configured(){return Boolean(env.NOMOS_API_BASE_URL);}
 function endpoint(path:string){
@@ -11,7 +12,8 @@ function endpoint(path:string){
   return new URL(path,base);
 }
 const options={headers:{'Cache-Control':'no-store'}};
-export async function health(){
+export async function health({request,url}:RequestEvent){
+  if(!sameOrigin(request,url))return json({error:'Same-origin loopback access required.'},{status:403,...options});
   if(!configured())return json({configured:false,health:null,error:'No kernel endpoint is configured.'},options);
   try{
     const response=await fetch(endpoint('/health'),{signal:AbortSignal.timeout(5000),redirect:'error'});
@@ -21,7 +23,8 @@ export async function health(){
     return json({configured:true,health:{ready:v.ready,model:v.model,engine:typeof v.engine==='string'?v.engine:'unknown',spec:v.spec===true,store:typeof v.kvstore?.status==='string'?v.kvstore.status:'unknown'},error:''},options);
   }catch{return json({configured:true,health:null,error:'Cannot reach the configured kernel. Check the workstation and network.'},options);}
 }
-export async function stats(){
+export async function stats({request,url}:RequestEvent){
+  if(!sameOrigin(request,url))return json({error:'Same-origin loopback access required.'},{status:403,...options});
   try{
     const response=await fetch(endpoint('/v1/kvstore/stats'),{signal:AbortSignal.timeout(5000),redirect:'error'});
     if(!response.ok)throw Error('KV statistics unavailable; the engine may be busy.');
@@ -49,7 +52,7 @@ function messagesFrom(value:unknown):ChatMessage[]{
   return messages;
 }
 export async function chat({request,url}:RequestEvent){
-  if(request.headers.get('origin')!==url.origin)return json({error:'Cross-origin chat requests are refused.'},{status:403,...options});
+  if(!sameOrigin(request,url))return json({error:'Cross-origin chat requests are refused.'},{status:403,...options});
   if(!request.headers.get('content-type')?.startsWith('application/json'))return json({error:'JSON required.'},{status:415,...options});
   let messages;try{messages=messagesFrom(await boundedBody(request));}catch(e){return json({error:e instanceof Error?e.message:'Invalid request.'},{status:400,...options});}
   const controller=new AbortController();const abort=()=>controller.abort();request.signal.addEventListener('abort',abort,{once:true});

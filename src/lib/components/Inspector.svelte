@@ -3,6 +3,7 @@
   import {Atom,ChartLine,Pause,Play,Info,Database,ArrowRight,ClockCounterClockwise,Waveform,Code,DownloadSimple,X} from 'phosphor-svelte';
   import {scoreLabel,type Trace,type Frame} from '$lib/trace';
   import LiveMetrics from './LiveMetrics.svelte';
+  import LiveInspector from './LiveInspector.svelte';
   import type {LiveState} from '$lib/live';
   let {trace,frame,selected,available,following,onFreeze,onFollow,onSelect,onInfo,onExport,onClose,mode,live}: {
     trace:Trace|null;frame:Frame|null;selected:number;available:number;following:boolean;
@@ -13,12 +14,13 @@
   let tab=$state('overview'),layer=$state(1),pinned=$state('');
   const validLayer=$derived(Math.min(layer,(trace?.probe.layerIds.length??1)-1));
   const active=$derived(frame?.concepts.find(c=>c.label===pinned)??frame?.concepts[0]);
-  const source=$derived(mode==='live'?(live?.health?.ready?'Readouts not connected':'Disconnected'):mode==='recorded'?'Imported / unverified':'Illustrative fixture');
+  const source=$derived(mode==='live'?(live?.pi?.connected?'Live Pi readouts':'Bridge disconnected'):mode==='recorded'?'Imported / unverified':'Illustrative fixture');
   function select(event:Event){onSelect(Number((event.currentTarget as HTMLInputElement).value));}
 </script>
 <div class="inspector-shell">
   <header class="inspector-heading"><div><div class="section-kicker"><Atom aria-hidden="true" size={16}/>INTERPRETABILITY</div><h2>Behind the response</h2></div><button class="icon-button inspector-close" onclick={onClose} aria-label="Close inspection"><X aria-hidden="true" size={20}/></button></header>
   <div class="inspection-status"><span class:connected={mode!=='live'} class="status-ring"></span><span>{source}</span><button class="icon-button small-icon" onclick={onInfo} aria-label="About interpretability readouts"><Info aria-hidden="true" size={17}/></button></div>
+  {#if mode==='live'&&live}<LiveInspector {live}/>{:else}
   <Tabs.Root bind:value={tab} class="inspector-tabs"><Tabs.List class="tab-list" aria-label="Inspection views"><Tabs.Trigger value="overview">Overview</Tabs.Trigger><Tabs.Trigger value="layers">Layers</Tabs.Trigger><Tabs.Trigger value="events">Trace</Tabs.Trigger></Tabs.List>
     <Tabs.Content value="overview" class="inspection-content">
       {#if mode==='live'&&live}<LiveMetrics state={live}/>{/if}
@@ -37,6 +39,6 @@
     </Tabs.Content>
     <Tabs.Content value="layers" class="inspection-content"><section><div class="readout-title"><h3><ChartLine aria-hidden="true" size={18}/>Concepts across layers</h3></div><p class="readout-subtitle">Same generation position, different depths.</p>{#if trace&&frame}<div class="layer-selector" role="group" aria-label="Select readout layer">{#each trace.probe.layerIds as id,i}<button aria-pressed={validLayer===i} onclick={()=>layer=i}>L{id}</button>{/each}</div><div class="heatmap" style:--layer-count={trace.probe.layerIds.length} style:--heatmap-width={`${85+trace.probe.layerIds.length*47}px`}><div class="heatmap-row"><span>Concept</span>{#each trace.probe.layerIds as id}<span class="mono">{id}</span>{/each}</div>{#each frame.concepts as c}<div class="heatmap-row"><strong>{c.label}</strong>{#each c.scores as score,i}<button class:negative={score<0} style:--signal-opacity={0.15+Math.abs(score)*0.75} aria-label={`${c.label}, layer ${trace.probe.layerIds[i]}, cosine ${scoreLabel(score)}`} onclick={()=>{pinned=c.label;layer=i;tab='overview';}}>{scoreLabel(score)}</button>{/each}</div>{/each}</div><p class="interpretation-note">Negative and positive projections are shown explicitly. Layer numbers come from the trace, not the UI.</p>{:else}<div class="readout-empty"><ChartLine aria-hidden="true" size={26}/><strong>No layer mapping</strong><p>Choose a demo or import a recorded trace.</p></div>{/if}</section></Tabs.Content>
     <Tabs.Content value="events" class="inspection-content"><section><div class="readout-title"><h3><ClockCounterClockwise aria-hidden="true" size={18}/>Trace provenance</h3></div><dl class="provenance-list"><dt>Source</dt><dd>{source}</dd><dt>Run</dt><dd>{trace?.runId??'Not supplied'}</dd><dt>Probe</dt><dd>{trace?.probe.id??'Not supplied'}</dd><dt>Method</dt><dd>{trace?.probe.method??'Not supplied'}</dd><dt>Version</dt><dd>{trace?.probe.version??'Not supplied'}</dd><dt>Calibration</dt><dd>{trace?.probe.calibration??'Not supplied'}</dd><dt>Kernel hash</dt><dd>{trace?.probe.kernelSha256??'Not attested'}</dd></dl><p class="interpretation-note">Imported metadata is self-reported. A file is not evidence of a live or attested kernel.</p>{#if trace&&frame}<div class="frame-record"><div class="readout-title"><h3><Code aria-hidden="true" size={18}/>Selected frame</h3></div><dl><dt>Sequence</dt><dd>{frame.sequence}</dd><dt>Position</dt><dd>{frame.tokenIndex}</dd><dt>Elapsed</dt><dd>{frame.elapsedMs} ms {mode==='demo'?'(fixture)':''}</dd><dt>Text offset</dt><dd>{frame.textOffset}</dd></dl></div>{/if}</section></Tabs.Content>
-  </Tabs.Root>
+  </Tabs.Root>{/if}
   <footer class="inspection-footer">{#if frame&&trace}<div class="timeline-heading"><span><span class="status-ring" class:connected={following}></span>{following?'Following replay':'Frozen snapshot'}</span><button class="icon-button" aria-label={following?'Freeze inspection':'Follow latest inspection'} onclick={following?onFreeze:onFollow}>{#if following}<Pause aria-hidden="true" size={17}/>{:else}<Play aria-hidden="true" size={17}/>{/if}</button></div><label for="trace-step">Inspect step <strong class="mono">{selected+1} / {available+1}</strong></label><input id="trace-step" aria-label="Inspect step" type="range" min="0" max={available} value={selected} oninput={select}/><div class="timeline-bottom"><span class="mono">{mode==='demo'?'Fixture position':'Token position'} {frame.tokenIndex}</span><button class="text-button" onclick={onExport}><DownloadSimple aria-hidden="true" size={14}/>Export</button></div>{/if}<p class="safety-limit">Inspection is not a safety guarantee.</p></footer>
 </div>

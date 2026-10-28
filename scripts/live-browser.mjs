@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import {harness,pause} from './harness.mjs';
+import {fakeKernel,until} from '../tests/live/fixture.ts';
+const f=await fakeKernel();let h,page;
+try{
+  h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/browser.sqlite',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin});
+  page=await h.browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(12000);h.observe(page);await page.goto(h.base);
+  await page.getByText('Pi connected',{exact:true}).waitFor();
+  assert.equal(await page.locator('.live-dock').count(),1);assert.equal(await page.locator('.emotion-steering').count(),0);
+  assert.match(await page.locator('.live-dock').innerText(),/Waiting for measured/);
+  await page.getByRole('tab',{name:'Controls',exact:true}).click();
+  await page.getByLabel('Workspace top-16',{exact:true}).check();await page.getByRole('button',{name:'Apply readout settings',exact:true}).click();
+  await page.getByLabel('Signed steering strength').fill('-0.5');await page.getByRole('button',{name:'Apply steering',exact:true}).click();
+  await page.getByTestId('steer-setting').filter({hasText:'afraid -0.5 at L24'}).waitFor();
+  await page.getByLabel('Message Muse',{exact:true}).fill('Hello');await page.getByRole('button',{name:'Send message',exact:true}).click();
+  await page.getByText('Hello from Pi.',{exact:true}).waitFor();
+  await until(async()=>!(await page.getByRole('button',{name:'Stop generating',exact:true}).count()));
+  assert.equal(f.requests[0].nomos.steer.strength,-.5);assert.deepEqual(f.requests[0].nomos.readout.workspace.layers,[44]);
+  await page.getByText('Show reasoning',{exact:true}).click();await page.getByText('Let me think carefully.',{exact:true}).waitFor();
+  await page.getByRole('tab',{name:'Signals',exact:true}).click();await page.locator('.workspace-tokens code').filter({hasText:'cannot'}).waitFor();
+  assert.equal(await page.locator('.workspace-tokens li').count(),16);
+  assert.match(await page.locator('.live-dock').innerText(),/Position|position/);
+  const before=await page.locator('.live-dock').innerText();assert.match(before,/15\.00/);
+  const slider=page.getByRole('slider',{name:'Live consumed position'});await slider.fill('0');
+  await page.getByText('Workspace unavailable at this position.',{exact:false}).waitFor();
+  assert.equal(await page.locator('.workspace-tokens li').count(),0);
+  await page.getByRole('button',{name:'Follow',exact:true}).click();
+  await page.getByRole('tab',{name:'Status',exact:true}).click();await page.getByText('Turn 0 · complete · 43 rows',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Reconnect Pi bridge',exact:true}).click();await page.getByText('Pi connected',{exact:true}).waitFor();
+  assert.equal(await page.getByText('Hello from Pi.',{exact:true}).count(),1);
+  await page.screenshot({path:'preview/checks/live-pi-desktop.png',fullPage:true});
+  // New session keeps the previous one. Reload also restores the selected session.
+  const original=await page.getByLabel('Pi conversation').inputValue();await page.getByRole('button',{name:'New session',exact:true}).click();
+  await until(async()=>await page.getByLabel('Pi conversation').inputValue()!==original);
+  const second=await page.getByLabel('Pi conversation').inputValue();await page.reload();await page.getByText('Pi connected',{exact:true}).waitFor();assert.equal(await page.getByLabel('Pi conversation').inputValue(),second);
+  await page.getByLabel('Pi conversation').selectOption(original);await page.getByText('Hello from Pi.',{exact:true}).waitFor();
+  f.fault('summary');await page.getByLabel('Message Muse',{exact:true}).fill('Broken readout');await page.getByRole('button',{name:'Send message',exact:true}).click();
+  await page.getByRole('tab',{name:'Status',exact:true}).click();await page.locator('.turn-status summary').filter({hasText:'contract_error'}).waitFor();
+  // API security is checked without causing intentional errors in the observed browser.
+  for(const route of ['/api/pi','/api/nomos/health','/api/nomos/kvstore'])assert.equal((await fetch(h.base+route,{headers:{Origin:'http://evil.test'}})).status,403);
+  const mobile=await h.browser.newPage({viewport:{width:390,height:844}});h.observe(mobile);await mobile.goto(h.base);await mobile.getByText('Pi connected',{exact:true}).waitFor();
+  await mobile.getByRole('button',{name:'Show inspection',exact:true}).click();await mobile.getByRole('tab',{name:'Controls',exact:true}).click();
+  await mobile.getByRole('button',{name:'Apply steering',exact:true}).waitFor();
+  assert.ok(await mobile.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await mobile.screenshot({path:'preview/checks/live-pi-mobile.png',fullPage:true});
+  assert.deepEqual(h.errors,[]);assert.deepEqual(h.external,[]);
+  console.log('LIVE BRIDGE BROWSER VERIFIED');
+}catch(e){if(page){console.error((await page.locator('body').innerText()).slice(-7000));await page.screenshot({path:'preview/checks/live-pi-failure.png',fullPage:true});}throw e;}finally{await h?.close();await f.close();}

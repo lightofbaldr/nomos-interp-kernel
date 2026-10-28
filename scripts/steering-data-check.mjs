@@ -7,7 +7,7 @@ import {parseIndex,parseBundle} from '../src/lib/steering-diff/model.ts';
 const root=process.env.GLIMMER_STEERDIFF_DATA_DIR ?? DEFAULT_STEERING_DATA;
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const cat=JSON.parse(await readSteeringFile(root,'catalog.json'));
-const inventory=JSON.parse(await fs.readFile(path.resolve(root,'../../data-inventory.local.json')));
+const inventory=JSON.parse(await fs.readFile(path.resolve(root,'data-inventory.local.json')));
 const byTarget=new Map(inventory.map(f=>[f.target,f]));assert.equal(byTarget.size,inventory.length);
 let comparisons=0,files=0,bounds=0,divergent=0;
 for(const d of cat.datasets){

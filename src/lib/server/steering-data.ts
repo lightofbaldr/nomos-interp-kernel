@@ -1,9 +1,10 @@
 import {lstat, readFile, realpath} from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {homedir} from 'node:os';
 
 // Private workstation default; override on another host. Never copied into static/build.
-export const DEFAULT_STEERING_DATA = '/home/adam/Projects/glimmer-steering-diff-scratch-20261026/public/data';
+export const DEFAULT_STEERING_DATA = path.join(homedir(),'nomos_data/steering-diff/catalog');
 const safe = (s:unknown):s is string => typeof s==='string' && s.length>0 && s.length<500 &&
   s.split('/').every(p=>p!=='.' && p!=='..' && /^[A-Za-z0-9_.-]+$/.test(p));
 const hash = (b:Uint8Array) => createHash('sha256').update(b).digest('hex');

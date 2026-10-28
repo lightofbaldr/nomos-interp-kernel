@@ -4,6 +4,7 @@ import {createServer} from 'node:net';
 import {once} from 'node:events';
 import {readFile,readdir,mkdir} from 'node:fs/promises';
 import {chromium} from 'playwright';
+import {homedir} from 'node:os';
 export const root=new URL('../',import.meta.url).pathname;
 export const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 export async function harness(live=false,extraEnv={}){
@@ -17,7 +18,7 @@ export async function harness(live=false,extraEnv={}){
     // The framework bootstrap (start.*) can stay byte-identical across app
     // changes. app.* references the application's current route chunks.
     const entry=(await readdir(root+'build/client/_app/immutable/entry')).find(n=>/^app\..*\.js$/.test(n));assert.ok(entry,'Current application entry must exist');const html=await (await fetch(base)).text();assert.ok(html.includes(entry),'Server must expose the current application manifest, not stale code');assert.deepEqual(Buffer.from(await (await fetch(`${base}/_app/immutable/entry/${entry}`)).arrayBuffer()),await readFile(root+'build/client/_app/immutable/entry/'+entry));
-    browser=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE??'/home/adam/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome',headless:true,args:['--disable-gpu']});
+    browser=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE??`${homedir()}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,headless:true,args:['--disable-gpu']});
     const errors=[],external=[],requests=[];
     function observe(page){page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push({message:m.text(),location:m.location()});});page.on('response',r=>{if(r.status()>=400)errors.push({url:r.url(),status:r.status()});});page.on('request',r=>{requests.push(r.url());if(/^https?:/.test(r.url())&&new URL(r.url()).origin!==base)external.push(r.url());});}
     return {base,browser,entry,errors,external,requests,observe,close};

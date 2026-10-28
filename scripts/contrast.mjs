@@ -55,7 +55,7 @@ try{
   await page.getByRole('tab',{name:'Layers',exact:true}).click();await inspect('layer matrix');
   await page.getByRole('tab',{name:'Trace',exact:true}).click();await inspect('trace metadata');
   await page.getByRole('button',{name:'Demo replay',exact:true}).first().click();await inspect('source dialog');
-  await page.getByRole('dialog').getByRole('button',{name:/Live kernel/}).click();await page.getByRole('tab',{name:'Overview',exact:true}).click();await inspect('disconnected');
+  await page.getByRole('dialog').getByRole('button',{name:/Live kernel/}).click();await page.getByRole('tab',{name:'Signals',exact:true}).click();await inspect('disconnected');
   await page.getByRole('button',{name:'About interpretability readouts',exact:true}).click();await inspect('research explanation');
   await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});
   await page.getByRole('button',{name:'Live / disconnected',exact:true}).first().click();await page.getByRole('dialog').getByRole('button',{name:/Demo replay/}).click();
