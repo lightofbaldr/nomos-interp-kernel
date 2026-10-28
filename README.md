@@ -101,14 +101,14 @@ clients, and use the reviewed serve-down wrapper. The kernel checkout is read-on
 The work path must not exist; every attempt keeps its private KV store, SQLite database, logs and result.
 
 ```sh
-scripts/e2e-gpu.sh --check --work /home/adam/nomos_data/readout-spine/pi-e2e-UNIQUE
+scripts/e2e-gpu.sh --check --work $HOME/nomos_data/readout-spine/pi-e2e-UNIQUE
 # After coordination and successful CPU checks, from a clean checkout:
-/home/adam/Projects/glimmer-emotions/scripts/with_serve_down.sh \
-  /home/adam/nomos_data/readout-spine/logs/pi-e2e-UNIQUE -- \
+$HOME/Projects/glimmer-emotions/scripts/with_serve_down.sh \
+  $HOME/nomos_data/readout-spine/logs/pi-e2e-UNIQUE -- \
   systemd-run --user --wait --collect --pipe --unit=codex-pi-e2e-UNIQUE \
-  -p WorkingDirectory=/home/adam/Projects/glimmer-agent -p RuntimeMaxSec=900 -p TimeoutStopSec=30 \
-  -E PATH -E HOME /home/adam/Projects/glimmer-agent/scripts/e2e-gpu.sh \
-  --work /home/adam/nomos_data/readout-spine/pi-e2e-UNIQUE
+  -p WorkingDirectory=$HOME/Projects/glimmer-agent -p RuntimeMaxSec=900 -p TimeoutStopSec=30 \
+  -E PATH -E HOME $HOME/Projects/glimmer-agent/scripts/e2e-gpu.sh \
+  --work $HOME/nomos_data/readout-spine/pi-e2e-UNIQUE
 ```
 
 The isolated daemon/serve use port 8191. Success requires `PI E2E OK`, true exit zero, and production serve restoration,
