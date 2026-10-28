@@ -17,11 +17,11 @@ import time
 import urllib.request
 
 AGENT = Path(__file__).resolve().parent.parent
-KERNEL = Path('/home/adam/Projects/nomos-interp-kernel')
-REVISION = '5e4a100c137bc01b42ba44c2cde473ad435711c0'
+KERNEL = Path(os.environ.get('NOMOS_KERNEL_DIR', Path.home() / 'Projects/nomos-interp-kernel')).resolve()
+REVISION = '5dcc2e403deca0a42273bf2cfa9bee62814b6146'
 LIBRARY = KERNEL / 'libnomos_kernel-muse.so'
 LIBRARY_SHA = 'c660097f7bec116210c06ed67e83bc07139b8eea3da850cec7d45d9a1f0628f9'
-PRESSURE = Path('/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/memory.pressure')
+PRESSURE = Path(f'/sys/fs/cgroup/user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service/memory.pressure')
 
 
 def sha(path):

@@ -24,6 +24,15 @@ package tarball integrity. See [the implementation ledger](docs/implementation-l
 
 ## Control-plane integration
 
+For an application dependency, `npm pack` compiles the five modules to ordinary ESM with declarations. Pin the resulting
+archive and its source commit in the consuming application's lockfile/provenance; do not copy the modules into the app.
+Imports use `glimmer-agent/pi`, `glimmer-agent/provider`, `glimmer-agent/extension`, `glimmer-agent/bridge` and
+`glimmer-agent/contract`. `npm run test:package` checks the compiled entry points. No browser runtime is included.
+
+The isolated GPU launcher's current kernel pin is `5dcc2e4`, with the unchanged `c660097f` library. `NOMOS_KERNEL_DIR`
+can select the operator's checkout (default: `~/Projects/nomos-interp-kernel`). This pin bump does not authorize starting
+an isolated daemon while the production GPU is occupied. The live UI integration is checked against the existing serve.
+
 These are server-side modules, not browser components or a deployed HTTP gateway. Keep the harness alive while UI
 clients connect and disconnect. Install the extension once, register the provider with that host's request map, open
 SQLite, and attach the host:
