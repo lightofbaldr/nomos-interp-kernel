@@ -27,7 +27,7 @@ GLIMMER_STEERDIFF_DATA_DIR=/path/to/local/catalog-directory \
 The sampled-view default is `~/nomos_data/steering-diff/catalog-sampled-20261029`.
 The earlier `catalog` directory retains its original three-dataset metadata so
 older approved viewers remain compatible while this follow-up is under review.
-It holds a `glimmer.local-catalog/1` catalog, six index documents and the
+The sampled directory holds a `glimmer.local-catalog/1` catalog, six index documents and the
 byte-copied comparisons. The catalog's per-file hashes are checked on the server
 and again in the browser. Only catalog-listed JSON files can be read; traversal,
 symlinks, changed files and writes are refused. The adapter does not derive

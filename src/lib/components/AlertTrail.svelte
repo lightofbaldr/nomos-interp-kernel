@@ -13,7 +13,8 @@
       <details><summary>Turn {t.turn} <span class="alert-count">{live.alerts.groupCounts[t.request]} grouped · {live.alerts.counts[t.request]} entries</span> · {t.status}</summary>
         <div class="badges">{#each shown.filter(g=>g.first.request===t.request) as group (group.first.id)}
           {@const alert=group.first}
-          <button aria-label={`${alert.match?`Watch-list entry: ${alert.match.label.trim()}`:'Projection crossing'}, position ${alert.pos}${group.entries>1?`, ${group.entries-1} re-entries`:''}`} title={`${alert.rule}. ${alert.detail}${group.entries>1?` First entry here; ${group.entries-1} re-entries, last at position ${group.lastPos}.`:''}`} onclick={()=>live.select?.({request:alert.request,pos:alert.pos})}>
+          {@const reentryText=`${group.entries-1} re-${group.entries===2?'entry':'entries'}`}
+          <button aria-label={`${alert.match?`Watch-list entry: ${alert.match.label.trim()}`:'Projection crossing'}, position ${alert.pos}${group.entries>1?`, ${reentryText}`:''}`} title={`${alert.rule}. ${alert.detail}${group.entries>1?` First entry here; ${reentryText}, last at position ${group.lastPos}.`:''}`} onclick={()=>live.select?.({request:alert.request,pos:alert.pos})}>
             <span>{alert.match?`${alert.match.label.trim()} entered`:'Projection crossing'}</span><code>pos {alert.pos}{#if !alert.match} · {live.labels?.[alert.token]??`#${alert.token}`}{/if}</code>
             {#if group.entries>1}<span class="reentries">+{group.entries-1} re-{group.entries===2?'entry':'entries'}</span>{/if}
           </button>

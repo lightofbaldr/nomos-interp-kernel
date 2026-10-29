@@ -92,6 +92,7 @@ the inspector. Workspace badges name the matched workspace token, not the consum
 token. By default they retain the first entry per watched prefix per turn and count
 later re-entries; the detailed entry trail is optional. The first matched token is
 the grouped badge's label even if later matches use another token with that prefix.
+Emotion crossings remain separate badges; only workspace entries are grouped.
 No extra absence-duration filter is applied. Terminal records and reconnect
 snapshots do not double-count. The latest 200 groups or detailed entries are shown,
 with full counts for the loaded records. Grouped first positions and counts survive

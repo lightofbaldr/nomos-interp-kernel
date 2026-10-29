@@ -33,6 +33,8 @@ try{
   await trail.getByRole('button',{name:'Watch-list entry: cannot, position 39',exact:true}).click();assert.equal(await page.getByRole('slider',{name:'Live consumed position'}).inputValue(),'39');
   await trail.getByLabel('Show detailed entry trail').uncheck();assert.equal(await trail.getByRole('button',{name:/Watch-list entry/}).count(),2);
   await page.screenshot({path:'preview/checks/live-alerts-grouped.png',fullPage:true});
+  const groupedCannot=trail.getByRole('button',{name:'Watch-list entry: cannot, position 36, 1 re-entry',exact:true});
+  assert.match(await groupedCannot.getAttribute('title'),/1 re-entry, last at position 39/);
   const slider=page.getByRole('slider',{name:'Live consumed position'});await slider.fill('0');
   await page.getByText('Workspace unavailable at this position.',{exact:false}).waitFor();
   assert.equal(await page.locator('.workspace-tokens li').count(),0);
