@@ -59,6 +59,14 @@
 .steering-diff-root .download-link:hover { color: var(--blue); }
 .steering-diff-root .download-link[aria-disabled=true] { pointer-events: none; opacity: .4; }
 .steering-diff-root .experiment-controls { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(180px, 1fr) 170px; border: 1px solid var(--rule); background: #151a20; border-radius: 10px; }
+.steering-diff-root .experiment-controls.has-samples { grid-template-columns: minmax(0,1.6fr) minmax(180px,1fr) 130px 140px; }
+.steering-diff-root .sample-context { margin:16px 0;padding:14px 18px;border:1px solid var(--rule);border-radius:8px;background:#151a20;font-size:12px; }
+.steering-diff-root .sample-context p,.steering-diff-root .supplied-label-caveat { font-size:11px;line-height:1.8;color:var(--muted);margin:8px 0; }
+.steering-diff-root .same-sample-controls { display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px; }
+.steering-diff-root .same-sample-controls button { border:1px solid var(--rule);background:#20272f;border-radius:5px;padding:6px 10px;color:inherit;font-size:11px; }
+.steering-diff-root .same-sample-controls button[aria-pressed=true] { border-color:var(--blue); }
+.steering-diff-root .supplied-label { display:grid;gap:5px;border:1px solid var(--rule);padding:10px 12px;margin-bottom:14px;font-size:11px;border-radius:6px; }
+.steering-diff-root .supplied-label p { line-height:1.7;color:var(--muted); }
 .steering-diff-root .experiment-controls>label, .steering-diff-root .intervention-detail { padding: 12px 18px; min-width: 0; }
 .steering-diff-root .experiment-controls>*+* { border-left: 1px solid var(--rule); }
 .steering-diff-root .control-label { color: var(--dim); font-size: 9px; letter-spacing: .1em; display: block; margin-bottom: 9px; }
@@ -226,6 +234,9 @@
   .steering-diff-root .page-heading { display: block; margin-bottom: 20px; }.steering-diff-root .download-link { margin-top: 8px; }
   .steering-diff-root h1 { font-size: 30px; }.steering-diff-root .page-heading p { font-size: 12px; }
   .steering-diff-root .experiment-controls { grid-template-columns: minmax(0,1fr) 115px; }
+  .steering-diff-root .experiment-controls.has-samples { grid-template-columns: minmax(0,1fr) 135px; }
+  .steering-diff-root .experiment-controls.has-samples>label:nth-child(2) { grid-column:1 / -1;border-bottom:1px solid var(--rule); }
+  .steering-diff-root .experiment-controls.has-samples>label:nth-child(3) { border-left:0; }
   .steering-diff-root .experiment-controls>label:first-child { grid-column: 1 / -1; border-bottom: 1px solid var(--rule); }
   .steering-diff-root .experiment-controls>label:nth-child(2) { border-left: 0; }
   .steering-diff-root .experiment-controls>label,.steering-diff-root .intervention-detail { padding: 12px; }

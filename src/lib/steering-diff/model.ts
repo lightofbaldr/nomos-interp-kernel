@@ -1,7 +1,7 @@
 // Display adapter only. Scientific values are supplied by steerdiff.compare.
 export type Mode = 'matched' | 'free';
 export type Side = 'baseline' | 'steered';
-export interface Settings { emotion: { layers: number[]; names: string[] }; workspace: { layers: number[]; k: number } }
+export interface Settings { emotion: { layers: number[]; names: string[] }; workspace: { layers: number[]; k: number } | null }
 export interface Divergence { index: number; position: number; baseline_token: number | null; steered_token: number | null }
 export interface Candidate {
   id: number; baseline: number | null; steered: number | null;
@@ -18,23 +18,27 @@ export interface Position {
 export interface Arm { name: string; kind: string | null; s: number | null }
 export interface ScenarioSource {
   path: string; sha256: string; question: string; label: string | null; classifier: string | null;
-  prompt_len: number; answer_start: number; thinking_tail: number;
+  prompt_len: number; answer_start?: number; thinking_tail?: number; recorded_len?: number;
   [key: string]: unknown;
 }
 export interface Scenario {
   key: string; title: string; onset: number; modes: Mode[]; max_new: number | null;
   P: number; reference_len: number | null; source: ScenarioSource | null;
 }
-export interface ComparisonRef { prompt: string; arm: string; mode: Mode; path: string; divergence: Divergence | null }
+export interface ComparisonRef { prompt: string; arm: string; mode: Mode; path: string; divergence: Divergence | null; sample?: number }
+export interface SuppliedLabel { label: string; note?: string; detail?: string }
+export interface SuppliedLabels { by: string; baseline: SuppliedLabel | null; steered: SuppliedLabel | null }
 export interface BundleIndex {
   schema: 'nomos.steerdiff.ui/1'; run: string; identity: Record<string, unknown>;
   settings: Settings; prompts: Record<string, string>; arms: Arm[]; display_k: number;
   gates: Record<string, Record<string, { pass: boolean; detail: string }>>;
   comparisons: ComparisonRef[];
   scenarios?: Record<string, Scenario>;
+  labels_source?: string | null;
 }
 export interface Bundle {
-  schema: 'nomos.steerdiff.ui/1'; prompt: string; arm: Arm; mode: Mode;
+  schema: 'nomos.steerdiff.ui/1'; prompt: string; arm: Arm | ArmRecord['arm']; mode: Mode;
+  sample?: number; labels?: SuppliedLabels | null;
   scenario?: Scenario | null;
   vocab: Record<string, string>; text: Record<Side, { reasoning: string; answer: string }>;
   comparison: {
@@ -44,8 +48,8 @@ export interface Bundle {
     baseline: ArmRecord; steered: ArmRecord;
   };
 }
-export interface ArmRecord { run_id: string; arm: { name: string; steer: null | { layer: number; kind: string; s: number; from_pos: number } }; identity: Record<string, unknown>; tokens: number[] }
-export interface Dataset { id: string; run: string; index: string; hashes: Record<string, string> }
+export interface ArmRecord { run_id: string; arm: { name: string; steer: null | { layer: number; kind: string; s: number; from_pos: number }; sample?: number; seed?: number }; identity: Record<string, unknown>; tokens: number[] }
+export interface Dataset { id: string; run: string; index: string; hashes: Record<string, string>; title?: string }
 export interface Catalog { schema: 'glimmer.local-catalog/1'; datasets: Dataset[] }
 
 function requireThat(value: unknown, message: string): asserts value { if (!value) throw new Error(`Bundle refused: ${message}`); }
@@ -60,8 +64,8 @@ export function safePath(path: string): boolean {
 }
 function settingsValid(s: Settings) {
   requireThat(Array.isArray(s?.emotion?.names) && s.emotion.names.every(x => typeof x === 'string'), 'direction names');
-  for (const layers of [s?.emotion?.layers, s?.workspace?.layers]) requireThat(Array.isArray(layers) && layers.length && layers.every(tokenId) && new Set(layers).size === layers.length, 'layer roster');
-  requireThat(Number.isInteger(s.workspace.k) && s.workspace.k > 0, 'transmitted k');
+  for (const layers of [s?.emotion?.layers, ...(s.workspace===null?[]:[s?.workspace?.layers])]) requireThat(Array.isArray(layers) && layers.length && layers.every(tokenId) && new Set(layers).size === layers.length, 'layer roster');
+  requireThat(s.workspace===null || Number.isInteger(s.workspace.k) && s.workspace.k > 0, 'transmitted k');
 }
 function scenarioValid(s: Scenario, key: string) {
   requireThat(s && s.key === key && typeof s.title === 'string', 'scenario identity');
@@ -72,7 +76,8 @@ function scenarioValid(s: Scenario, key: string) {
   if (s.source !== null) {
     requireThat(s.source && typeof s.source.question === 'string' && typeof s.source.path === 'string' && /^[a-f0-9]{64}$/.test(s.source.sha256), 'scenario source identity');
     for (const k of ['label', 'classifier'] as const) requireThat(s.source[k] === null || typeof s.source[k] === 'string', `source ${k}`);
-    for (const k of ['prompt_len', 'answer_start', 'thinking_tail'] as const) requireThat(tokenId(s.source[k]), `source ${k}`);
+    requireThat(tokenId(s.source.prompt_len), 'source prompt_len');
+    for (const k of ['answer_start', 'thinking_tail', 'recorded_len'] as const) requireThat(s.source[k]===undefined || tokenId(s.source[k]), `source ${k}`);
   }
 }
 export function parseIndex(raw: unknown): BundleIndex {
@@ -80,7 +85,7 @@ export function parseIndex(raw: unknown): BundleIndex {
   finiteTree(x);
   requireThat(x?.schema === 'nomos.steerdiff.ui/1' && typeof x.run === 'string', 'index schema');
   settingsValid(x.settings);
-  requireThat(x.display_k > 0 && Number.isInteger(x.display_k) && x.display_k <= x.settings.workspace.k, 'display k');
+  requireThat(x.display_k > 0 && Number.isInteger(x.display_k) && (x.settings.workspace===null || x.display_k <= x.settings.workspace.k), 'display k');
   requireThat(x.prompts && Object.values(x.prompts).every(v => typeof v === 'string') && Array.isArray(x.arms), 'prompts and arms');
   requireThat(new Set(x.arms.map(a=>a.name)).size === x.arms.length && x.arms.every(a=>typeof a.name === 'string' && (a.kind===null || typeof a.kind==='string') && numOrNull(a.s)), 'arm roster');
   if (x.scenarios !== undefined) {
@@ -88,13 +93,17 @@ export function parseIndex(raw: unknown): BundleIndex {
     for (const [key, s] of Object.entries(x.scenarios)) { requireThat(key in x.prompts, 'scenario prompt'); scenarioValid(s, key); }
   }
   requireThat(Array.isArray(x.comparisons) && x.comparisons.length, 'comparison roster');
-  const seen = new Set<string>();
+  requireThat(x.labels_source===undefined || x.labels_source===null || typeof x.labels_source==='string', 'labels source');
+  const seen = new Set<string>(), paths=new Set<string>();
   for (const r of x.comparisons) {
     requireThat(r.mode === 'matched' || r.mode === 'free', 'mode');
     requireThat(safePath(r.path) && r.prompt in x.prompts && x.arms.some(a => a.name === r.arm), 'comparison reference');
     requireThat(!x.scenarios?.[r.prompt] || x.scenarios[r.prompt].modes.includes(r.mode), 'undeclared scenario mode');
-    const key = `${r.prompt}/${r.arm}/${r.mode}`;
+    requireThat(r.sample===undefined || Number.isSafeInteger(r.sample) && r.sample>=0, 'sample index');
+    if(r.sample!==undefined)requireThat(r.mode==='free' && r.path===`${r.prompt}/${r.arm}.s${r.sample}.free.json`, 'sample path identity');
+    const key = `${r.prompt}/${r.arm}/${r.mode}/${r.sample??'unsampled'}`;
     requireThat(!seen.has(key), 'duplicate comparison'); seen.add(key);
+    requireThat(!paths.has(r.path),'duplicate comparison path');paths.add(r.path);
   }
   return x;
 }
@@ -103,7 +112,21 @@ export function parseBundle(raw: unknown, index: BundleIndex, ref: ComparisonRef
   finiteTree(b);
   requireThat(b?.schema === 'nomos.steerdiff.ui/1' && c?.schema === 'nomos.steerdiff/1', 'comparison schema');
   requireThat(b.prompt === ref.prompt && b.arm.name === ref.arm && b.mode === ref.mode && c.mode === ref.mode, 'selection identity');
-  requireThat(jsonEqual(b.arm, index.arms.find(a=>a.name===ref.arm)), 'arm settings identity');
+  requireThat(b.sample===ref.sample, 'sample selection identity');
+  const indexedArm=index.arms.find(a=>a.name===ref.arm);
+  if(ref.sample===undefined){requireThat(jsonEqual(b.arm,indexedArm), 'arm settings identity');}
+  else {
+    requireThat(c.baseline.run_id===`${ref.prompt}.base.s${ref.sample}` && c.steered.run_id===`${ref.prompt}.${ref.arm}.s${ref.sample}`, 'sample run identity');
+    requireThat(jsonEqual(b.arm,c.steered.arm) && c.baseline.arm.sample===ref.sample && c.steered.arm.sample===ref.sample, 'sample arm identity');
+    requireThat(Number.isSafeInteger(c.baseline.arm.seed) && c.baseline.arm.seed!>=0 && c.steered.arm.seed===c.baseline.arm.seed, 'sample seed pairing');
+    requireThat(c.baseline.arm.steer===null,'sample baseline is steered');
+    const steer=c.steered.arm.steer;
+    requireThat(indexedArm && (steer===null?indexedArm.kind===null && indexedArm.s===null:steer.kind===indexedArm.kind && steer.s===indexedArm.s && steer.layer===index.identity.steer_layer), 'arm settings identity');
+  }
+  if(b.labels!==undefined && b.labels!==null){
+    requireThat(ref.sample!==undefined && typeof b.labels.by==='string' && b.labels.by.trim(), 'label attribution');
+    for(const side of ['baseline','steered'] as const){const label=b.labels[side];requireThat(label===null || label && typeof label==='object' && !Array.isArray(label) && typeof label.label==='string' && label.label.length>0 && ['note','detail'].every(k=>label[k as 'note'|'detail']===undefined || typeof label[k as 'note'|'detail']==='string'),`label ${side}`);}
+  }
   const scenario = index.scenarios?.[ref.prompt] ?? null;
   requireThat(jsonEqual(b.scenario ?? null, scenario), 'scenario provenance mismatch');
   if (scenario) {
@@ -129,7 +152,9 @@ export function parseBundle(raw: unknown, index: BundleIndex, ref: ComparisonRef
     requireThat(p.source === (p.pos < c.P ? 'prompt' : 'generated'), 'position source');
     requireThat(Array.isArray(p.missing), 'missing flags');
     requireThat(p.emotion_delta === null || p.emotion_delta.length === c.settings.emotion.layers.length && p.emotion_delta.every(row => Array.isArray(row) && row.length === c.settings.emotion.names.length && row.every(numOrNull)), 'direction shape');
+    if(c.settings.workspace===null)requireThat(p.workspace===null,'workspace supplied when disabled');
     if (p.workspace === null) continue;
+    requireThat(c.settings.workspace!==null,'workspace settings missing');
     requireThat(Array.isArray(p.workspace) && p.workspace.length === c.settings.workspace.layers.length, 'workspace shape');
     for (const [li, layer] of p.workspace.entries()) {
       requireThat(layer.layer === c.settings.workspace.layers[li] && Array.isArray(layer.missing) && Array.isArray(layer.candidates), 'workspace layers');
@@ -211,4 +236,12 @@ export function channelJumps(positions: Position[]): { reasoning: number | null;
   // Navigate supplied labels only, never offsets guessed from a scenario's name or reference metadata.
   const first=(channel:string)=>positions.find(p=>p.source==='generated' && p.channel===channel)?.pos ?? null;
   return { reasoning:first('reasoning'), answer:first('answer') };
+}
+
+/** Presentation of declared boundaries only; never infer the prefill from a title. */
+export function freePrefill(s:Scenario|null|undefined):'prompt'|'recorded-thinking'|'unspecified'{
+  if(!s?.source)return 'unspecified';
+  if(s.P===s.source.prompt_len)return 'prompt';
+  if(s.P===s.source.answer_start)return 'recorded-thinking';
+  return 'unspecified';
 }

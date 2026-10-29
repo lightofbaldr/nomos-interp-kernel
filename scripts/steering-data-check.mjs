@@ -10,8 +10,11 @@ const cat=JSON.parse(await readSteeringFile(root,'catalog.json'));
 const inventory=JSON.parse(await fs.readFile(path.resolve(root,'data-inventory.local.json')));
 const byTarget=new Map(inventory.map(f=>[f.target,f]));assert.equal(byTarget.size,inventory.length);
 let comparisons=0,files=0,bounds=0,divergent=0;
+const expected={'dataset-1':15,'dataset-2':60,'dataset-3':56,'sampled-sietti':12,'sampled-tathuga':7,'voice-tathuga':6};
+assert.deepEqual(new Set(cat.datasets.map(d=>d.id)),new Set(Object.keys(expected)));
 for(const d of cat.datasets){
   const idx=parseIndex(JSON.parse(await readSteeringFile(root,`${d.id}/index.json`)));
+  assert.equal(idx.comparisons.length,expected[d.id]);
   const paths=['index.json',...idx.comparisons.map(c=>c.path)];
   assert.deepEqual(new Set(paths),new Set(Object.keys(d.hashes)));
   for(const rel of paths){
@@ -23,5 +26,5 @@ for(const d of cat.datasets){
     for(const p of b.comparison.positions)for(const l of p.workspace??[])bounds+=l.candidates.filter(c=>c.delta===null).length;
   }
 }
-assert.equal(comparisons,131);assert.equal(files,134);assert.equal(files,inventory.length);assert.ok(bounds>0&&divergent>0);
+assert.equal(comparisons,156);assert.equal(files,162);assert.equal(files,inventory.length);assert.ok(bounds>0&&divergent>0);
 console.log('REAL BUNDLES VERIFIED:',comparisons,'comparisons;',files,'unchanged source/copy pairs.');

@@ -101,11 +101,12 @@ resets the statistical history; rules remain page-local until reload.
 
 ## Recorded steering catalog
 
-The read-only default is `~/nomos_data/steering-diff/catalog`, not the prototype
+The read-only default is `~/nomos_data/steering-diff/catalog-sampled-20261029`, not the prototype
 repository. Override it with `GLIMMER_STEERDIFF_DATA_DIR`. It must contain the
 catalog plus its SHA-bound dataset files; missing catalogs are explicitly refused.
 No captures or build output are committed. `data-inventory.local.json` beside the
 catalog is optional for serving but required by the local source/copy test.
+The older `catalog` remains compatible with the preceding approved viewer.
 
 ## Verification
 

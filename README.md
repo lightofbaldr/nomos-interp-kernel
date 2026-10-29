@@ -46,7 +46,7 @@ review branch; they are not the live-Pi acceptance commands.
   warm-up, gap behavior and token-prefix matching are documented in the UI/guide.
 - `/?mode=demo` remains explicitly scripted. Imported traces remain self-reported.
   Recorded steering bundles are external, immutable local data; the default
-  catalog is under `~/nomos_data/steering-diff/catalog`, not the scratch repo.
+  catalog is under `~/nomos_data/steering-diff/catalog-sampled-20261029`, not the scratch repo.
 - No tools, attachments, automatic retries or automatic compaction are enabled
   in the initial local Pi host. Model text is escaped plain text.
 
