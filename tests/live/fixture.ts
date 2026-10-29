@@ -29,7 +29,7 @@ export async function fakeKernel(){
       settings:r?{...r,emotion:{...r.emotion,names},workspace:r.workspace??null}:null,steer:n?.steer?{...n.steer,from_pos:2}:null};
     const records=Array.from({length:43},(_,pos)=>({pos,token:pos===42?503:504,source:pos<3?'prompt':'generated',channel:pos<3?null:pos<41?'reasoning':'answer',
       emotion:{proj:r?.emotion.layers.map(()=>names.map((_,i)=>(pos<36?1:12)+i)),norm:r?.emotion.layers.map(()=>100)},
-      workspace:pos<3||!r?.workspace?null:{top:r.workspace.layers.map(()=>Array.from({length:r.workspace.k},(_,i)=>[(pos<36?503:501)+i,10-i]))},
+      workspace:pos<3||!r?.workspace?null:{top:r.workspace.layers.map(()=>Array.from({length:r.workspace.k},(_,i)=>[(pos<36||pos===38?503:501)+i,10-i]))},
       missing:pos<3?(r?.workspace?['channel_prompt_v1','workspace_prompt_v1']:['channel_prompt_v1']):[]}));
     res.writeHead(200,{'Content-Type':'text/event-stream'});
     const send=(delta:unknown,finish:string|null=null,nomos?:unknown)=>res.write(`data: ${JSON.stringify({id,object:'chat.completion.chunk',created:1,model:'nomos-muse-glimmer-30b',choices:[{index:0,delta,finish_reason:finish}],...(nomos?{nomos}:{})})}\n\n`);

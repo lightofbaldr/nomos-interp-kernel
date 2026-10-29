@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {DEFAULT_STEERING_DATA} from '../../src/lib/server/steering-data.ts';
 import { topCandidates, differenceGroups, scoreText, deltaText, deltaClass, numberText, boundText, tokenText, parseBundle, parseIndex, safePath } from '../../src/lib/steering-diff/model.ts';
 import type { Candidate } from '../../src/lib/steering-diff/model.ts';
 const exact: Candidate = { id: 1, baseline: 12, steered: 10, baseline_rank: 15, steered_rank: 4, baseline_below: null, steered_below: null, delta: -2, delta_min: null, delta_max: null, status: 'entered' };
@@ -14,7 +15,7 @@ test('exact deltas sorted signed; bounds kept separate', () => { const g=differe
 test('zero is distinct from missing and tiny changes are not rounded to zero', () => { assert.equal(numberText(0),'0.00'); assert.equal(numberText(null),'Unknown'); assert.match(numberText(.000001,true), /e-6/); assert.throws(()=>numberText(NaN)); });
 test('token labels preserve whitespace and missing vocabulary', () => { assert.equal(tokenText({'1':' a\n\t'},1),'␠a↵⇥'); assert.match(tokenText({},3), /unavailable/); });
 test('unsafe paths refused', () => { for (const p of ['../x','/x','a/../x','a//b','a?b','a\\b']) assert.equal(safePath(p),false); assert.equal(safePath('S1/joy_0.7.free.json'),true); });
-const root = (process.env.GLIMMER_STEERDIFF_DATA_DIR ?? '/home/adam/Projects/glimmer-steering-diff-scratch-20261026/public/data') + '/dataset-1';
+const root = (process.env.GLIMMER_STEERDIFF_DATA_DIR ?? DEFAULT_STEERING_DATA) + '/dataset-1';
 const idx=parseIndex(JSON.parse(fs.readFileSync(root+'/index.json','utf8')));
 const ref=idx.comparisons.find(r=>r.arm==='joy_0.7' && r.mode==='free')!;
 const bundle=JSON.parse(fs.readFileSync(root+'/'+ref.path,'utf8'));

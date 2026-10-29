@@ -41,3 +41,31 @@ test('rules reject malformed thresholds and watch lists',()=>{
   for(const threshold of [0,-1,NaN,Infinity]){const r=rules();r.emotion.threshold=threshold;assert.throws(()=>validRules(r));}
   const r=rules();r.workspace.prefixes=[' '];assert.throws(()=>validRules(r));
 });
+test('flickering watch words group at their first entry per turn, with exact re-entry counts and matched tokens',()=>{
+  const t=turn(Array(9).fill(1));
+  for(const i of [1,3,5,7])t.records[i].workspace.top[0]=[[3,5],[4,4]];
+  const got=evaluateAlerts({turns:[t]},defaultRules(),labels);
+  assert.equal(got.total,8);assert.equal(got.events.length,8);
+  assert.equal(got.groupTotal,2);assert.equal(got.groupCounts.one,2);
+  assert.deepEqual(got.groups.map(g=>[g.first.pos,g.entries,g.lastPos,g.first.match?.label,g.first.match?.token]),[[1,4,7,' cannot',3],[1,4,7,' inventing',4]]);
+  assert.equal(got.groups[0].first.token,10,'consumed position token remains distinct from the matching workspace candidate');
+  const next=structuredClone(t);next.request='two';next.turn=1;
+  assert.equal(evaluateAlerts({turns:[t,next]},defaultRules(),labels).groupTotal,4);
+  assert.deepEqual(evaluateAlerts({turns:[t,t]},defaultRules(),labels),got,'duplicate terminal/snapshot input does not inflate entries');
+});
+test('grouping never counts an entry across unknown data and retains the first entry beyond the detailed trail limit',()=>{
+  const t=turn(Array(450).fill(1));for(let i=1;i<450;i+=2)t.records[i].workspace.top[0][1]=[3,4];
+  t.records[10].workspace=null;
+  const got=evaluateAlerts({turns:[t]},defaultRules(),labels);
+  assert.equal(got.total,224);assert.equal(got.events.length,200);
+  assert.equal(got.groups.length,1);assert.equal(got.groups[0].first.pos,1);assert.equal(got.groups[0].entries,224);assert.equal(got.groups[0].lastPos,449);
+});
+test('a leading-space prefix requires a word-start token; a prefix is still not a semantic word classifier',()=>{
+  for(const [label,want]of [['INVENT',false],['inventory',false],[' INVENT',true],[' inventory',true]] as const){
+    const t=turn([1,1]);t.records[1].workspace.top[0][1]=[4,4];
+    assert.equal(evaluateAlerts({turns:[t]},defaultRules(),{...labels,4:label}).total,want?1:0,label);
+  }
+  const r=defaultRules();r.workspace.prefixes=['invent'];
+  const t=turn([1,1]);t.records[1].workspace.top[0][1]=[4,4];
+  assert.equal(evaluateAlerts({turns:[t]},r,{...labels,4:'INVENT'}).total,1,'no leading space explicitly allows a standalone token prefix');
+});

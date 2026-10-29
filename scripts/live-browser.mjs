@@ -25,6 +25,13 @@ try{
   const trail=page.getByRole('region',{name:'Signal alert badges'});await trail.locator('summary').click();
   await trail.getByRole('button',{name:/Projection crossing/}).click();await page.locator('.signal-badge').filter({hasText:'afraid L29'}).waitFor();
   assert.equal(await trail.getByRole('button',{name:/Watch-list entry/}).count(),2);
+  const cannot=trail.getByRole('button',{name:/Watch-list entry: cannot/});
+  assert.match(await cannot.innerText(),/cannot entered\s+pos 36\s+\+1 re-entry/);
+  assert.doesNotMatch(await cannot.innerText(),/word1/,'badge names the matching candidate, not the consumed token');
+  await cannot.click();assert.equal(await page.getByRole('slider',{name:'Live consumed position'}).inputValue(),'36');
+  await trail.getByLabel('Show detailed entry trail').check();assert.equal(await trail.getByRole('button',{name:/Watch-list entry/}).count(),4);
+  await trail.getByRole('button',{name:'Watch-list entry: cannot, position 39',exact:true}).click();assert.equal(await page.getByRole('slider',{name:'Live consumed position'}).inputValue(),'39');
+  await trail.getByLabel('Show detailed entry trail').uncheck();assert.equal(await trail.getByRole('button',{name:/Watch-list entry/}).count(),2);
   const slider=page.getByRole('slider',{name:'Live consumed position'});await slider.fill('0');
   await page.getByText('Workspace unavailable at this position.',{exact:false}).waitFor();
   assert.equal(await page.locator('.workspace-tokens li').count(),0);
@@ -32,6 +39,7 @@ try{
   await page.getByRole('tab',{name:'Status',exact:true}).click();await page.getByText('Turn 0 · complete · 43 rows',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Reconnect Pi bridge',exact:true}).click();await page.getByText('Pi connected',{exact:true}).waitFor();
   assert.equal(await page.getByText('Hello from Pi.',{exact:true}).count(),1);
+  assert.match(await cannot.innerText(),/\+1 re-entry/,'reconnect does not inflate re-entries');
   await page.screenshot({path:'preview/checks/live-pi-desktop.png',fullPage:true});
   // New session keeps the previous one. Reload also restores the selected session.
   const original=await page.getByLabel('Pi conversation').inputValue();await page.getByRole('button',{name:'New session',exact:true}).click();

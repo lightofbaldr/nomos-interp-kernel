@@ -23,7 +23,8 @@
     <label class="check"><input type="checkbox" bind:checked={watch}/>Enable reasoning watch-list</label>
     <label>Layer <input aria-label="Watch-list layer" type="number" min="0" max="51" bind:value={watchLayer}/></label>
     <label for="watch-prefixes">Token prefixes, one per line</label><textarea id="watch-prefixes" aria-label="Workspace watch-list" bind:value={prefixes} rows="5" maxlength="2080"></textarea>
-    <p>Case-folded isolated token prefixes, with edge whitespace ignored. A badge means entry into the supplied top-k relative to the preceding known reasoning row—not a semantic match. Split words and unknown labels may be unobservable.</p>
+    <p>Case-folded isolated token prefixes. A leading space requires a space-prefixed token; trailing whitespace is ignored. Prefixes are not semantic words: “ invent” can still match “ inventory”. Split words and unknown labels may be unobservable.</p>
+    <p>Badges group the first entry per watched prefix and turn, with re-entry counts; the detailed trail is optional. An entry still requires a known preceding absence in the supplied top-k. No additional absence-gap filter is applied.</p>
   </fieldset>
   <button onclick={apply} disabled={!live.setAlertRules}>Apply alert rules</button>{#if error}<p role="alert">{error}</p>{/if}
   <p class="active">Active: emotion {live.alertRules?.emotion.enabled?`${live.alertRules.emotion.name} L${live.alertRules.emotion.layer}, ${live.alertRules.emotion.side} mean by ${live.alertRules.emotion.threshold}`:'off'}; watch-list {live.alertRules?.workspace.enabled?`L${live.alertRules.workspace.layer}`:'off'}.</p>

@@ -77,16 +77,25 @@ measurement, non-reasoning row or turn boundary resets crossing history; it does
 not erase the prior mean. Steering/context changes can themselves change this
 statistic. It is not a causal or significance claim.
 
-Watch-list matching ignores edge whitespace and case and matches isolated-token
-prefixes; it does not reconstruct split words. An entry needs an adjacent known
+Watch-list matching ignores case and trailing whitespace and matches isolated-token
+prefixes. A leading space requires a space-prefixed token; a prefix without that
+space also accepts a token starting directly with the letters. This is not a word
+classifier: ` invent` still matches ` inventory`. It does not reconstruct split
+words. An entry needs an adjacent known
 reasoning row where that prefix was absent from the same supplied top-k. A missing
 workspace, missing token label, gap, new turn or first observed row cannot supply
 negative evidence. A new match after such a gap is not called an entry. Word-piece
 splits may be missed. Token IDs and top-k ranks remain visible in badge details.
 
 Badges identify their rule, turn and consumed position, and can select that row in
-the inspector. Terminal records and reconnect snapshots do not double-count.
-The latest 200 badges are shown, with full counts for the loaded records. Signals
+the inspector. Workspace badges name the matched workspace token, not the consumed
+token. By default they retain the first entry per watched prefix per turn and count
+later re-entries; the detailed entry trail is optional. The first matched token is
+the grouped badge's label even if later matches use another token with that prefix.
+No extra absence-duration filter is applied. Terminal records and reconnect
+snapshots do not double-count. The latest 200 groups or detailed entries are shown,
+with full counts for the loaded records. Grouped first positions and counts survive
+eviction from the bounded detailed trail. Signals
 from incomplete/error turns are explicitly provisional. Switching conversations
 resets the statistical history; rules remain page-local until reload.
 

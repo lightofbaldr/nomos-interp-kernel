@@ -30,7 +30,7 @@
         <input type="range" aria-label="Live consumed position" min="0" max={Math.max(0,rows.length-1)} value={Math.max(0,index)} disabled={!rows.length} oninput={ev=>rowAt(Number(ev.currentTarget.value))}/>
         <p>{chosen?`Position ${chosen.record.pos} · ${chosen.record.source} · ${chosen.record.channel??'unknown channel'}`:'No measured position received.'}</p>
         {#if chosen}<code class="token-label">{live.labels?.[chosen.record.token]??`#${chosen.record.token} (label unavailable)`}</code>
-          {#each live.alerts?.events.filter(a=>a.request===chosen.turn.request&&a.pos===chosen.record.pos)??[] as alert}<p class="signal-badge" title={alert.detail}>{alert.rule}</p>{/each}
+          {#each live.alerts?.events.filter(a=>a.request===chosen.turn.request&&a.pos===chosen.record.pos)??[] as alert}<p class="signal-badge" title={alert.detail}>{alert.match?`${alert.match.label.trim()} entered · `:''}{alert.rule}</p>{/each}
         {/if}
       </section>
       <section><div class="title"><h3>Global workspace</h3><span>TOP {w?.k??'—'}</span></div>
