@@ -32,6 +32,7 @@ try{
   await trail.getByLabel('Show detailed entry trail').check();assert.equal(await trail.getByRole('button',{name:/Watch-list entry/}).count(),4);
   await trail.getByRole('button',{name:'Watch-list entry: cannot, position 39',exact:true}).click();assert.equal(await page.getByRole('slider',{name:'Live consumed position'}).inputValue(),'39');
   await trail.getByLabel('Show detailed entry trail').uncheck();assert.equal(await trail.getByRole('button',{name:/Watch-list entry/}).count(),2);
+  await page.screenshot({path:'preview/checks/live-alerts-grouped.png',fullPage:true});
   const slider=page.getByRole('slider',{name:'Live consumed position'});await slider.fill('0');
   await page.getByText('Workspace unavailable at this position.',{exact:false}).waitFor();
   assert.equal(await page.locator('.workspace-tokens li').count(),0);
@@ -51,6 +52,12 @@ try{
   // API security is checked without causing intentional errors in the observed browser.
   for(const route of ['/api/pi','/api/nomos/health','/api/nomos/kvstore'])assert.equal((await fetch(h.base+route,{headers:{Origin:'http://evil.test'}})).status,403);
   const mobile=await h.browser.newPage({viewport:{width:390,height:844}});h.observe(mobile);await mobile.goto(h.base);await mobile.getByText('Pi connected',{exact:true}).waitFor();
+  await mobile.getByLabel('Pi conversation').selectOption(original);
+  const mobileTrail=mobile.getByRole('region',{name:'Signal alert badges'}),mobileTurn=mobileTrail.locator('details').first();
+  await mobileTurn.locator('summary').click();assert.equal(await mobileTurn.getByRole('button',{name:/Watch-list entry/}).count(),2);
+  assert.match(await mobileTurn.getByRole('button',{name:/Watch-list entry: cannot/}).innerText(),/cannot entered\s+pos 36\s+\+1 re-entry/);
+  await mobileTrail.getByLabel('Show detailed entry trail').check();assert.equal(await mobileTurn.getByRole('button',{name:/Watch-list entry/}).count(),4);
+  await mobileTrail.getByLabel('Show detailed entry trail').uncheck();await mobile.screenshot({path:'preview/checks/live-alerts-mobile.png',fullPage:true});
   await mobile.getByRole('button',{name:'Show inspection',exact:true}).click();await mobile.getByRole('tab',{name:'Controls',exact:true}).click();
   await mobile.getByRole('button',{name:'Apply steering',exact:true}).waitFor();
   assert.ok(await mobile.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await mobile.screenshot({path:'preview/checks/live-pi-mobile.png',fullPage:true});
