@@ -100,6 +100,12 @@ eviction from the bounded detailed trail. Signals
 from incomplete/error turns are explicitly provisional. Switching conversations
 resets the statistical history; rules remain page-local until reload.
 
+## Optional second opinion
+
+The optional [Muse Wonder second opinion](META-ANNOTATOR.md) adds one explicit
+button after a completed turn. It sends a bounded summary only on a click, saves
+the note outside Glimmer's model context, and never retries automatically.
+
 ## Recorded steering catalog
 
 The read-only default is `~/nomos_data/steering-diff/catalog-sampled-20261029`, not the prototype

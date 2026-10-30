@@ -10,10 +10,13 @@
   import {readBridge} from '$lib/pi/stream';
   import {defaultRules,evaluateAlerts,validRules,type AlertRules,type AlertResult} from '$lib/pi/alerts';
   import AlertTrail from './AlertTrail.svelte';
+  import MetaAnnotation from './MetaAnnotation.svelte';
+  import {annotationFor} from '$lib/pi/annotation';
 
   let {onState}:{onState:(state:LiveState)=>void}=$props();
   let view=$state.raw<LiveState>(emptyLiveState()),pi=$state.raw(emptyPi()),text=$state(''),error=$state('');
   let sessions=$state<{id:string;busy:boolean}[]>([]),conversation=$state(''),opening=$state(false);
+  let metaAvailable=$state(false);
   let scroll:HTMLDivElement,textarea:HTMLTextAreaElement|null=$state(null);
   let alive=false,revision=0,controller:AbortController|undefined,follow=true,frame=0,labelTimer:ReturnType<typeof setTimeout>|undefined;
   let labelFlight=false,labelFailed=false;const labels:Record<string,string|null>={};
@@ -32,7 +35,7 @@
   }
   async function refresh(){
     const r=await fetch('/api/pi'),data=await r.json();if(!r.ok)throw Error(data.error??'Agent unavailable.');
-    if(!alive)return;sessions=data.conversations;update({health:data.health,assets:data.assets,error:data.error??''});
+    if(!alive)return;sessions=data.conversations;metaAvailable=data.annotator?.available===true;update({health:data.health,assets:data.assets,error:data.error??''});
   }
   async function command(action:'readout'|'steer',value:unknown){
     const id=conversation;const data=await api({action,conversation:id,[action]:value});
@@ -100,6 +103,8 @@
       {#if !messages.length}<div class="welcome live-welcome"><span class="welcome-mark"><CircleNotch aria-hidden="true" size={43} weight="bold"/></span><h1>Space to think.<br/>A way to look closer.</h1><p>{view.health?.ready?'Glimmer is ready. Start a conversation and follow its live readouts.':'Waiting for the configured Glimmer service.'}</p></div>{/if}
       {#each messages as entry (entry.id)}
         {@const answer=textOf(entry.message)}{@const thinking=textOf(entry.message,'thinking')}
+        {@const sourceEntry=pi.entries.find(e=>String(e.id)===entry.id.split(':')[0])}
+        {@const measuredTurn=sourceEntry?.byTaskId?pi.turns.find(t=>t.task===sourceEntry.byTaskId&&t.status==='complete'):undefined}
         {#if entry.message.role==='user'}<Message.Root from="user" class="user-message live-user"><Message.Content class="message-copy"><div class="live-plain">{answer}</div></Message.Content></Message.Root>
         {:else}<article class="assistant-message live-assistant" aria-label="Live assistant response">
           <div class="assistant-identity"><span class="muse-mark"><CircleNotch aria-hidden="true" size={25}/></span><strong>Muse</strong><span class="assistant-source">Live · Pi / Nomos</span></div>
@@ -110,6 +115,7 @@
           <Message.Root from="assistant" class="assistant-body"><Message.Content class="message-copy"><div class="response-text live-plain" aria-busy={entry.streaming}>{answer}</div></Message.Content></Message.Root>
           {#if !answer}<p class="live-reply-status">{entry.streaming?'Waiting for answer text…':'No answer text received. Reasoning is preserved above.'}</p>{/if}
           <div class="live-turn-footer">{entry.streaming?'Generating':entry.message.role==='assistant'?`Generation: ${entry.message.stopReason}`:''}</div>
+          {#if measuredTurn&&!entry.streaming}<MetaAnnotation {conversation} request={measuredTurn.request} turn={measuredTurn.turn} rules={view.alertRules??defaultRules()} available={metaAvailable} saved={annotationFor(pi.entries,measuredTurn.request)}/>{/if}
         </article>{/if}
       {/each}
       <AlertTrail live={view}/>

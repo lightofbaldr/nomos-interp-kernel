@@ -10,7 +10,7 @@ export const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 export async function harness(live=false,extraEnv={}){
   await mkdir(root+'preview/checks',{recursive:true});
   let base='http://127.0.0.1:5226',server,log='';
-  if(!live){const s=createServer();s.listen(0,'127.0.0.1');await once(s,'listening');const port=s.address().port;await new Promise(resolve=>s.close(resolve));base=`http://127.0.0.1:${port}`;server=spawn(process.execPath,['build/index.js'],{cwd:root,env:{...process.env,NOMOS_API_BASE_URL:'',...extraEnv,HOST:'127.0.0.1',PORT:String(port),ORIGIN:base},stdio:['ignore','pipe','pipe']});server.stdout.on('data',x=>log+=x);server.stderr.on('data',x=>log+=x);}
+  if(!live){const s=createServer();s.listen(0,'127.0.0.1');await once(s,'listening');const port=s.address().port;await new Promise(resolve=>s.close(resolve));base=`http://127.0.0.1:${port}`;server=spawn(process.execPath,['build/index.js'],{cwd:root,env:{...process.env,NOMOS_API_BASE_URL:'',GLIMMER_META_ENV_FILE:root+'tests/no-meta-key.env',...extraEnv,HOST:'127.0.0.1',PORT:String(port),ORIGIN:base},stdio:['ignore','pipe','pipe']});server.stdout.on('data',x=>log+=x);server.stderr.on('data',x=>log+=x);}
   let browser;
   async function close(){await browser?.close();if(server&&server.exitCode===null){server.kill('SIGTERM');await Promise.race([once(server,'exit'),pause(3000)]);if(server.exitCode===null){server.kill('SIGKILL');await once(server,'exit');}}}
   try{

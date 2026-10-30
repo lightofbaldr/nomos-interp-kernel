@@ -10,7 +10,7 @@ export type Assets = {
   lenses:{id:string; layers:number[]}[];
   tokenizer:string|null;
 };
-export type TurnView = {request:string; turn:number; header:ReadoutHeader|null; records:ReadoutRecord[];
+export type TurnView = {request:string; turn:number; task:number|null; header:ReadoutHeader|null; records:ReadoutRecord[];
   status:'streaming'|ReadoutTurnRecord['status']; error:string|null; summary:ReadoutTurnRecord['summary']};
 export type PiView = {entries:EntryRecord[]; partial:AssistantMessage|null; busy:boolean; settings:SettingsMessage|null;
   turns:TurnView[]; errors:string[]; connected:boolean};
@@ -23,7 +23,7 @@ function putEntry(state:PiView, entry:EntryRecord) {
 function batch(state:PiView, b:ReadoutBatch) {
   let t=state.turns.find(t=>t.request===b.request);
   if(t && t.status!=='streaming')return; // a terminal record already owns the complete list
-  if(!t){t={request:b.request,turn:b.turn,header:b.header,records:[],status:'streaming',error:null,summary:null};state.turns.push(t);}
+  if(!t){t={request:b.request,turn:b.turn,task:null,header:b.header,records:[],status:'streaming',error:null,summary:null};state.turns.push(t);}
   const positions=new Map(t.records.map(r=>[r.pos,r]));
   for(const r of b.records){
     const prior=positions.get(r.pos);
@@ -33,7 +33,7 @@ function batch(state:PiView, b:ReadoutBatch) {
   t.records=[...positions.values()].sort((a,b)=>a.pos-b.pos);
 }
 function terminal(state:PiView,t:ReadoutTurnRecord){
-  state.turns=[...state.turns.filter(v=>v.request!==t.request),{request:t.request,turn:t.turn,header:t.header,
+  state.turns=[...state.turns.filter(v=>v.request!==t.request),{request:t.request,turn:t.turn,task:t.task,header:t.header,
     records:t.records,status:t.status,error:t.error,summary:t.summary}].sort((a,b)=>a.turn-b.turn);
 }
 function entryReadout(state:PiView,e:EntryRecord){

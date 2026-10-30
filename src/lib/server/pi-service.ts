@@ -3,10 +3,29 @@ import os from 'node:os';
 import path from 'node:path';
 import {createRuntime,checkedBase,type Runtime} from './pi-runtime.ts';
 import {assetCatalog,loadLabels} from './pi-assets.ts';
+import {createAnnotator} from './meta-annotator.ts';
+import {readMetaKey,META_MODEL} from './meta-client.ts';
 
 // One harness per server process, never per HTTP request or browser attachment.
 let pending:Promise<Runtime>|undefined;
 let vocabulary:ReturnType<typeof loadLabels>|undefined;
+let annotationService:Promise<ReturnType<typeof createAnnotator>>|undefined;
+const metaKey=()=>readMetaKey(env.GLIMMER_META_ENV_FILE||path.join(os.homedir(),'.env'));
+export async function metaAvailability(){return {available:Boolean(await metaKey()),model:META_MODEL};}
+export function metaAnnotator(){
+  return annotationService??=service().then(runtime=>createAnnotator(runtime.harness,{key:metaKey,labels:async turn=>{
+    const setting=turn.header?.settings,pin=env.NOMOS_TOKENIZER_SHA256;
+    if(!setting||!pin)return {labels:{},tokenizer:null};
+    const ids=[setting.emotion.directions,...(setting.workspace?[setting.workspace.lens]:[])];
+    const catalog=await assetCatalog(env.NOMOS_READOUT_REGISTRY||path.join(os.homedir(),'nomos_data/readout-assets/registry.json'),{readout:{supported:true,assets:ids}},pin);
+    if(!catalog.supported||!catalog.directions.some(d=>d.id===setting.emotion.directions&&JSON.stringify(d.names)===JSON.stringify(setting.emotion.names))||setting.workspace&&!catalog.lenses.some(l=>l.id===setting.workspace!.lens))return {labels:{},tokenizer:null};
+    try{
+      vocabulary??=loadLabels(env.NOMOS_TOKENIZER_JSON||path.join(os.homedir(),'nomos_data/muse-glimmer-tokenizer/tokenizer.json'),pin).catch(e=>{vocabulary=undefined;throw e;});
+      const v=await vocabulary,used=new Set(turn.records.flatMap(r=>r.source==='generated'?(r.workspace?.top??[]).flatMap(top=>top.map(x=>x[0])):[]));
+      return {labels:Object.fromEntries([...used].map(id=>[id,v.labels.get(id)??null])),tokenizer:v.sha256};
+    }catch{return {labels:{},tokenizer:null};}
+  }})).catch(e=>{annotationService=undefined;throw e;});
+}
 export function service(){
   if(!env.NOMOS_API_BASE_URL)throw Error('No kernel endpoint is configured.');
   return pending??=createRuntime(env.NOMOS_API_BASE_URL,

@@ -1,5 +1,5 @@
 import {json,type RequestEvent} from '@sveltejs/kit';
-import {service,capabilities,tokenLabels} from '$lib/server/pi-service';
+import {service,capabilities,tokenLabels,metaAvailability} from '$lib/server/pi-service';
 import {sameOrigin,jsonBody} from '$lib/server/origin';
 import {bridgeStream} from '$lib/server/bridge-stream';
 import type {ReadoutConfig,Steer} from 'glimmer-agent/extension';
@@ -12,7 +12,7 @@ export async function GET({request,url}:RequestEvent){
   try{
     const runtime=await service(),id=url.searchParams.get('conversation');
     if(id)return bridgeStream(send=>runtime.bridge(id,send),request.signal);
-    return json({conversations:await runtime.list(),...await capabilities()},options);
+    return json({conversations:await runtime.list(),...await capabilities(),annotator:await metaAvailability()},options);
   }catch(e){return json({error:e instanceof Error?e.message:'Agent unavailable.'},{status:503,...options});}
 }
 export async function POST({request,url}:RequestEvent){
