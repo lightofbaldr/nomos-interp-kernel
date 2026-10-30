@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+runs/
+splits/
+dependencies/*
+!dependencies/ASSETS.json
+!dependencies/PINNED.md
+!dependencies/README.md
+.superpowers/
+*.egg-info/
