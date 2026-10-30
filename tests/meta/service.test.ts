@@ -8,6 +8,7 @@ import {annotationFor,ANNOTATION_KIND} from '../../src/lib/pi/annotation.ts';
 import {defaultRules} from '../../src/lib/pi/alerts.ts';
 import {fakeKernel,until,pause} from '../live/fixture.ts';
 import {loadLabels} from '../../src/lib/server/pi-assets.ts';
+import {MetaError} from '../../src/lib/server/meta-client.ts';
 const key='fake-key-only',note='The refusal-related token entered the reasoning workspace twice. Check the answer against its sources.';
 async function setup(){
   const f=await fakeKernel(),r=await createRuntime(f.base,f.root+'/session.sqlite'),id=await r.create();
@@ -63,5 +64,13 @@ test('an actively streaming turn and a malformed rule cannot initiate an annotat
     await assert.rejects(a.annotate(s.id,'chatcmpl-1',defaultRules()));
     await s.r.abort(s.id);assert.equal(calls,0);s.f.hold(false);
     const request=await s.generate();await assert.rejects(a.annotate(s.id,request,{workspace:{enabled:true,prefixes:[42]}} as any));assert.equal(calls,0);
+  }finally{await s.r.close();await s.f.close();}
+});
+test('safe rejection diagnostics persist with the failed attempt without becoming context or a retry',async()=>{
+  const s=await setup();let calls=0;
+  try{const request=await s.generate(),before=(await s.c.context(ctx)).messages;
+    const a=createAnnotator(s.r.harness,{key:async()=>key,labels:s.labels,call:async()=>{calls++;throw new MetaError('response',{rule:'word_limit',word_count:134,character_count:750,finish_reason:'stop'});}});
+    const failed=await a.annotate(s.id,request,defaultRules());assert.equal(failed.status,'failed');assert.equal(failed.note,null);assert.deepEqual(failed.diagnostic,{rule:'word_limit',word_count:134,character_count:750,finish_reason:'stop',phrase_id:null});
+    assert.deepEqual((await s.c.context(ctx)).messages,before);assert.deepEqual((await a.annotate(s.id,request,defaultRules())).diagnostic,failed.diagnostic);assert.equal(calls,1);
   }finally{await s.r.close();await s.f.close();}
 });

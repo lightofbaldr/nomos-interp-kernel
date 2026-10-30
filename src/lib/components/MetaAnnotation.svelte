@@ -20,6 +20,7 @@
     {#if annotation.status==='complete'}<p class="meta-note">{annotation.note}</p>
     {:else if annotation.status==='failed'}<p role="status">{annotation.error} This attempt is saved; it will not be retried automatically.</p>
     {:else}<p role="status">Request pending or interrupted. It will not be sent again automatically.</p>{/if}
+    {#if annotation.diagnostic}<p class="meta-identity">Rejected by: {annotation.diagnostic.rule}{annotation.diagnostic.word_count!==null?` · ${annotation.diagnostic.word_count} words`:''}{annotation.diagnostic.character_count!==null?` · ${annotation.diagnostic.character_count} characters`:''}{annotation.diagnostic.finish_reason?` · finish ${annotation.diagnostic.finish_reason}`:''}{annotation.diagnostic.phrase_id!==null?` · phrase rule ${annotation.diagnostic.phrase_id}`:''}. Rejected prose is not retained.</p>{/if}
     <p class="meta-identity">{annotation.model} · {annotation.finished_at??annotation.started_at}</p>
     <Collapsible.Root><Collapsible.Trigger class="meta-payload-trigger">{annotation.status==='complete'?'View the exact payload sent':'View the prepared payload'}<CaretDown size={14}/></Collapsible.Trigger><Collapsible.Content>
       <p class="meta-hash">SHA-256 {annotation.payload_sha256}</p><pre>{annotation.payload_json}</pre>

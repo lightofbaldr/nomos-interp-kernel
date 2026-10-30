@@ -9,7 +9,7 @@ const note="With afraid steering at −0.5 on L24, the ' cannot' token entered t
 const meta=http.createServer(async(req,res)=>{
   let body='';for await(const chunk of req)body+=chunk;
   assert.equal(req.url,'/v1/chat/completions');assert.equal(req.headers.authorization,`Bearer ${key}`);calls.push(body);
-  await pause(200);res.setHeader('Content-Type','application/json');res.end(JSON.stringify({model:'muse-wonder-1.0',choices:[{finish_reason:'stop',message:{content:note}}]}));
+  await pause(200);res.setHeader('Content-Type','application/json');res.end(JSON.stringify({model:'muse-wonder-1.0',choices:[{finish_reason:'stop',message:{content:calls.length===1?note:'word '.repeat(131)}}]}));
 });
 await new Promise(r=>meta.listen(0,'127.0.0.1',r));
 const fakeEnv=f.root+'/fake.env';await writeFile(fakeEnv,`META_API_HACKATHON=${key}\n`,{mode:0o600});
@@ -52,10 +52,13 @@ try{
   assert.equal((await post({text:'x'.repeat(33000)})).status,400);assert.equal(calls.length,1);
   await page.setViewportSize({width:390,height:844});await section.scrollIntoViewIfNeeded();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await page.screenshot({path:'preview/checks/meta-fake-mobile.png',fullPage:true});assert.deepEqual(h.errors,[]);assert.deepEqual(h.external,[]);
+  await page.setViewportSize({width:1440,height:1080});await page.getByRole('button',{name:'New session',exact:true}).click();await until(async()=>await page.getByLabel('Pi conversation').inputValue()!==conversation);
+  await page.getByLabel('Message Muse',{exact:true}).fill('Rejection fixture');await page.getByRole('button',{name:'Send message',exact:true}).click();await ask.waitFor();await ask.click();
+  await page.getByText(/Rejected by: word_limit · 131 words/).waitFor();assert.equal(calls.length,2);await page.reload();await page.getByText(/Rejected by: word_limit · 131 words/).waitFor();assert.equal(calls.length,2);assert.equal(await ask.count(),0);
   await h.close();h=await harness(false,{...env,GLIMMER_META_ENV_FILE:f.root+'/does-not-exist.env'});
-  page=await h.browser.newPage();h.observe(page);await page.goto(h.base);await sectionFor(page).getByText(note,{exact:true}).waitFor();assert.equal(calls.length,1,'saved note survives missing key');
+  page=await h.browser.newPage();h.observe(page);await page.goto(h.base);await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByLabel('Pi conversation').selectOption(conversation);await sectionFor(page).getByText(note,{exact:true}).waitFor();assert.equal(calls.length,2,'saved note survives missing key');
   await page.getByLabel('Message Muse',{exact:true}).fill('Next');await page.getByRole('button',{name:'Send message',exact:true}).click();await askFor(page).waitFor();
-  assert.equal(await askFor(page).isDisabled(),true);await page.getByText('Muse Wonder unavailable: the dedicated server key is missing or unreadable.',{exact:true}).waitFor();assert.equal(calls.length,1);
+  assert.equal(await askFor(page).isDisabled(),true);await page.getByText('Muse Wonder unavailable: the dedicated server key is missing or unreadable.',{exact:true}).waitFor();assert.equal(calls.length,2);
   assert.deepEqual(h.errors,[]);assert.deepEqual(h.external,[]);console.log('META ANNOTATOR BROWSER VERIFIED');
 }finally{await h?.close();meta.closeAllConnections();await new Promise(r=>meta.close(r));await f.close();}
 function sectionFor(page){return page.getByRole('region',{name:'Muse Wonder second opinion for turn 0'});}

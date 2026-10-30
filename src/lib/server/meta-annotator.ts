@@ -26,7 +26,7 @@ export function createAnnotator(harness:HarnessInstance,options:Options){
       // Reject before persisting a request too, not just before its network send.
       if(payload.includes(key))throw new MetaError('payload');
       const started=now(),record:Annotation={v:1,request,turn:target.turn.turn,model:META_MODEL,status:'pending',started_at:new Date(started).toISOString(),finished_at:null,
-        payload_json:payload,payload_sha256:createHash('sha256').update(payload).digest('hex'),note:null,error:null};
+        payload_json:payload,payload_sha256:createHash('sha256').update(payload).digest('hex'),note:null,error:null,diagnostic:null};
       const admitted=await chat.commit(async tx=>{
         const state=await tx.doc(State,chat.id);
         if(Object.hasOwn(state.claims,request))return false;
@@ -38,7 +38,7 @@ export function createAnnotator(harness:HarnessInstance,options:Options){
       if(!admitted){const saved=annotationFor((await chat.context(ctx)).entries,request);if(!saved)throw Error('Annotation admission is unresolved; it will not be retried.');return saved;}
       let completed:Annotation;
       try{const note=await(options.call??requestNote)(payload,key);completed={...record,status:'complete',finished_at:new Date(now()).toISOString(),note};}
-      catch(e){completed={...record,status:'failed',finished_at:new Date(now()).toISOString(),error:e instanceof MetaError?new MetaError(e.code).message:new MetaError('transport').message};}
+      catch(e){const safe=e instanceof MetaError?new MetaError(e.code,e.diagnostic):new MetaError('transport');completed={...record,status:'failed',finished_at:new Date(now()).toISOString(),error:safe.message,diagnostic:safe.diagnostic};}
       await chat.commit(async tx=>{await tx.appendEntry(chat.id,{kind:ANNOTATION_KIND,data:completed});},ctx);
       return completed;
     }

@@ -84,12 +84,21 @@ These are non-model Pi entries: they have no model contribution and never enter
 Glimmer's context. Reopening the conversation renders the saved note without a
 new call, even when the key has subsequently become unavailable.
 
-The system prompt limits the note to 120 words, names the signal scope, forbids
+The system prompt targets at most 100 words (hard rejection above 130), names the signal scope, forbids
 verdicts/causal/feeling/intent claims and permits at most one practical suggestion.
 Length, response structure and a small set of explicitly forbidden claim words
 are checked locally. That lexical check is **not** a semantic guarantee or a
 fact-checker; viewers must compare the interpretation with the visible payload.
 Model-produced notes remain escaped plain text, not trusted markup.
+
+Rejected responses retain only a predefined rule ID and bounded word/character
+counts, a known finish-reason enum (otherwise `other`), and a predefined phrase
+ID. Rejected prose and arbitrary provider diagnostics are not retained. Rules
+distinguish body limits, credential echoes, invalid JSON/shape, unfinished replies,
+tool calls, empty text, character/word limits and forbidden phrases. Phrase IDs
+1–11 correspond to: lied, lying, honest, dishonest, intended, intends, felt,
+feels, caused, causes, proves. This remains a lexical check, not semantic scope
+certification. Older failed records may have no detailed diagnostic.
 
 ## Tests
 
@@ -105,3 +114,6 @@ initial acceptance used three one-shot calls, one per approved example. Prime
 authorized one additional afraid-only call on 2026-10-30 to validate the raw-mean
 supplement (four total). It preserves the original three notes and uses a fresh
 Pi turn; it does not relax production's one-attempt-per-turn rule.
+That fourth response was rejected without a detailed reason. Prime then
+authorized one final afraid-only fifth call after the diagnostic and word-headroom
+changes. No further paid iteration is authorized if that check fails.
