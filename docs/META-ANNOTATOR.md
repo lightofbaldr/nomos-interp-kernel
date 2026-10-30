@@ -45,6 +45,14 @@ readout turn and its completed assistant message by Pi task identity, then deriv
   that mean after its comparison; answers never update it. This is the alerts'
   existing baseline, with 32 earlier values required, not a frozen pre-turn mean.
   Defined, missing, warm-up and omitted-direction counts remain explicit.
+- Each displayed move also includes its raw per-channel mean and contributing
+  count, including warm-up rows. When steering is present, the actual steered
+  direction's raw means are included even if that direction is outside the four
+  largest differences. A foreign/missing direction asset remains unknown. The
+  running baseline includes pushed rows: its differences do **not** estimate the
+  steering effect or compare with an unsteered run. Raw means make a large
+  persistent projection visible without treating it as a small baseline-relative
+  change. The prompt explicitly distinguishes the two quantities.
 - The existing watch-list groups over generated **reasoning** positions: first
   matched token and position, rank, number of re-entries and last entry position.
   Groups follow prefixes, so later re-entries can be a different token sharing
@@ -93,4 +101,7 @@ payload disclosure and reload. The shared browser harness defaults to a missing
 key file so ordinary UI tests cannot read a real credential.
 
 Paid validation is separate and manual, never part of the test command. The
-initial acceptance limit is three one-shot calls, one per approved example.
+initial acceptance used three one-shot calls, one per approved example. Prime
+authorized one additional afraid-only call on 2026-10-30 to validate the raw-mean
+supplement (four total). It preserves the original three notes and uses a fresh
+Pi turn; it does not relax production's one-attempt-per-turn rule.

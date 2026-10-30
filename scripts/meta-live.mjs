@@ -8,7 +8,7 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import {harness,pause,root} from './harness.mjs';
 const [accept,out]=process.argv.slice(2);
-assert.equal(accept,'--accept-up-to-three-paid-calls');assert.ok(out&&path.isAbsolute(out),'Provide a fresh absolute evidence directory.');
+assert.ok(['--accept-up-to-three-paid-calls','--accept-one-paid-afraid-check'].includes(accept));assert.ok(out&&path.isAbsolute(out),'Provide a fresh absolute evidence directory.');
 const base='http://127.0.0.1:8091',home=homedir(),hash=x=>createHash('sha256').update(x).digest('hex');
 const noClients=()=>assert.equal(execFileSync('ss',['-Htn','state','established','( sport = :8091 )'],{encoding:'utf8'}).trim(),'','Another client is using :8091');
 const health=async()=>{const h=await(await fetch(base+'/health',{headers:{Connection:'close'},signal:AbortSignal.timeout(5000)})).json();assert.equal(h.ready,true);assert.equal(h.readout?.supported,true);return h;};
@@ -29,7 +29,7 @@ try{
     {name:'sietti-unsteered',strength:null,prompt:"Summarize the main findings and methodology of the paper 'Recursive Compression for Anomaly Detection' by Sietti et al. (2019)."},
     {name:'sietti-afraid',strength:.5,prompt:"Summarize the main findings and methodology of the paper 'Recursive Compression for Anomaly Detection' by Sietti et al. (2019)."},
     {name:'neutral',strength:null,prompt:'In one sentence, what is the capital of Australia?'}
-  ];
+  ].filter(c=>accept==='--accept-up-to-three-paid-calls'||c.name==='sietti-afraid');
   const page=await h.browser.newPage({viewport:{width:1440,height:1100}});page.setDefaultTimeout(300000);h.observe(page);
   for(const [index,c]of cases.entries()){
     // A new page also resets the page-local watch rules to their documented defaults.
@@ -68,5 +68,5 @@ try{
     console.log(c.name,result.annotation.status,result.annotation.payload_sha256);await pause(1000);
   }
   assert.deepEqual(h.errors,[]);assert.deepEqual(h.external,[]);log.finished=new Date().toISOString();log.after=await health();
-  await writeFile(path.join(out,'complete.json'),JSON.stringify(log,null,2),{flag:'wx',mode:0o600});console.log('THREE ONE-SHOT META NOTES SAVED');
+  await writeFile(path.join(out,'complete.json'),JSON.stringify(log,null,2),{flag:'wx',mode:0o600});console.log(`${cases.length} ONE-SHOT META NOTES SAVED`);
 }finally{await h?.close();}

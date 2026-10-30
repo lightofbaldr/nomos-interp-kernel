@@ -34,6 +34,8 @@ try{
   assert.equal(summary.steering.strength,-.5);assert.equal(summary.steering.layer,24);assert.equal(summary.text.answer.text,'Hello from Pi.');
   assert.equal(payload.model,'muse-wonder-1.0');assert.equal(summary.workspace.watch.groups[0].word,' cannot');
   assert.equal(summary.workspace.watch.groups[0].reentries,1);assert.equal(summary.emotion.warmup_required,32);
+  assert.ok(Number.isFinite(summary.emotion.layers[0].steered_direction.reasoning.raw_mean_projection));assert.equal(summary.emotion.layers[0].steered_direction.name,'afraid');
+  assert.equal(summary.emotion.layers[0].steered_direction.reasoning.defined,38);assert.ok(summary.emotion.layers[0].reasoning.moves.every(m=>m.raw_defined===38));
   await section.getByText("Muse Wonder's reading of these signals. A second model's interpretation, not a verdict or a lie detector.",{exact:true}).waitFor();
   await section.getByRole('button',{name:'View the exact payload sent',exact:true}).click();assert.equal(await section.locator('pre').innerText(),calls[0]);
   assert.ok((await section.innerText()).includes(createHash('sha256').update(calls[0]).digest('hex')));

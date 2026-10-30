@@ -64,3 +64,22 @@ test('recorded readout absence remains unknown, not a fabricated zero-valued sig
   assert.deepEqual(result.steering,{status:'unknown'});assert.equal(result.emotion.status,'not_captured');assert.deepEqual(result.emotion.layers,[]);
   assert.equal(result.workspace.status,'not_captured');assert.equal(result.workspace.top_k,null);assert.deepEqual(result.workspace.answer.tokens,[]);
 });
+test('raw means expose a constant push that cancels in the within-turn prior-mean differences',()=>{
+  const base=fixture(),pushed=fixture();pushed.turn.records.forEach((r:any)=>r.emotion.proj[0][0]+=60);
+  const a=summariseTurn(base.entries,'req-1',base.rules,base.labels,'pin'),b=summariseTurn(pushed.entries,'req-1',pushed.rules,pushed.labels,'pin');
+  for(const channel of ['reasoning','answer'] as const){
+    const x=a.emotion.layers[0][channel].moves.find(d=>d.name==='afraid')!,y=b.emotion.layers[0][channel].moves.find(d=>d.name==='afraid')!;
+    assert.ok(Math.abs(x.mean_delta!-y.mean_delta!)<1e-12);assert.ok(Math.abs(y.raw_mean_projection!-x.raw_mean_projection!-60)<1e-12);
+    assert.equal(b.emotion.layers[0].steered_direction![channel].raw_mean_projection,y.raw_mean_projection);
+    assert.equal(b.emotion.layers[0].steered_direction![channel].defined,channel==='reasoning'?35:1);
+  }
+  assert.match(b.emotion.statistic,/including steered rows/);assert.match(b.emotion.raw_statistic,/not a difference/);
+});
+test('the steered raw direction is retained outside the four largest moves; missing and foreign assets stay explicit',()=>{
+  const f=fixture();f.turn.header.settings.emotion.names=['a','b','c','d','e','afraid'];f.turn.records.forEach((r:any)=>r.emotion.proj[0]=[1,2,3,4,5].map(x=>x*r.emotion.proj[0][0]).concat(60));
+  const s=summariseTurn(f.entries,'req-1',f.rules,f.labels,'pin'),l=s.emotion.layers[0];assert.equal(l.reasoning.moves.some(d=>d.name==='afraid'),false);assert.equal(l.steered_direction?.reasoning.raw_mean_projection,60);
+  f.turn.records.forEach((r:any)=>r.emotion=null);const missing=summariseTurn(f.entries,'req-1',f.rules,{},null).emotion.layers[0].steered_direction!;
+  assert.equal(missing.reasoning.raw_mean_projection,null);assert.equal(missing.reasoning.missing,35);assert.equal(missing.reasoning.status,'missing');
+  f.turn.header.steer.directions='foreign';const foreign=summariseTurn(f.entries,'req-1',f.rules,{},null).emotion.layers[0].steered_direction!;
+  assert.equal(foreign.reasoning.status,'steering_asset_not_captured');assert.equal(foreign.reasoning.raw_mean_projection,null);
+});

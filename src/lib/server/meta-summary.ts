@@ -23,9 +23,14 @@ function excerpt(text:string,limit:number){
   return {text:truncated?text.slice(0,half)+marker+text.slice(-(limit-marker.length-half)):text,characters:text.length,truncated,selection:truncated?'head_and_tail':'full'};
 }
 type Average={n:number;mean:number};
-type Delta={name:string;defined:number;mean_delta:number|null;warmup:number;missing:number;prior_count_min:number|null;prior_count_max:number|null};
+type Delta={name:string;defined:number;mean_delta:number|null;warmup:number;missing:number;prior_count_min:number|null;prior_count_max:number|null;raw_mean_projection:number|null;raw_defined:number};
 const update=(b:Average,v:number)=>{b.n++;b.mean+=(v-b.mean)/b.n;};
-function deltas(names:string[]):Delta[]{return names.map(name=>({name,defined:0,mean_delta:null,warmup:0,missing:0,prior_count_min:null,prior_count_max:null}));}
+function deltas(names:string[]):Delta[]{return names.map(name=>({name,defined:0,mean_delta:null,warmup:0,missing:0,prior_count_min:null,prior_count_max:null,raw_mean_projection:null,raw_defined:0}));}
+function rawMean(values:Delta[],name:string,rows:number,assetMatches:boolean){
+  const d=assetMatches?values.find(d=>d.name===name):undefined;
+  return {status:!assetMatches?'steering_asset_not_captured':!d?'direction_not_captured':!rows?'channel_absent':!d.raw_defined?'missing':'defined',
+    raw_mean_projection:d?.raw_mean_projection??null,defined:d?.raw_defined??0,missing:d?.missing??rows,rows};
+}
 function finish(rows:number,values:Delta[]){
   const moves=values.filter(v=>v.defined>0).sort((a,b)=>Math.abs(b.mean_delta!)-Math.abs(a.mean_delta!)||a.name.localeCompare(b.name)).slice(0,4);
   return {status:rows===0?'channel_absent':moves.length?'defined':'no_warmed_values',rows,moves,
@@ -49,6 +54,7 @@ export function summariseTurn(entries:readonly EntryRecord[],request:string,rule
       for(const layer of layers)for(const [i,name]of emotion!.names.entries()){
         const key=`${settings.directions}:${layer.layer}:${name}`,b=means.get(key)??{n:0,mean:0},v=projection(t,row,layer.layer,name);
         if(current){const d=layer[channel][i];
+          if(v!==null){d.raw_defined++;d.raw_mean_projection=(d.raw_mean_projection??0)+(v-(d.raw_mean_projection??0))/d.raw_defined;}
           if(v===null)d.missing++;
           else if(b.n<32)d.warmup++;
           else {d.defined++;const delta=v-b.mean;d.mean_delta=(d.mean_delta??0)+(delta-(d.mean_delta??0))/d.defined;
@@ -74,8 +80,10 @@ export function summariseTurn(entries:readonly EntryRecord[],request:string,rule
     text:{prompt:excerpt(target.prompt,4000),reasoning:excerpt(target.reasoning,6000),answer:excerpt(target.answer,12000),stop_reason:target.stopReason},
     steering:!turn.header?{status:'unknown'}:turn.header.steer?{status:'recorded',...turn.header.steer}:{status:'none'},
     emotion:{status:emotion?'captured':'not_captured',directions:emotion?.directions??null,units:'raw signed direction projection',
-      statistic:'Channel mean of (row projection minus the mean of all earlier defined generated reasoning rows in this conversation, same asset/name/layer). Current row enters the mean after its test; answer rows never enter it. Includes earlier rows of this turn. Largest absolute mean differences shown, not significance.',
-      warmup_required:32,layers:layers.map(l=>({layer:l.layer,reasoning:finish(count.reasoning,l.reasoning),answer:finish(count.answer,l.answer)}))},
+      statistic:'Channel mean of (row projection minus the mean of all earlier defined generated reasoning rows in this conversation, same asset/name/layer). Current row enters the mean after its test; answer rows never enter it. Includes earlier rows of this turn, including steered rows: these differences do not estimate the steering effect or compare with an unsteered run. Largest absolute mean differences shown, not significance.',
+      raw_statistic:'raw_mean_projection is the channel mean of defined raw projections, not a difference. It includes warm-up rows. raw_defined (or defined in steered_direction) counts its contributing rows; missing rows are omitted, never zero-filled.',
+      warmup_required:32,layers:layers.map(l=>({layer:l.layer,reasoning:finish(count.reasoning,l.reasoning),answer:finish(count.answer,l.answer),
+        steered_direction:turn.header?.steer?{name:turn.header.steer.direction,reasoning:rawMean(l.reasoning,turn.header.steer.direction,count.reasoning,turn.header.steer.directions===emotion?.directions),answer:rawMean(l.answer,turn.header.steer.direction,count.answer,turn.header.steer.directions===emotion?.directions)}:null}))},
     workspace:{status:workspace?'captured':'not_captured',lens:workspace?.lens??null,top_k:workspace?.k??null,frequency_layer:44,tokenizer_sha256:tokenizer,
       interpretation:'Counts are rows containing a token ID in the supplied top-k, not word counts, probabilities or thoughts. Isolated-token labels can be incomplete.',
       reasoning:frequency('reasoning'),answer:frequency('answer'),watch:{status:!rules.workspace.enabled?'disabled':!workspace?.layers.includes(rules.workspace.layer)?'layer_not_captured':tokenizer===null?'labels_unavailable':'observed',
