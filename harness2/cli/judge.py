@@ -162,12 +162,14 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     modes = C.parse_modes(args.modes)
 
-    config.validate_models(judge=True)
+    if args.bench != "mojo":
+        config.validate_models(judge=True)
     adapter = C.make_adapter(args.bench, args.subset, args.substrate)
     ns = C.summary_namespace(adapter, args.k, seed=args.seed)
     ns_dir = C.runs_root_for(adapter) / ns
     identity = ns_dir / "config.json"
-    if identity.is_file() and json.loads(identity.read_text()).get("judge") != config.JUDGE_MODEL:
+    judge_identity = adapter.identity["judge"] if args.bench == "mojo" else config.JUDGE_MODEL
+    if identity.is_file() and json.loads(identity.read_text()).get("judge") != judge_identity:
         raise SystemExit("Judge model changed for this experiment; choose a new HARNESS2_RUNS_DIR")
     if not ns_dir.is_dir():
         raise SystemExit(

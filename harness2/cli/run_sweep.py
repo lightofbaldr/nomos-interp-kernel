@@ -90,6 +90,8 @@ def _stream_for(adapter, args) -> tuple[dict[str, list[str]], list[tuple[str, st
 
 def _print_stream(adapter, args, modes) -> int:
     by_domain, stream = _stream_for(adapter, args)
+    if adapter.spec.name == "mojo":
+        print("# frozen Mojo corpus: " + json.dumps(adapter.identity["corpus"], sort_keys=True))
     print(
         f"# {adapter.spec.name}-{adapter.substrate.name} split={args.split} "
         f"seed={args.seed} k={args.k} modes={','.join(C.mode_label(m) for m in modes)}"
@@ -137,6 +139,13 @@ def _main(args: argparse.Namespace) -> int:
         return _print_stream(
             C.make_adapter(args.bench, args.subset, args.substrate, args.split_file), args, modes
         )
+
+    if args.bench == "mojo":
+        import os
+        if args.split != "train":
+            raise ValueError("Mojo adaptation is train-only; use harness2-mojo evaluate for heldout")
+        if os.environ.get("HARNESS2_MOJO_LIVE_APPROVED") != "1":
+            raise ValueError("live Mojo rollouts are held pending Adam's approval through Prime")
 
     adapter = C.make_adapter(args.bench, args.subset, args.substrate, args.split_file)
     _stream_for(adapter, args)
@@ -232,6 +241,11 @@ def _check_identity(adapter, args, namespace_dir: Path) -> None:
         "domains": sorted(_csv(args.only_domains)),
         "seed": args.seed,
     }
+    if adapter.spec.name == "mojo":
+        identity["mojo"] = adapter.identity
+        identity["executor"] = adapter.identity["executor"]
+        identity["judge"] = adapter.identity["judge"]
+        identity["improver_channel"] = adapter.spec.channels["proposer"].kind
     namespace_dir.mkdir(parents=True, exist_ok=True)
     path = namespace_dir / "config.json"
     if path.is_file():

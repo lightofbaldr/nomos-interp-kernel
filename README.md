@@ -47,6 +47,13 @@ task-level recursion budget brings further gains.
 The release supports **parallel and sequential recursion**, **OpenCode and
 Codex executors**, and **JobBench, LAB, and WorkBuddy-Bench**.
 
+This private Light of Baldr snapshot also adds a [Mojo / Glimmer bench](docs/MOJO.md):
+Pi executes inside bubblewrap, compile/run supplies the deterministic result, and
+an optional, separately capped Muse Wonder call supplies a code-quality opinion.
+Its offline tests and dry run need no model credentials. Live rollouts and paid
+calls remain held pending Adam's approval through Prime. The inherited benchmark
+launchers have not been retrofitted with this sandbox.
+
 ## Video overview
 
 https://github.com/user-attachments/assets/76b10548-b14b-4c8f-9aa5-a93662df4d56

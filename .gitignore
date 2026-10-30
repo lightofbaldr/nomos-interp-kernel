@@ -10,3 +10,5 @@ dependencies/*
 !dependencies/README.md
 .superpowers/
 *.egg-info/
+.unlazy/
+.pytest_cache/
