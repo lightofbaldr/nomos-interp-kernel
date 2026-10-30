@@ -23,7 +23,8 @@ await writeFile(path.join(out,'launch.json'),JSON.stringify(log,null,2),{flag:'w
 let h;
 try{
   h=await harness(false,{NOMOS_API_BASE_URL:base,GLIMMER_SESSION_DB:path.join(out,'sessions.sqlite'),NOMOS_TOKENIZER_JSON:tokenizer,NOMOS_TOKENIZER_SHA256:tokenPin,GLIMMER_META_ENV_FILE:path.join(home,'.env')});
-  const metadata=await(await fetch(h.base+'/api/pi')).json();assert.equal(metadata.annotator.available,true,'The authorized dedicated key is unavailable.');
+  const metaResponse=await fetch(h.base+'/api/pi',{headers:{Origin:h.base}});assert.equal(metaResponse.status,200,'The same-origin metadata check must pass.');
+  const metadata=await metaResponse.json();assert.equal(metadata.annotator?.available,true,'The authorized dedicated key is unavailable.');
   const cases=[
     {name:'sietti-unsteered',strength:null,prompt:"Summarize the main findings and methodology of the paper 'Recursive Compression for Anomaly Detection' by Sietti et al. (2019)."},
     {name:'sietti-afraid',strength:.5,prompt:"Summarize the main findings and methodology of the paper 'Recursive Compression for Anomaly Detection' by Sietti et al. (2019)."},
