@@ -14,7 +14,7 @@ def main():
     assert len(roots) == 1, 'not a single fresh root'
     source = git(SOURCE, 'ls-tree', '-r', REV).splitlines()
     imported = {line.split(b'\t', 1)[1]: line.split(b'\t', 1)[0]
-                for line in git(ROOT, 'ls-tree', '-r', roots[0]).splitlines()}
+                for line in git(ROOT, 'ls-tree', '-r', 'snapshot-20261030').splitlines()}
     for line in source:
         spec, name = line.split(b'\t', 1)
         assert imported.get(name) == spec, f'root snapshot differs: {name!r}'

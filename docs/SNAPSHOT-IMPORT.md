@@ -6,8 +6,10 @@ Source: Adam's read-only Harness² clone at
 The source worktree was clean. Its history included a non-project author identity and
 upstream authors/committers, so no source commits or refs were imported.
 
-The root import contains the exact tracked snapshot, plus this provenance note
-and its checking script. Copyrights, Apache-2.0 LICENSE and third-party license
+The import at tag `snapshot-20261030` contains the exact tracked snapshot, plus
+this provenance note and its checking script. The initial staging missed
+`MANIFEST.in`; an additive import correction restores it without rewriting the
+published root commit. Copyrights, Apache-2.0 LICENSE and third-party license
 and provenance files are unchanged. The upstream README describes upstream
 behavior; the new Mojo runner has its own stricter security contract.
 
