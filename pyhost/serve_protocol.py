@@ -185,15 +185,25 @@ def _atem_scalar(value: str) -> Any:
         return value
 
 
-def parse_atem_call(text: str) -> tuple[str, dict[str, Any]] | None:
-    """Parse the last complete ATEM invocation from a tool-recipient channel."""
+_SPECIAL_MARKER_RE = re.compile(r"<\|[a-z_]+\|>")
+
+
+def _atem_name(name: str) -> str:
+    """A tool or parameter name never holds a special token. Glimmer has copied its own <|message|> into an invoke
+    name (2026-10-30: name="write<|message|>"), which went out verbatim and matched no tool."""
+    return _SPECIAL_MARKER_RE.sub("", name).strip()
+
+
+def parse_atem_call(text: str, recipient: str | None = None) -> tuple[str, dict[str, Any]] | None:
+    """Parse the last complete ATEM invocation from a tool-recipient channel. A name left empty once its markers are
+    gone falls back to the channel's recipient."""
     match = None
     for match in _ATEM_INVOKE_RE.finditer(text):
         pass
     if match is None:
         return None
-    name, body = match.group(1), match.group(2)
-    args = {m.group(1): _atem_scalar(m.group(2)) for m in _ATEM_PARAM_RE.finditer(body)}
+    name, body = _atem_name(match.group(1)) or (recipient or ""), match.group(2)
+    args = {_atem_name(m.group(1)): _atem_scalar(m.group(2)) for m in _ATEM_PARAM_RE.finditer(body)}
     return name, args
 
 
@@ -226,7 +236,7 @@ def parse_atem_reply(raw: str) -> ParsedReply:
             if body:
                 visible.append(body)
         else:
-            call = parse_atem_call(body)
+            call = parse_atem_call(body, recipient)
             if call is not None:
                 tool_call = call
     if not found:

@@ -116,6 +116,23 @@ def test_atem_tool_call_and_openai_history_conversion():
     }
 
 
+def test_atem_tool_call_names_drop_special_token_markers():
+    # Glimmer through Pi, 2026-10-30: it addressed the right recipient, then copied its own <|message|> token into the
+    # invoke name, which went out verbatim as "write<|message|>" and every Pi tool call failed as "not found".
+    raw = (
+        " to=self<|message|>Let's do write.<|eom|>"
+        "<|start|>assistant to=write<|message|>"
+        '<atem:function_calls>\n<atem:invoke name="write<|message|>">\n'
+        '<atem:parameter name="path">hello.mojo</atem:parameter>\n'
+        '<atem:parameter name="content<|message|>">def main():\n    print("hi")\n</atem:parameter>\n'
+        "</atem:invoke>\n</atem:function_calls><|eot|>"
+    )
+    assert parse_atem_reply(raw).tool_call == ("write", {"path": "hello.mojo", "content": 'def main():\n    print("hi")'})
+    # A name that is only a marker falls back to the channel's recipient.
+    only_marker = raw.replace('name="write<|message|>"', 'name="<|message|>"')
+    assert parse_atem_reply(only_marker).tool_call[0] == "write"
+
+
 def test_gemma_prompt_and_stops_are_unchanged():
     if not GEMMA_TOKENIZER.is_dir():
         pytest.skip(f"Gemma tokenizer absent: {GEMMA_TOKENIZER}")
