@@ -49,6 +49,9 @@ can still work and the relevant controls/labels say unavailable.
 - Settings apply to the **next request**, not an in-flight one. The saved version
   and actual turn header are separately visible. Steering is signed, −2 to +2;
   readout capture supports at most three emotion and four workspace layers.
+- Selecting a different session initializes the Controls form from that session's
+  saved settings. Same-session bridge updates do not erase unsaved edits. The
+  saved readout line lists all layers; the form edits one layer at a time.
 - Readouts describe consumed token positions, not SSE chunks or aligned text
   characters. Missing/reused/unavailable positions are never filled with zeros.
   Workspace ranks are only within the supplied top-k. Projections are signed raw

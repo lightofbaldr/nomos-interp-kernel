@@ -5,6 +5,7 @@ for(const args of [
   ['scripts/transport.mjs'],
   ['scripts/steering-tests.mjs'],
   ['scripts/lab-integration.mjs'],
+  ['scripts/controls-browser.mjs'],
   ['scripts/browser.mjs'],
   ['scripts/ui.mjs'],
   ['scripts/contrast.mjs'],

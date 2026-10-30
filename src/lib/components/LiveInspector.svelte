@@ -15,6 +15,19 @@
   const top=$derived(wLayer===undefined?null:chosen?.record.workspace?.top[w?.layers.indexOf(wLayer)??-1]??null);
   const e=$derived(chosen?.turn.header?.settings?.emotion);
   const eLayer=$derived(e?.layers.includes(live.emotionLayer??29)?live.emotionLayer??29:e?.layers.at(-1));
+  // Hydrate once per selected session, not on every streamed row/settings event.
+  // A disconnect/reconnect of the same session must preserve an unsaved draft.
+  let formSession:string|undefined,hydrated=false;
+  $effect(()=>{
+    const id=live.conversation;
+    if(id!==formSession){formSession=id;hydrated=false;emotionLayer=29;workspaceLayer=44;workspace=false;direction='afraid';steerLayer=24;strength=0;error='';}
+    if(hydrated||!id||!pi.connected||!pi.settings)return;
+    const saved=pi.settings,readout=saved.readout,el=readout.emotion?.layers??[],wl=readout.workspace?.layers??[];
+    emotionLayer=el.includes(29)?29:el[0]??(d?.layers.includes(29)?29:d?.layers[0]??29);
+    workspace=readout.enabled&&Boolean(readout.workspace);workspaceLayer=wl.includes(44)?44:wl[0]??(lens?.layers.includes(44)?44:lens?.layers[0]??44);
+    direction=saved.steer?.direction??(d?.names.includes('afraid')?'afraid':d?.names[0]??'afraid');
+    steerLayer=saved.steer?.layer??(d?.layers.includes(24)?24:d?.layers[0]??24);strength=saved.steer?.strength??0;hydrated=true;
+  });
   async function configure(action:'readout'|'steer',value:unknown){pending=true;error='';try{await live.command?.(action,value);}catch(e){error=String(e);}finally{pending=false;}}
   function readouts(){if(d)void configure('readout',{enabled:true,emotion:{directions:d.id,layers:[emotionLayer]},workspace:workspace&&lens?{lens:lens.id,layers:[workspaceLayer],k:16}:null});}
   function steer(){if(d)void configure('steer',{directions:d.id,layer:steerLayer,direction,strength});}
@@ -47,6 +60,7 @@
     <Tabs.Content value="control">
       <section><div class="title"><h3>Next request</h3><span>v{pi.settings?.version??'—'}</span></div>
         <p>Apply saves a versioned Pi setting. It does not alter a request already running. Inspect the turn header for what actually ran.</p>
+        <p data-testid="readout-setting">{!pi.settings?'Loading saved settings…':!pi.settings.readout.enabled?'Saved: readouts off.':`Saved: emotion L${pi.settings.readout.emotion?.layers.join(', L')}; workspace ${pi.settings.readout.workspace?`L${pi.settings.readout.workspace.layers.join(', L')}, top-${pi.settings.readout.workspace.k}`:'off'}.`} The form edits one capture layer at a time.</p>
         {#if !live.assets?.supported}<p class="unavailable">{live.assets?.error??'Asset capabilities unavailable.'}</p>{/if}
         <fieldset disabled={!d||!live.assets?.supported||pending||!pi.connected}><legend>Readout capture</legend>
           <label>Emotion capture layer <select aria-label="Emotion capture layer" bind:value={emotionLayer}>{#each d?.layers??[] as l}<option value={l}>L{l}</option>{/each}</select></label>
