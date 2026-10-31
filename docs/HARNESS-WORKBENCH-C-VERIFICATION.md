@@ -59,6 +59,12 @@ Gate-runner exit 1 at that point means only the manual branch/handoff gate was
 still pending; the three executable gates were green. The local ledger records
 the final handoff separately.
 
+Retention follow-up after Prime's review: byte-identical copies of these logs,
+the runtime/Undici follow-up logs and both original gate ledgers now live at
+`.unlazy/workbench-c-live/prior-evidence/`, outside `/tmp` and ignored by git.
+That directory's `SHA256SUMS` verifies all 15 retained files. Original `/tmp`
+files were not removed. This changes their retention, not the historical results.
+
 The browser test covers disabled-by-default controls, availability, saved profile,
 write → compile → run, durable stdout, readable output contrast, a compile failure
 with no run, and desktop/mobile overflow. Program text is escaped. Compile/run

@@ -92,3 +92,8 @@ including fresh check/build and the raw-adapter refusal. The local gate ledger i
 `/tmp/glimmer-runtime-regression-final.log`, agent output in
 `/tmp/glimmer-runtime-agent-final.log`. These checks do not authorize a live E2E,
 deployment restart or merge. The gate workflow keeps those out of scope.
+
+Retention follow-up: the accepted logs (plus the refusal witness, audit, early
+run records and gate ledgers) are copied byte-for-byte to the ignored
+`.unlazy/workbench-c-live/prior-evidence/`, with `SHA256SUMS`. The `/tmp` names
+above remain the historical run locations; the retained copies survive a reboot.
