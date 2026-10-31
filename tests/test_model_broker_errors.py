@@ -5,11 +5,8 @@ import json
 import socket
 import tempfile
 import unittest
-from contextlib import closing
 from pathlib import Path
 from unittest.mock import Mock
-
-from test_sandbox_mojo import UnixConnection
 
 from harness2.substrate.model_broker import MODEL, ModelBroker
 from scripts.check_mojo_followups_offline import guarded_connect
@@ -49,11 +46,17 @@ class BrokerErrors(unittest.TestCase):
         self.path = Path(tmp.name) / "broker.sock"
 
     def request(self, body=None, path="/v1/chat/completions"):
-        with closing(UnixConnection(self.path)) as conn:
-            conn.request(
-                "POST", path, json.dumps(body or {"model": MODEL, "messages": [], "max_tokens": 32})
-            )
-            response = conn.getresponse()
+        # A bad route can be rejected before the broker reads its body. Send
+        # this small fixture in one write: http.client's separate header/body
+        # sends race that valid early close and can raise BrokenPipeError.
+        raw = json.dumps(body or {"model": MODEL, "messages": [], "max_tokens": 32}).encode()
+        head = f"POST {path} HTTP/1.0\r\nContent-Length: {len(raw)}\r\n\r\n".encode()
+        with socket.socket(socket.AF_UNIX) as conn:
+            conn.settimeout(3)
+            conn.connect(str(self.path))
+            conn.sendall(head + raw)
+            response = http.client.HTTPResponse(conn)
+            response.begin()
             return response.status, dict(response.getheaders()), response.read()
 
     def upstream(self, status):
