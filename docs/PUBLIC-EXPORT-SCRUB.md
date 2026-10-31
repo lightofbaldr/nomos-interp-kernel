@@ -25,6 +25,11 @@ Chromium path from `scripts/harness.mjs`. Runtime responses can include source
 episode paths from the external data, which this source-only checklist does not
 redact.
 
+Workbench imports retain operator-selected absolute source paths and per-file
+hashes in the private session database and preview responses. These are runtime
+data, not committed source. Scrub them before exporting sessions/screenshots.
+`GLIMMER_HARNESS_IMPORT_ROOTS` is operator configuration and must not be committed.
+
 Inventory again at export time with a tracked-file search for `/home/adam`,
 `192.168.`, `design-kits`, private hostnames and local data paths. Also check the
 vendored package license/notice files. This checklist is not publication approval.

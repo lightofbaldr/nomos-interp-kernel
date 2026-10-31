@@ -8,6 +8,9 @@ Observational readout alerts are explicitly **not a lie detector**.
 Start with [the live Pi guide](docs/LIVE-PI.md) for configuration, contracts,
 alert statistics and limitations. [The steering-diff guide](docs/STEERING-DIFF.md)
 describes the recorded Baseline | Steered | Difference explorer.
+The [harness workbench](docs/HARNESS-WORKBENCH.md) adds per-conversation
+instructions, inline skills, a text-only Harness² import and recorded profile
+attribution. Its first slice intentionally has no callable tools.
 
 ## Run
 

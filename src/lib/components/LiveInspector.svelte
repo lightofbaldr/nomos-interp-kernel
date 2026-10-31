@@ -3,6 +3,7 @@
   import type {LiveState} from '$lib/live';
   import {emptyPi,selectedRow,projection} from '$lib/pi/model';
   import AlertControls from './AlertControls.svelte';
+  import AgentProfile from './AgentProfile.svelte';
   let {live}:{live:LiveState}=$props();
   let tab=$state('signals'),emotionLayer=$state(29),workspaceLayer=$state(44),workspace=$state(false);
   let direction=$state('afraid'),steerLayer=$state(24),strength=$state(0),pending=$state(false),error=$state('');
@@ -35,7 +36,7 @@
 </script>
 <div class="live-inspector">
   <Tabs.Root bind:value={tab}>
-    <Tabs.List class="tab-list" aria-label="Live inspection views"><Tabs.Trigger value="signals">Signals</Tabs.Trigger><Tabs.Trigger value="control">Controls</Tabs.Trigger><Tabs.Trigger value="alerts">Alerts</Tabs.Trigger><Tabs.Trigger value="status">Status</Tabs.Trigger></Tabs.List>
+    <Tabs.List class="tab-list" aria-label="Live inspection views"><Tabs.Trigger value="signals">Signals</Tabs.Trigger><Tabs.Trigger value="control">Controls</Tabs.Trigger><Tabs.Trigger value="profile">Profile</Tabs.Trigger><Tabs.Trigger value="alerts">Alerts</Tabs.Trigger><Tabs.Trigger value="status">Status</Tabs.Trigger></Tabs.List>
     <Tabs.Content value="signals">
       <section class="position-control">
         <label>Readout turn <select aria-label="Readout turn" value={turn?.request??''} onchange={ev=>{const t=pi.turns.find(t=>t.request===ev.currentTarget.value);const r=t?.records.at(-1);if(t&&r)live.select?.({request:t.request,pos:r.pos});}}>{#each pi.turns as t}<option value={t.request}>Turn {t.turn} · {t.status}</option>{/each}</select></label>
@@ -81,6 +82,7 @@
       {#if error}<p role="alert">{error}</p>{/if}
     </Tabs.Content>
     <Tabs.Content value="alerts"><AlertControls {live}/></Tabs.Content>
+    <Tabs.Content value="profile"><AgentProfile {live}/></Tabs.Content>
     <Tabs.Content value="status"><section><h3>Measured, not illustrative</h3><p>Bridge {pi.connected?'connected':'disconnected'} · session {live.conversation??'—'}. Text and consumed-position readouts arrive on separate clocks; SSE chunks are not tokens.</p>
       {#each pi.turns as t}<details class="turn-status"><summary>Turn {t.turn} · {t.status} · {t.records.length} rows</summary><p>{t.error??'No reported readout error.'}</p><pre>{JSON.stringify({request:t.request,header:t.header,summary:t.summary},null,2)}</pre></details>{/each}
       {#if chosen?.record.missing.length}<p>Position missing: {chosen.record.missing.join(', ')}</p>{/if}

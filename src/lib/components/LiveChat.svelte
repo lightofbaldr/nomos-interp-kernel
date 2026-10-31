@@ -12,6 +12,8 @@
   import AlertTrail from './AlertTrail.svelte';
   import MetaAnnotation from './MetaAnnotation.svelte';
   import {annotationFor} from '$lib/pi/annotation';
+  import ProfileDetails from './ProfileDetails.svelte';
+  import type {ProfileUsed} from 'glimmer-agent/profile-model';
 
   let {onState}:{onState:(state:LiveState)=>void}=$props();
   let view=$state.raw<LiveState>(emptyLiveState()),pi=$state.raw(emptyPi()),text=$state(''),error=$state('');
@@ -26,7 +28,7 @@
   function update(next:Partial<LiveState>={}){if(!alive)return;
     const key=`${conversation}:${labelVersion}:${JSON.stringify(rules)}`,rows=pi.turns.map(t=>t.records);
     if(key!==alertKey||rows.length!==alertRows.length||rows.some((r,i)=>r!==alertRows[i])){alerts=evaluateAlerts(pi,rules,labels);alertKey=key;alertRows=rows;}
-    view={...view,...next,pi,busy:pi.busy,conversation,labels:{...labels},command,alertRules:rules,alerts,setAlertRules,
+    view={...view,...next,pi,busy:pi.busy,conversation,labels:{...labels},command,alertRules:rules,alerts,setAlertRules,openConversation:async id=>{await refresh();attach(id);},
       select:(selection)=>update({selection}),selectLayer:(emotionLayer)=>update({emotionLayer})};onState(view);}
   function latest(){if(!follow)return;cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{if(scroll)scroll.scrollTop=scroll.scrollHeight;});}
   async function api(body:Record<string,unknown>){
@@ -105,6 +107,7 @@
         {@const answer=textOf(entry.message)}{@const thinking=textOf(entry.message,'thinking')}
         {@const sourceEntry=pi.entries.find(e=>String(e.id)===entry.id.split(':')[0])}
         {@const measuredTurn=sourceEntry?.byTaskId?pi.turns.find(t=>t.task===sourceEntry.byTaskId&&t.status==='complete'):undefined}
+        {@const used=sourceEntry?.byTaskId?pi.entries.filter(e=>e.kind==='glimmer.profile.used').map(e=>e.data as ProfileUsed).findLast(p=>p.task===sourceEntry.byTaskId):undefined}
         {#if entry.message.role==='user'}<Message.Root from="user" class="user-message live-user"><Message.Content class="message-copy"><div class="live-plain">{answer}</div></Message.Content></Message.Root>
         {:else}<article class="assistant-message live-assistant" aria-label="Live assistant response">
           <div class="assistant-identity"><span class="muse-mark"><CircleNotch aria-hidden="true" size={25}/></span><strong>Muse</strong><span class="assistant-source">Live · Pi / Nomos</span></div>
@@ -115,6 +118,7 @@
           <Message.Root from="assistant" class="assistant-body"><Message.Content class="message-copy"><div class="response-text live-plain" aria-busy={entry.streaming}>{answer}</div></Message.Content></Message.Root>
           {#if !answer}<p class="live-reply-status">{entry.streaming?'Waiting for answer text…':'No answer text received. Reasoning is preserved above.'}</p>{/if}
           <div class="live-turn-footer">{entry.streaming?'Generating':entry.message.role==='assistant'?`Generation: ${entry.message.stopReason}`:''}</div>
+          {#if !entry.streaming}{#if used}<ProfileDetails profile={used.profile} label={`Profile r${used.profile.revision} · inline skills · no tools`}/>{:else}<small>Profile unrecorded for this historical turn.</small>{/if}{/if}
           {#if measuredTurn&&!entry.streaming}<MetaAnnotation {conversation} request={measuredTurn.request} turn={measuredTurn.turn} rules={view.alertRules??defaultRules()} available={metaAvailable} saved={annotationFor(pi.entries,measuredTurn.request)}/>{/if}
         </article>{/if}
       {/each}

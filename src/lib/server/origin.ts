@@ -6,10 +6,10 @@ export function sameOrigin(request:Request,url:URL){
   if(request.method!=='GET'||request.headers.get('sec-fetch-site')!=='same-origin')return false;
   try{return new URL(request.headers.get('referer')??'').origin===url.origin;}catch{return false;}
 }
-export async function jsonBody(request:Request){
+export async function jsonBody(request:Request,maxBytes=32000){
   if(!request.headers.get('content-type')?.startsWith('application/json')||!request.body)throw Error('JSON body required.');
-  const reader=request.body.getReader();let size=0,text='';const decode=new TextDecoder();
-  try{for(;;){const p=await reader.read();if(p.done)break;size+=p.value.length;if(size>32000)throw Error('Request too large.');text+=decode.decode(p.value,{stream:true});}
+  const reader=request.body.getReader();let size=0,text='';const decode=new TextDecoder('utf-8',{fatal:true});
+  try{for(;;){const p=await reader.read();if(p.done)break;size+=p.value.length;if(size>maxBytes)throw Error('Request too large.');text+=decode.decode(p.value,{stream:true});}
     const value=JSON.parse(text+decode.decode());
     if(!value||typeof value!=='object'||Array.isArray(value))throw Error('JSON object required.');
     return value as Record<string,unknown>;
