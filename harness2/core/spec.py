@@ -43,6 +43,7 @@ class ChannelSpec:
     steps: int = 120
     timeout: int = 3600
     sandbox: str = "host"
+    auth_mode: str = "off"
 
     def __post_init__(self) -> None:
         if self.kind not in CHANNELS:
@@ -51,6 +52,10 @@ class ChannelSpec:
             raise ValueError("unknown improver sandbox policy")
         if self.sandbox == "mojo-claude" and self.kind != "claude_cli":
             raise ValueError("Mojo process sandbox supports only claude_cli; no host fallback")
+        if (self.sandbox == "host" and self.auth_mode != "off") or (
+            self.sandbox == "mojo-claude" and self.auth_mode not in ("subscription", "api-key")
+        ):
+            raise ValueError("isolated improver requires an explicit auth mode; host uses off")
 
 
 def resolve_channel_model(

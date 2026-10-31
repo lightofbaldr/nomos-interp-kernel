@@ -16,13 +16,15 @@ stops, or restarts the serve.
 changes, not changes to run 2. Run 2 remains on `0a70ca2` and its unchanged method.
 This branch must be reviewed and authorized before a new live run. Item 5 adds
 the [whole-process improver sandbox](IMPROVER-SANDBOX.md), on a separate review
-branch. It does not modify the running job or authorize run 3. Mojo no longer
-offers a host-executed improver fallback; `codex_cli`, Vertex and API-key mode
-are unsupported for this new route.
-The proposed credential relay is now explicitly **held pending compatibility
-review**: no real login read or improver launch, even with the executor live flag.
-Namespace, scratch/transcript retention and fake-endpoint tests are separate from
-that unresolved authentication decision. See the sandbox document for the hold.
+branch. It does not modify the running job or authorize run 3.
+`HARNESS2_MOJO_IMPROVER_AUTH=off` is the default, retaining the existing trusted
+host improver. Opt-in `api-key` and `subscription` select the whole-process
+Claude sandbox; a failure never falls back to the host. API-key mode injects
+Adam's explicit operator key at the broker, with a placeholder in the client.
+Subscription passes through the native client's setup-token without broker
+injection and is **live-held** over tool-visible token exposure via `/proc`.
+The old saved-login reader and its tests are removed. See the sandbox document
+for the exact modes, fake-only evidence and outstanding trust decision.
 
 ## Local setup and offline checks
 
@@ -234,7 +236,7 @@ not a prompt-based command allowlist:
 There is no claim of protection against kernel vulnerabilities, a hostile host
 writer, or every resource-pressure failure. Bubblewrap is a mechanism whose
 security depends on the arguments and host; see its [security scope](https://github.com/containers/bubblewrap#sandbox-security).
-Mojo's improver uses a separate namespace and Anthropic-only broker, not this
+When opted in, Mojo's improver uses a separate namespace and Anthropic-only broker, not this
 Glimmer broker. See [its boundary, authentication and evidence](IMPROVER-SANDBOX.md).
 Legacy JobBench/LAB/WorkBuddy launchers are unchanged and must not be described
 as sandboxed by this work.

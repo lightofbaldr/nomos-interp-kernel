@@ -68,10 +68,14 @@ class MojoAdapter:
                 for s, n in (("train", 4), ("test", 10), ("smoke", 3))
             },
         )
+        auth_mode = os.environ.get("HARNESS2_MOJO_IMPROVER_AUTH", "off")
+        if auth_mode not in ("off", "subscription", "api-key"):
+            raise ValueError("HARNESS2_MOJO_IMPROVER_AUTH must be off, subscription or api-key")
         channel = ChannelSpec(
             os.environ.get("HARNESS2_IMPROVER_CHANNEL", "claude_cli"),
             config.IMPROVER_MODEL,
-            sandbox="mojo-claude",
+            sandbox="host" if auth_mode == "off" else "mojo-claude",
+            auth_mode=auth_mode,
         )
         self.spec = BenchSpec(
             "mojo",
@@ -97,7 +101,12 @@ class MojoAdapter:
             "executor": "nomos/nomos-muse-glimmer-30b",
             "judge": "muse-wonder-1.0 (optional)",
             "sandbox": "bwrap-model-only-v1",
-            "improver_sandbox": "mojo-claude-process-v1",
+            "improver_sandbox": (
+                "trusted-host"
+                if self.spec.channels["proposer"].auth_mode == "off"
+                else "mojo-claude-process-v2"
+            ),
+            "improver_auth": self.spec.channels["proposer"].auth_mode,
         }
 
     def runtime(self):
@@ -139,8 +148,6 @@ class MojoAdapter:
             raise ValueError("keep the Mojo harness compact: always-on <=6000, total <=80000 chars")
 
     def preflight(self, *, improver=True):
-        if improver and self.spec.channels["proposer"].sandbox != "mojo-claude":
-            raise ValueError("Mojo requires the isolated Claude Code improver")
         if improver and not config.IMPROVER_MODEL:
             raise ValueError("set HARNESS2_IMPROVER_MODEL explicitly")
         sandbox = self.runtime()

@@ -50,10 +50,14 @@ Codex executors**, and **JobBench, LAB, and WorkBuddy-Bench**.
 This private Light of Baldr snapshot also adds a [Mojo / Glimmer bench](docs/MOJO.md):
 Pi executes inside bubblewrap, compile/run supplies the deterministic result, and
 an optional, separately capped Muse Wonder call supplies a code-quality opinion.
-The Mojo Claude improver also has [whole-process isolation](docs/IMPROVER-SANDBOX.md),
+The Mojo Claude improver has opt-in [whole-process isolation](docs/IMPROVER-SANDBOX.md),
 including its tools and children, with retained scratch and tool transcripts.
-Its proposed host-side credential relay is **on hold pending compatibility review**;
-the live improver entry refuses even with the executor's live flag set.
+`HARNESS2_MOJO_IMPROVER_AUTH=off` is the default: the original **trusted,
+unsandboxed host improver**, not a sandbox fallback. The two isolated auth paths
+are `api-key` (host injection, client placeholder) and `subscription` (client-held
+setup-token pass-through). The old Linux-login reader is removed. Subscription
+live use remains code-held because tools can read the client's token through
+`/proc` and store it in retained scratch; env-only delivery does not prevent that.
 Its offline tests and dry run need no model credentials. Live rollouts and paid
 calls remain held pending Adam's approval through Prime. The inherited benchmark
 launchers have not been retrofitted with this sandbox.

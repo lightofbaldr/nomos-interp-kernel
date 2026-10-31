@@ -37,7 +37,7 @@ class Retention(unittest.TestCase):
         self.context = self.root / "context"
         self.context.mkdir()
         (self.context / "source").write_text("input")
-        self.spec = ChannelSpec("claude_cli", "opus", sandbox="mojo-claude")
+        self.spec = ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="api-key")
         self.prop = Proposer(self.spec, audit_dir=self.audit, attempts=1)
         self.patch = patch("harness2.substrate.improver.runtime_identity", return_value={"fake": 1})
         self.patch.start()
@@ -256,18 +256,21 @@ class ClientContract(unittest.TestCase):
                 self.assertFalse(reply.ok)
                 self.assertEqual(reply.transcript["reason"], reason)
 
-    def test_relay_hold_refuses_even_with_generic_live_flag_before_login_or_spawn(self):
+    def test_subscription_hold_refuses_even_with_generic_live_flag_before_auth_or_spawn(self):
         from harness2.substrate.improver import run_isolated
 
         with (
             patch.dict(os.environ, {"HARNESS2_MOJO_LIVE_APPROVED": "1"}),
             patch("harness2.substrate.improver.runtime", side_effect=AssertionError("runtime")),
-            patch("harness2.substrate.improver.load_login", side_effect=AssertionError("login")),
-            self.assertRaisesRegex(ValueError, "relay.*hold"),
+            patch(
+                "harness2.substrate.improver.Credentials.from_env",
+                side_effect=AssertionError("auth"),
+            ),
+            self.assertRaisesRegex(ValueError, "subscription.*hold"),
         ):
             run_isolated(
                 Path(tempfile.gettempdir()),
-                ChannelSpec("claude_cli", "opus", sandbox="mojo-claude"),
+                ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="subscription"),
                 "mission",
                 "",
                 10,
@@ -277,7 +280,12 @@ class ClientContract(unittest.TestCase):
         from harness2.substrate.improver import prepare_client
 
         with tempfile.TemporaryDirectory() as temp:
-            args = prepare_client(Path(temp), ChannelSpec("claude_cli", "opus"), "mission", "")
+            args = prepare_client(
+                Path(temp),
+                ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="api-key"),
+                "mission",
+                "",
+            )
         self.assertEqual(args[args.index("--output-format") + 1], "stream-json")
         self.assertIn("--verbose", args)
         self.assertIn("--no-session-persistence", args)

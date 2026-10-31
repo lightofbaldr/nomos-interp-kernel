@@ -1,26 +1,21 @@
-"""Fixed Anthropic Messages gateway. The OAuth credential never enters the sandbox.
+"""Fixed Messages gateway: subscription pass-through OR operator API-key injection.
 
-No CONNECT, redirects, alternate providers, arbitrary paths or forwarded client
-credentials. This gateway is for the actual Claude Code client, not an OAuth SDK
-replacement. Production has no configurable upstream URL or proxy environment.
+Subscription has no configured broker credential: each request carries the native
+client's own Authorization, forwarded unchanged along with its OAuth beta header.
+API-key mode replaces an inert client key with the operator's host-held key.
+No login-file reader, refresh, alternate provider, redirect or proxy environment.
 """
 
 import http.client
 import json
-import math
-import os
 import re
 import socket
-import stat
 import threading
-import time
-from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler
-from pathlib import Path
 
+from .improver_auth import MODES, PLACEHOLDER, check_secret
 from .model_broker import _Server
 
-PLACEHOLDER = "harness2-inert-oauth-placeholder"
 MAX_BODY = 4 * 1024 * 1024
 MAX_RESPONSE = 32 * 1024 * 1024
 MAX_CALLS = 128
@@ -40,62 +35,6 @@ def _unique_object(pairs):
             raise ValueError("duplicate JSON key")
         result[key] = value
     return result
-
-
-@dataclass(frozen=True)
-class Login:
-    token: str = field(repr=False)
-    expires_at: float
-
-    def __post_init__(self):
-        if (
-            not isinstance(self.token, str)
-            or not 16 <= len(self.token) <= 4096
-            or not self.token.isascii()
-            or any(ord(c) <= 32 or ord(c) >= 127 for c in self.token)
-            or type(self.expires_at) not in (int, float)
-            or not math.isfinite(self.expires_at)
-        ):
-            raise ValueError("invalid OAuth credential")
-
-
-def load_login(path, *, min_ttl=0):
-    """Read the Linux login on the host, with no refresh, write or env-key fallback."""
-    path = Path(path)
-    if path.absolute() != path.resolve():
-        raise ValueError("linked login file")
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    try:
-        info = os.fstat(fd)
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_uid != os.getuid()
-            or info.st_nlink != 1
-            or info.st_mode & 0o077
-            or info.st_size > 65536
-        ):
-            raise ValueError("login must be a private owner-only regular file")
-        with os.fdopen(fd, "rb", closefd=False) as file:
-            raw = file.read(65537)
-        if len(raw) > 65536:
-            raise ValueError("oversized login file")
-        try:
-            obj = json.loads(raw)["claudeAiOauth"]
-            expiry = obj["expiresAt"]
-            if type(expiry) not in (int, float) or not math.isfinite(expiry):
-                raise ValueError
-            login = Login(obj["accessToken"], expiry / 1000)
-            if not isinstance(obj.get("scopes"), list) or "user:inference" not in obj["scopes"]:
-                raise ValueError
-        except (ValueError, KeyError, TypeError, OverflowError, AttributeError):
-            raise ValueError("invalid login credential or scope/expiry") from None
-        if login.expires_at <= time.time() + min_ttl:
-            raise ValueError(
-                "login expired or expiry does not cover this attempt; refresh outside the run"
-            )
-        return login
-    finally:
-        os.close(fd)
 
 
 def model_allowed(requested, configured):
@@ -122,7 +61,11 @@ class _SecretGuard:
 
 
 class ApiBroker:
-    def __init__(self, path, login, *, model, max_calls=MAX_CALLS, _connection=None):
+    def __init__(self, path, *, mode, model, api_key=None, max_calls=MAX_CALLS, _connection=None):
+        if mode not in MODES or (mode == "subscription" and api_key is not None):
+            raise ValueError("invalid broker authentication mode")
+        if mode == "api-key":
+            check_secret(api_key)
         if type(max_calls) is not int or not 1 <= max_calls <= MAX_CALLS:
             raise ValueError("invalid improver call budget")
         if not (model in ("opus", "sonnet", "haiku") or model_allowed(model, model)):
@@ -179,8 +122,29 @@ class ApiBroker:
             def do_POST(self):
                 if self.path not in PATHS:
                     return self.refuse(404, "model API path is not allowed")
-                if self.headers.get_all("Authorization") != ["Bearer " + PLACEHOLDER]:
-                    return self.refuse(403, "placeholder authentication required")
+                # Duplicate or mixed auth cannot choose a different credential.
+                # A subscription request's token is local to this handler, never
+                # configured on the broker or written to its diagnostics.
+                try:
+                    if mode == "subscription":
+                        values = self.headers.get_all("Authorization", [])
+                        if (
+                            len(values) != 1
+                            or not values[0].startswith("Bearer ")
+                            or self.headers.get_all("x-api-key")
+                        ):
+                            raise ValueError
+                        secret = check_secret(values[0][7:])
+                        auth = {"Authorization": values[0]}
+                    else:
+                        if self.headers.get_all("x-api-key") != [
+                            PLACEHOLDER
+                        ] or self.headers.get_all("Authorization"):
+                            raise ValueError
+                        secret = api_key
+                        auth = {"x-api-key": api_key}
+                except ValueError:
+                    return self.refuse(403, "authentication does not match selected mode")
                 if (
                     self.headers.get("Transfer-Encoding") is not None
                     or len(self.headers.get_all("Content-Length", [])) != 1
@@ -211,7 +175,7 @@ class ApiBroker:
                         raise ValueError
                     headers = {
                         "Content-Type": "application/json",
-                        "Authorization": "Bearer " + login.token,
+                        **auth,
                     }
                     for name in self.headers.keys():
                         lower = name.lower()
@@ -227,6 +191,11 @@ class ApiBroker:
                             headers[lower] = values[0]
                     if headers.get("anthropic-version") != "2023-06-01":
                         raise ValueError
+                    if mode == "subscription" and not any(
+                        re.fullmatch(r"oauth-\d{4}-\d{2}-\d{2}", part.strip())
+                        for part in headers.get("anthropic-beta", "").split(",")
+                    ):
+                        raise ValueError
                 except (ValueError, TypeError, OSError):
                     return self.refuse(400, "invalid or over-budget model request")
                 with owner.lock:
@@ -234,8 +203,6 @@ class ApiBroker:
                         return self.refuse(503, "improver attempt closed")
                     if owner.calls >= owner.max_calls:
                         return self.refuse(429, "improver model call budget exhausted")
-                    if login.expires_at <= time.time():
-                        return self.refuse(401, "host login expired; no credential fallback")
                     owner.calls += 1
                 conn, sent = None, False
                 try:
@@ -244,11 +211,6 @@ class ApiBroker:
                             if owner.closed:
                                 sent = True
                                 return self.refuse(503, "improver attempt closed")
-                            if login.expires_at <= time.time():
-                                sent = True
-                                return self.refuse(
-                                    401, "host login expired; no credential fallback"
-                                )
                             conn = owner.connection()
                             owner.active.add(conn)
                             conn.request("POST", self.path, body=body, headers=headers)
@@ -274,14 +236,17 @@ class ApiBroker:
                             if name.lower().startswith("anthropic-ratelimit-unified-"):
                                 if (
                                     len(value) <= 512
+                                    and len(name) <= 128
+                                    and re.fullmatch(r"[A-Za-z0-9-]+", name)
                                     and value.isascii()
                                     and all(32 <= ord(c) < 127 for c in value)
-                                    and login.token not in value
+                                    and secret not in value
+                                    and secret.lower() not in name.lower()
                                 ):
                                     self.send_header(name, value)
                         self.end_headers()
                         sent = True
-                        guard, total = _SecretGuard(login.token), 0
+                        guard, total = _SecretGuard(secret), 0
                         while chunk := response.read1(65536):
                             total += len(chunk)
                             if total > MAX_RESPONSE:

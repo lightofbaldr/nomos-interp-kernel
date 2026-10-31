@@ -4,7 +4,6 @@ import json
 import os
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -92,7 +91,7 @@ class Collection(Fixture):
     def test_cached_tree_or_reply_substitution_refuses_before_another_process(self):
         from harness2.core.clitools import CliReply
 
-        spec = ChannelSpec("claude_cli", "opus", sandbox="mojo-claude")
+        spec = ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="api-key")
         prop = Proposer(spec, audit_dir=self.root / "audit")
         with (
             patch("harness2.substrate.improver.runtime_identity", return_value={"fixture": 1}),
@@ -132,7 +131,8 @@ class Collection(Fixture):
         from harness2.core.clitools import CliReply
 
         prop = Proposer(
-            ChannelSpec("claude_cli", "opus", sandbox="mojo-claude"), audit_dir=self.root / "audit"
+            ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="api-key"),
+            audit_dir=self.root / "audit",
         )
         with (
             patch("harness2.substrate.improver.runtime_identity", return_value={"fixture": 1}),
@@ -183,7 +183,7 @@ class Boundary(Fixture):
         self.assertNotIn("FAKE-PARENT-KEY", argv)
         self.assertNotIn("/run/user/1000", argv)
         self.assertNotIn("--share-net", argv)
-        self.assertIn(PLACEHOLDER, argv)
+        self.assertNotIn(PLACEHOLDER, argv)  # client auth arrives through a pipe
         self.assertIn("http://127.0.0.1:8092", argv)
         self.assertIn("/runtime/improver-entry.py", argv)
         self.assertEqual(argv[-2:], ["/opt/claude/claude", "-p"])
@@ -192,7 +192,7 @@ class Boundary(Fixture):
     def test_process_manifest_binds_runtime_and_does_not_contain_login(self):
         sandbox = self.sandbox()
         identity = sandbox.identity()
-        self.assertEqual(identity["policy"], "mojo-claude-process-v1")
+        self.assertEqual(identity["policy"], "mojo-claude-process-v2")
         self.assertIn("claude", identity["files"])
         self.assertIn("improver", identity["files"])
         self.assertNotIn("accessToken", json.dumps(identity))
@@ -230,10 +230,22 @@ class Boundary(Fixture):
 
         controls = self.root / "inputs"
         controls.mkdir()
-        prepare_client(controls, ChannelSpec("claude_cli", "opus"), "mission", "")
+        prepare_client(
+            controls,
+            ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="api-key"),
+            "mission",
+            "",
+        )
         settings = json.loads((controls / "settings.json").read_text())
         self.assertNotIn("ANTHROPIC_DEFAULT_OPUS_MODEL", settings["env"])
-        prepare_client(controls, ChannelSpec("claude_cli", "claude-opus-4-6"), "mission", "")
+        prepare_client(
+            controls,
+            ChannelSpec(
+                "claude_cli", "claude-opus-4-6", sandbox="mojo-claude", auth_mode="api-key"
+            ),
+            "mission",
+            "",
+        )
         settings = json.loads((controls / "settings.json").read_text())
         self.assertEqual(settings["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"], "claude-opus-4-6")
 
@@ -243,7 +255,8 @@ class Boundary(Fixture):
         with (
             patch.dict(os.environ, {}, clear=True),
             patch(
-                "harness2.substrate.improver.load_login", side_effect=AssertionError("auth read")
+                "harness2.substrate.improver.Credentials.from_env",
+                side_effect=AssertionError("auth read"),
             ),
             patch("harness2.substrate.improver.Sandbox.run", side_effect=AssertionError("spawn")),
             self.assertRaisesRegex(ValueError, "approval"),
@@ -268,13 +281,13 @@ class Boundary(Fixture):
             with self.assertRaises(SandboxTeardownError):
                 sandbox._stop_unit("fixture")
 
-    def test_whole_launch_uses_fake_host_login_without_copying_it(self):
+    def test_whole_launch_uses_fake_operator_key_without_copying_it(self):
         from harness2.core.clitools import CliReply
         from harness2.substrate.improver import run_isolated
-        from harness2.substrate.improver_broker import Login
+        from harness2.substrate.improver_auth import PLACEHOLDER
         from harness2.substrate.sandbox import ProcessResult
 
-        login = Login("FAKE-HOST-LOGIN-NOT-IN-CLIENT", time.time() + 7200)
+        token = "FAKE-OPERATOR-KEY-NOT-IN-CLIENT"
         sandbox = Mock()
         sandbox.identity.return_value = {"fixture": "runtime"}
         seen = []
@@ -284,11 +297,11 @@ class Boundary(Fixture):
             seen.append(command)
             self.assertEqual(work, self.work)
             self.assertEqual((controls / "mission.txt").read_text(), "mission")
-            self.assertNotIn(login.token, str(command) + (controls / "settings.json").read_text())
+            self.assertNotIn(token, str(command) + (controls / "settings.json").read_text())
+            self.assertEqual(kw["input_data"], PLACEHOLDER.encode())
             self.assertEqual(command[0], "/opt/claude/claude")
             for arg in (
-                "--setting-sources",
-                "--strict-mcp-config",
+                "--bare",
                 "--settings",
                 "--no-session-persistence",
             ):
@@ -298,20 +311,18 @@ class Boundary(Fixture):
             )
 
         sandbox.run.side_effect = run
-        spec = ChannelSpec("claude_cli", "opus", sandbox="mojo-claude")
+        spec = ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="api-key")
         with (
-            patch.dict(os.environ, {"HARNESS2_MOJO_LIVE_APPROVED": "1"}),
-            # Counterfactual fake-only wiring test, not live authorization.
-            patch("harness2.substrate.improver.CREDENTIAL_RELAY_REVIEWED", True),
+            patch.dict(
+                os.environ, {"HARNESS2_MOJO_LIVE_APPROVED": "1", "ANTHROPIC_API_KEY": token}
+            ),
             patch("harness2.substrate.improver.config.CLAUDE_USE_VERTEX", False),
             patch("harness2.substrate.improver.config.CLAUDE_ISOLATION", "flags"),
-            patch("harness2.substrate.improver.load_login", return_value=login) as auth,
             patch("harness2.substrate.improver.runtime", return_value=sandbox),
         ):
             reply = run_isolated(self.work, spec, "mission", "", 60)
             self.assertIsInstance(reply, CliReply)
             self.assertTrue(reply.ok)
-            self.assertEqual(auth.call_args.kwargs["min_ttl"], 90)
             self.assertEqual(reply.usage["sandbox"]["model_calls"], 0)
             sandbox.run.side_effect = None
             sandbox.run.return_value = ProcessResult(
@@ -329,15 +340,17 @@ class Boundary(Fixture):
             self.assertFalse(failed.ok)
             self.assertEqual(failed.cost_usd, 0.7)
             self.assertEqual(failed.usage["output_tokens"], 2)
-            sandbox.run.return_value = ProcessResult(0, '{"result":"' + login.token + '"}', "", 1)
-            with self.assertRaisesRegex(ValueError, "credential echo"):
-                run_isolated(self.work, spec, "mission", "", 60)
+            sandbox.run.return_value = ProcessResult(0, '{"result":"' + token + '"}', "", 1)
+            rejected = run_isolated(self.work, spec, "mission", "", 60)
+            self.assertFalse(rejected.ok)
+            self.assertEqual(rejected.transcript["reason"], "credential_echo")
+            self.assertNotIn(token, json.dumps(rejected.transcript))
         self.assertEqual(len(seen), 1)
 
 
 class Integration(Fixture):
     def spec(self):
-        return ChannelSpec("claude_cli", "opus", sandbox="mojo-claude")
+        return ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="api-key")
 
     def test_sandbox_success_is_parsed_and_never_calls_host_subprocess(self):
         from harness2.core.clitools import CliReply
@@ -495,13 +508,16 @@ class Integration(Fixture):
         scratch = run.call_args.args[0]
         self.assertEqual((scratch / "context/harness/systemprompt.md").read_text(), "safe input")
 
-    def test_mojo_defaults_and_selector_inherit_isolation(self):
+    def test_mojo_opt_in_and_selector_inherit_isolation(self):
         from test_mojo_followups import Fixture as MojoFixture
 
         from harness2.core.schedule import _selector_for
 
         fixture = MojoFixture()
-        with patch("harness2.benchmarks.mojo.config.IMPROVER_MODEL", "opus"):
+        with (
+            patch("harness2.benchmarks.mojo.config.IMPROVER_MODEL", "opus"),
+            patch.dict(os.environ, {"HARNESS2_MOJO_IMPROVER_AUTH": "api-key"}),
+        ):
             fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         adapter = fixture.adapter
@@ -510,4 +526,4 @@ class Integration(Fixture):
         selector = _selector_for(adapter, Proposer(ChannelSpec("claude_cli", "opus")), None)
         self.assertEqual(selector.spec.sandbox, "mojo-claude")
         with self.assertRaises(ValueError):
-            ChannelSpec("codex_cli", "codex", sandbox="mojo-claude")
+            ChannelSpec("codex_cli", "codex", sandbox="mojo-claude", auth_mode="api-key")

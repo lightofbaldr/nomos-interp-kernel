@@ -211,7 +211,7 @@ class Proposer:
             # changed context after the cache key has been decided.
             snapshot = read_tree(Path(context_dir)) if context_dir else {}
             isolation = {
-                "runtime": runtime_identity(),
+                "runtime": runtime_identity(auth_mode=self.spec.auth_mode),
                 "channel": self.spec.__dict__,
                 "timeout": wall,
                 "harvest": harvest,
@@ -280,7 +280,10 @@ class Proposer:
                 transcript = getattr(reply, "transcript", None)
                 spent_usd += reply.cost_usd
                 last_usage = dict(reply.usage)
-                if isolation is not None and runtime_identity() != isolation["runtime"]:
+                if (
+                    isolation is not None
+                    and runtime_identity(auth_mode=self.spec.auth_mode) != isolation["runtime"]
+                ):
                     raise ImproverIdentityError("improver runtime changed; output refused")
                 if not reply.ok:
                     last = reply.error or "empty reply"
