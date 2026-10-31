@@ -6,9 +6,12 @@ and its source identity are recorded in `vendor/glimmer-agent.md`.
 
 ## Run locally
 
-Use Node 24. Set these in the server environment (not browser configuration):
+Use Node **24.22.1** with bundled Undici **7.30.1** (`nvm use` selects the
+already-installed `.nvmrc` version). Set these in the server environment, not
+browser configuration. See README for the checked production launcher:
 
 ```sh
+nvm use
 export NOMOS_API_BASE_URL=http://127.0.0.1:8091
 export NOMOS_READOUT_REGISTRY="$HOME/nomos_data/readout-assets/registry.json"
 export NOMOS_TOKENIZER_JSON="$HOME/nomos_data/muse-glimmer-tokenizer/tokenizer.json"

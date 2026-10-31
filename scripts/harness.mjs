@@ -5,6 +5,8 @@ import {once} from 'node:events';
 import {readFile,readdir,mkdir} from 'node:fs/promises';
 import {chromium} from 'playwright';
 import {homedir} from 'node:os';
+import {assertSupportedRuntime} from './runtime.mjs';
+assertSupportedRuntime();
 export const root=new URL('../',import.meta.url).pathname;
 export const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 export async function harness(live=false,extraEnv={}){

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {spawn,execFileSync} from 'node:child_process';
+import {spawn,spawnSync,execFileSync} from 'node:child_process';
 import {once} from 'node:events';
 import {createServer} from 'node:net';
 import {fileURLToPath} from 'node:url';
@@ -38,6 +38,8 @@ async function checkStart(label,host,expected,mode){
       await delay(50);
     }
     const result=JSON.parse(stdout.split('\n').find(line=>line.startsWith(marker)).slice(marker.length));
+    const runtime=JSON.parse(stdout.split('\n').find(line=>line.startsWith('GLIMMER_RUNTIME ')).slice('GLIMMER_RUNTIME '.length));
+    assert.equal(runtime.node,'24.22.1');assert.equal(runtime.undici,'7.30.1');assert.ok(runtime.executable.startsWith('/'));
     if(mode==='listen'){
       assert.deepEqual(result,{address:'127.0.0.1',family:'IPv4',port});
       const lines=listening(port).split('\n').filter(Boolean);
@@ -68,4 +70,16 @@ await checkStart('HOST unset',undefined,'127.0.0.1','listen');
 await checkStart('HOST empty','','127.0.0.1','listen');
 await checkStart('Explicit IPv4 opt-in','0.0.0.0','0.0.0.0','inspect');
 await checkStart('Explicit IPv6 opt-in','::','::','inspect');
+// A raw adapter invocation must not bypass the server-side runtime check.
+// Trap listen before importing it: even a regression cannot expose a test socket.
+const direct=spawnSync(process.execPath,['--input-type=module','-e',`
+  import net from 'node:net';
+  net.Server.prototype.listen=function(){throw Error('LISTEN_BEFORE_RUNTIME_REFUSAL');};
+  Object.defineProperty(process.versions,'undici',{value:'7.28.0'});
+  await import(${JSON.stringify(new URL('../build/index.js',import.meta.url).href)});
+`],{cwd:root,env:{...process.env,NOMOS_API_BASE_URL:'',GLIMMER_META_ENV_FILE:root+'tests/no-meta-key.env'},encoding:'utf8',timeout:5000});
+assert.notEqual(direct.status,0);
+assert.match(direct.stderr,/requires Node 24\.22\.1.*Undici 7\.30\.1/);
+assert.doesNotMatch(direct.stdout+direct.stderr,/LISTEN_BEFORE_RUNTIME_REFUSAL|Listening on/);
+console.log('RAW ADAPTER RUNTIME REFUSAL VERIFIED: no listener attempted');
 console.log('LOOPBACK START VERIFIED: unset and empty defaults; explicit wider opt-ins; all listeners cleaned up');

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {readdir,readFile,mkdir,writeFile} from 'node:fs/promises';
+import {assertSupportedRuntime} from './runtime.mjs';
+assertSupportedRuntime();
 const root=new URL('../',import.meta.url).pathname;
 async function walk(dir){return (await Promise.all((await readdir(dir,{withFileTypes:true})).map(e=>e.isDirectory()?walk(`${dir}/${e.name}`):`${dir}/${e.name}`))).flat();}
 for(const file of await walk(root+'src')){

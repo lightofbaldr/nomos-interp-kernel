@@ -15,10 +15,15 @@ only in checked, resource-limited Linux sandboxes. No shell tool is exposed.
 
 ## Run
 
-Node 24 and npm. No model or kernel service is launched by this app.
+The supported runtime is **Node 24.22.1 with bundled Undici 7.30.1**, plus npm.
+`.nvmrc`, `engines.node`, build/start checks and the server startup hook enforce
+that exact reviewed combination. No model or kernel service is launched by this app.
 
 ```sh
+nvm use                         # selects the already-installed .nvmrc version
 npm ci --ignore-scripts
+npm run check:runtime
+npm run check:dependencies
 npm run verify
 # Configure the private server environment as described in docs/LIVE-PI.md.
 PORT=5241 ORIGIN=http://127.0.0.1:5241 npm start
@@ -28,6 +33,19 @@ Production start defaults unset/empty HOST to 127.0.0.1. Wider binding is an
 explicit operator opt-in and needs separate authentication/access controls.
 Pi/Nomos routes require a loopback Host and same-origin browser access. This is
 not a multi-user/public deployment. The browser never selects an upstream URL.
+
+`npm start` uses `scripts/start.sh`: an explicit absolute `GLIMMER_NODE_BIN`,
+otherwise the installed nvm version from `.nvmrc`, otherwise PATH's Node. The
+selected executable must pass the exact Node **and built-in Undici** checks
+before loading the adapter. An explicit bad path/version refuses without falling
+back. Nothing is installed, and shell profiles are not sourced. For non-nvm
+deployments, set `GLIMMER_NODE_BIN` to an installed supported binary. Use that same
+runtime on PATH for `npm ci`, development and verification; the legacy refresh
+helper also checks its interpreter before any tmux operation.
+
+The separate npm Undici dependency is overridden and locked at **6.29.1**.
+That override does not repair an older Node's built-in fetch. See the
+[reachability and patch record](docs/UNDICI-REACHABILITY-2026-10-30.md).
 
 The legacy dev command uses loopback port 5226, which may belong to the original
 design-kits preview on this workstation; choose an unused port explicitly:

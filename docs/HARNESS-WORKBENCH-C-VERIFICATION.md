@@ -100,9 +100,11 @@ automatic rerun of an interrupted Mojo invocation.
 
 ## Demo follow-ups
 
-[Undici reachability](UNDICI-REACHABILITY-2026-10-30.md) is **not cleared as
-unreachable**. The Node built-in fetch path is separate from the npm dependency.
-Prime was notified; no host runtime or policy was changed to hide the finding.
+[Undici reachability and the subsequent repair](UNDICI-REACHABILITY-2026-10-30.md):
+the initial inspection did **not** classify it as unreachable. The follow-up pins
+the already-installed Node 24.22.1 / built-in Undici 7.30.1 and overrides the npm
+copy to 6.29.1. The original results above remain historical; the new offline run
+is recorded separately. No live process was restarted by either change.
 
 Prime reviews this slice before any merge request to Adam. A live Glimmer E2E
 requires a coordinated slot; none was used here. The offline fake-model/native
