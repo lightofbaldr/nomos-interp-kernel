@@ -1,8 +1,8 @@
 # Harness² × Glimmer × Mojo
 
 The new `mojo` benchmark uses the existing Harness² Propose–Probe–Compose method
-and Pi 1.3.0 substrate. Glimmer executes the task; the existing `claude_cli` or
-`codex_cli` channel edits the harness. Compile/run is the deterministic outcome.
+and Pi 1.3.0 substrate. Glimmer executes the task; an isolated `claude_cli`
+process edits the harness. Compile/run is the deterministic outcome.
 Muse Wonder is an optional code-quality opinion beside that outcome, never its
 replacement. Neither grade is fed back into the adaptation loop.
 
@@ -14,9 +14,11 @@ stops, or restarts the serve.
 
 **2026-10-31 follow-ups (possible run 3):** items 1–4 below are offline-tested
 changes, not changes to run 2. Run 2 remains on `0a70ca2` and its unchanged method.
-This branch must be reviewed and authorized before a new live run. The larger
-improver-sandbox follow-up is separate; the boundary described below still covers
-the executor, not the improver.
+This branch must be reviewed and authorized before a new live run. Item 5 adds
+the [whole-process improver sandbox](IMPROVER-SANDBOX.md), on a separate review
+branch. It does not modify the running job or authorize run 3. Mojo no longer
+offers a host-executed improver fallback; `codex_cli`, Vertex and API-key mode
+are unsupported for this new route.
 
 ## Local setup and offline checks
 
@@ -40,9 +42,12 @@ fake key and fake HTTP API; they never load the real credential.
 
 During a reserved live run, use the lighter sequential regression instead:
 `OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 nice -n 10 .venv/bin/python -B scripts/check_mojo_followups_offline.py`.
-It excludes real sandbox/compiler/Pi integration jobs, retains the three
+It excludes real namespace/compiler/Pi integration jobs, retains the three
 broker-only controls, and blocks connections to :8091 or non-loopback hosts.
 It is not a substitute for the real sandbox suite before a live authorization.
+The small improver-only namespace tests are separate: `python -B -m unittest
+discover -s tests -p test_improver_namespace.py`. They use an installed native
+Claude binary with a fake API, never a real credential or the Glimmer serve.
 
 ```bash
 .venv/bin/harness2 --bench mojo --substrate pi --split train --k 1 --dry-run
@@ -122,7 +127,7 @@ confirm Prime's serve fix. Do not set a live flag until approval arrives.
    smoke tasks, with no adaptation.
 3. `harness2 --bench mojo --substrate pi --split train --k 1 --modes parallel`
    uses the existing recursion. At k=1 the offline method test exercises four
-   executor rollouts. Use `HARNESS2_IMPROVER_CHANNEL=claude_cli` or `codex_cli`
+   executor rollouts. Use `HARNESS2_IMPROVER_CHANNEL=claude_cli`
    and explicitly set `HARNESS2_IMPROVER_MODEL`. Always-on text is capped at
    6,000 characters; the entire editable harness at 80,000. Subagents are disabled.
 4. Select and freeze an adopted training harness from the task summary's
@@ -225,7 +230,8 @@ not a prompt-based command allowlist:
 There is no claim of protection against kernel vulnerabilities, a hostile host
 writer, or every resource-pressure failure. Bubblewrap is a mechanism whose
 security depends on the arguments and host; see its [security scope](https://github.com/containers/bubblewrap#sandbox-security).
-The inherited trusted improver CLI remains outside this new executor sandbox.
+Mojo's improver uses a separate namespace and Anthropic-only broker, not this
+Glimmer broker. See [its boundary, authentication and evidence](IMPROVER-SANDBOX.md).
 Legacy JobBench/LAB/WorkBuddy launchers are unchanged and must not be described
 as sandboxed by this work.
 

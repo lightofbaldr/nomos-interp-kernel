@@ -42,10 +42,15 @@ class ChannelSpec:
     effort: str = "high"
     steps: int = 120
     timeout: int = 3600
+    sandbox: str = "host"
 
     def __post_init__(self) -> None:
         if self.kind not in CHANNELS:
             raise ValueError(f"unknown channel {self.kind!r}; expected one of {CHANNELS}")
+        if self.sandbox not in ("host", "mojo-claude"):
+            raise ValueError("unknown improver sandbox policy")
+        if self.sandbox == "mojo-claude" and self.kind != "claude_cli":
+            raise ValueError("Mojo process sandbox supports only claude_cli; no host fallback")
 
 
 def resolve_channel_model(

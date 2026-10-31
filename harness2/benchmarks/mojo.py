@@ -69,7 +69,9 @@ class MojoAdapter:
             },
         )
         channel = ChannelSpec(
-            os.environ.get("HARNESS2_IMPROVER_CHANNEL", "claude_cli"), config.IMPROVER_MODEL
+            os.environ.get("HARNESS2_IMPROVER_CHANNEL", "claude_cli"),
+            config.IMPROVER_MODEL,
+            sandbox="mojo-claude",
         )
         self.spec = BenchSpec(
             "mojo",
@@ -95,6 +97,7 @@ class MojoAdapter:
             "executor": "nomos/nomos-muse-glimmer-30b",
             "judge": "muse-wonder-1.0 (optional)",
             "sandbox": "bwrap-model-only-v1",
+            "improver_sandbox": "mojo-claude-process-v1",
         }
 
     def runtime(self):
@@ -136,8 +139,8 @@ class MojoAdapter:
             raise ValueError("keep the Mojo harness compact: always-on <=6000, total <=80000 chars")
 
     def preflight(self, *, improver=True):
-        if improver and self.spec.channels["proposer"].kind not in ("claude_cli", "codex_cli"):
-            raise ValueError("Mojo requires the existing claude_cli or codex_cli improver channel")
+        if improver and self.spec.channels["proposer"].sandbox != "mojo-claude":
+            raise ValueError("Mojo requires the isolated Claude Code improver")
         if improver and not config.IMPROVER_MODEL:
             raise ValueError("set HARNESS2_IMPROVER_MODEL explicitly")
         sandbox = self.runtime()

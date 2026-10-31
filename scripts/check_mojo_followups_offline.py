@@ -24,6 +24,8 @@ def cases(suite):
     for entry in suite:
         if isinstance(entry, unittest.TestSuite):
             yield from cases(entry)
+        elif type(entry).__module__ == "test_improver_namespace":
+            continue
         elif (
             type(entry).__module__ != "test_sandbox_mojo"
             or entry._testMethodName in BROKER_CONTROLS

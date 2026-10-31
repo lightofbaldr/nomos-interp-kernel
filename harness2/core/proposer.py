@@ -35,6 +35,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import config
+from ..substrate.improver import ImproverIdentityError
+from ..substrate.sandbox import SandboxTeardownError
 from .clitools import (
     CliReply,
     classify_failure,
@@ -195,35 +197,70 @@ class Proposer:
         directory is destroyed -- e.g. "context/harness", which is how an edited tree comes back.
         """
 
-        cache_key = _call_fingerprint(label, mission, system, context_dir)
-        cached = self._cached(label, cache_key, require_workspace=bool(harvest))
+        wall = int(timeout or self.spec.timeout)
+        isolation = None
+        snapshot = None
+        if self.spec.sandbox == "mojo-claude":
+            from ..substrate.improver import runtime_identity
+            from ..substrate.improver_files import read_tree
+
+            # Hash and copy the same checked bytes, never re-read a link or a
+            # changed context after the cache key has been decided.
+            snapshot = read_tree(Path(context_dir)) if context_dir else {}
+            isolation = {
+                "runtime": runtime_identity(),
+                "channel": self.spec.__dict__,
+                "timeout": wall,
+                "harvest": harvest,
+            }
+        cache_key = _call_fingerprint(
+            label, mission, system, context_dir, isolation=isolation, snapshot=snapshot
+        )
+        cached = self._cached(
+            label, cache_key, require_workspace=bool(harvest), isolation=isolation
+        )
         if cached is not None:
             self._calls.append(cached)
             return cached
 
-        wall = int(timeout or self.spec.timeout)
         tries = max(1, int(self.attempts if max_attempts is None else max_attempts))
         channel = {
             "claude_cli": self._claude_cli,
             "codex_cli": self._codex_cli,
             "opencode": self._opencode,
         }[self.spec.kind]
+        if isolation is not None:
+
+            def channel(cwd, mission, system, wall):
+                return self._claude_cli(
+                    cwd, mission, system, wall, sandbox_identity=isolation["runtime"]
+                )
+
         last = ""
         spent_usd = 0.0
         waited = 0
         attempt = 0
+        last_usage = {}
         t0 = time.time()
         while attempt < tries:
             attempt += 1
             if attempt > 1:
                 time.sleep(10 * (attempt - 1))
             tmp = Path(tempfile.mkdtemp(prefix="harness2-prop-"))
+            keep = False
             try:
-                if context_dir and Path(context_dir).is_dir():
+                if snapshot is not None:
+                    from ..substrate.improver_files import write_tree
+
+                    write_tree(snapshot, tmp / "context")
+                elif context_dir and Path(context_dir).is_dir():
                     shutil.copytree(context_dir, tmp / "context", dirs_exist_ok=True)
                 with _SEM if _SEM is not None else contextlib.nullcontext():
                     reply = channel(tmp, mission, system, wall)
                 spent_usd += reply.cost_usd
+                last_usage = dict(reply.usage)
+                if isolation is not None and runtime_identity() != isolation["runtime"]:
+                    raise ImproverIdentityError("improver runtime changed; output refused")
                 if not reply.ok:
                     last = reply.error or "empty reply"
                     if reply.limited and (config.STOP_ON_LIMIT or waited < config.LIMIT_MAX_WAIT):
@@ -244,37 +281,61 @@ class Proposer:
                     r.workspace = self._harvest(tmp, harvest, label, cache_key)
                     if r.workspace is None:
                         _drop_workspace(self._paths(label, cache_key))
-                self._write_audit(r, mission, system, cache_key)
+                self._write_audit(r, mission, system, cache_key, isolation=isolation)
                 self._calls.append(r)
                 return r
             except UsageLimitError:
                 raise
+            except SandboxTeardownError:
+                keep = True
+                raise SandboxTeardownError(
+                    f"improver teardown unconfirmed; workspace retained at {tmp}"
+                ) from None
+            except ImproverIdentityError as exc:
+                last = str(exc)
+                break
             except subprocess.TimeoutExpired:
                 last = f"timeout after {wall}s"
             except Exception as exc:
                 last = f"{type(exc).__name__}: {exc}"
             finally:
-                shutil.rmtree(tmp, ignore_errors=True)
+                if not keep:
+                    shutil.rmtree(tmp, ignore_errors=True)
 
         r = Reply(
             label=label,
             text="",
             ok=False,
             wall_s=round(time.time() - t0, 1),
-            attempts=tries,
+            attempts=attempt,
             channel=self.spec.kind,
             error=last,
             cost_usd=spent_usd,
+            usage=last_usage,
         )
         self._calls.append(r)
-        self._write_audit(r, mission, system, cache_key)
+        self._write_audit(r, mission, system, cache_key, isolation=isolation)
         raise ProposerError(
             f"[{label}] {self.spec.kind}/{self.spec.model}: {last}",
-            attempts=tries,
+            attempts=attempt,
             cost_usd=spent_usd,
         )
 
-    def _claude_cli(self, cwd: Path, mission: str, system: str, wall: int) -> CliReply:
+    def _claude_cli(
+        self,
+        cwd: Path,
+        mission: str,
+        system: str,
+        wall: int,
+        *,
+        sandbox_identity: dict | None = None,
+    ) -> CliReply:
+        if self.spec.sandbox == "mojo-claude":
+            from ..substrate.improver import run_isolated
+
+            return run_isolated(
+                cwd, self.spec, mission, system, wall, expected_identity=sandbox_identity
+            )
         sys_arg, stdin = claude_system_args(system, mission)
         cmd = claude_argv(
             model=self.spec.model,
@@ -378,17 +439,14 @@ class Proposer:
 
     def _harvest(self, tmp: Path, sub: str, label: str, cache_key: str = "") -> Path | None:
         """Copy `tmp/<sub>` somewhere durable before the session directory is removed."""
-        src = tmp / sub
-        if not src.is_dir():
-            return None
+        from ..substrate.improver_files import collect
+
         dest = Path(self.audit_dir or tempfile.mkdtemp(prefix="harness2-harvest-"))
         safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", label)
         if cache_key:
             safe = f"{safe}.{cache_key}"
         dest = dest / f"{safe}.workspace"
-        shutil.rmtree(dest, ignore_errors=True)
-        shutil.copytree(src, dest)
-        return dest
+        return collect(tmp, sub, dest)
 
     def _paths(self, label: str, cache_key: str = "") -> dict[str, Path] | None:
         if not self.audit_dir:
@@ -404,14 +462,47 @@ class Proposer:
         }
 
     def _cached(
-        self, label: str, cache_key: str = "", *, require_workspace: bool = False
+        self,
+        label: str,
+        cache_key: str = "",
+        *,
+        require_workspace: bool = False,
+        isolation: dict | None = None,
     ) -> Reply | None:
         p = self._paths(label, cache_key)
-        if not p or not p["response"].is_file():
+        if not p:
             return None
-        if require_workspace and not p["workspace"].is_dir():
-            return None
-        txt = p["response"].read_text(encoding="utf-8", errors="replace")
+        if isolation is not None:
+            from ..substrate.improver_files import plain_directory, read_file, read_tree
+
+            plain_directory(p["response"].parent)
+            for name in ("meta", "response", "workspace"):
+                if p[name].is_symlink():
+                    raise ValueError("linked isolated cache artifact")
+            if not any(p[name].exists() for name in ("meta", "response", "workspace")):
+                return None
+            meta = json.loads(read_file(p["meta"]))
+            raw = read_file(p["response"])
+            workspace = read_tree(p["workspace"]) if p["workspace"].exists() else None
+            if (
+                not isinstance(meta, dict)
+                or type(meta.get("ok")) is not bool
+                or meta.get("sandbox") != isolation
+                or meta.get("response_sha256") != hashlib.sha256(raw).hexdigest()
+                or meta.get("workspace_sha256") != _tree_sha(workspace)
+            ):
+                raise ValueError("isolated improver cache changed or lacks its bindings")
+            if meta["ok"] is False:
+                if raw or workspace is not None:
+                    raise ValueError("contradictory failed improver cache")
+                return None  # Preserve the existing explicit resume/retry behavior.
+            if require_workspace and workspace is None:
+                return None
+            txt = raw.decode("utf-8", errors="replace")
+        else:
+            if not p["response"].is_file() or (require_workspace and not p["workspace"].is_dir()):
+                return None
+            txt = p["response"].read_text(encoding="utf-8", errors="replace")
         if not txt.strip():
             return None
         return Reply(
@@ -425,7 +516,15 @@ class Proposer:
             workspace=p["workspace"] if p["workspace"].is_dir() else None,
         )
 
-    def _write_audit(self, r: Reply, mission: str, system: str, cache_key: str = "") -> None:
+    def _write_audit(
+        self,
+        r: Reply,
+        mission: str,
+        system: str,
+        cache_key: str = "",
+        *,
+        isolation: dict | None = None,
+    ) -> None:
         p = self._paths(r.label, cache_key)
         if not p:
             return
@@ -446,6 +545,15 @@ class Proposer:
                     "cost_usd": r.cost_usd,
                     "usage": r.usage,
                     "error": r.error,
+                    **(
+                        {
+                            "sandbox": isolation,
+                            "response_sha256": hashlib.sha256(r.text.encode()).hexdigest(),
+                            "workspace_sha256": _workspace_sha(r.workspace),
+                        }
+                        if isolation is not None
+                        else {}
+                    ),
                 },
                 indent=2,
             ),
@@ -547,7 +655,28 @@ def _opencode_cost(stdout: str) -> float:
     return round(total, 6)
 
 
-def _call_fingerprint(label: str, mission: str, system: str, context_dir: Path | str | None) -> str:
+def _workspace_sha(path):
+    from ..substrate.improver_files import read_tree
+
+    return _tree_sha(read_tree(path) if path is not None else None)
+
+
+def _tree_sha(tree):
+    if tree is None:
+        return None
+    values = {key: hashlib.sha256(value).hexdigest() for key, value in sorted(tree.items())}
+    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+
+def _call_fingerprint(
+    label: str,
+    mission: str,
+    system: str,
+    context_dir: Path | str | None,
+    *,
+    isolation=None,
+    snapshot=None,
+) -> str:
     """Content-address one call, including its evidence and its mode/task workspace path.
 
     The resolved path is part of the key: the two modes can have byte-identical k=1 evidence
@@ -557,6 +686,13 @@ def _call_fingerprint(label: str, mission: str, system: str, context_dir: Path |
     for value in (label, mission, system):
         h.update(value.encode("utf-8", errors="replace"))
         h.update(b"\0")
+    if isolation is not None:
+        h.update(json.dumps(isolation, sort_keys=True).encode())
+        h.update(b"\0")
+        h.update(str(Path(context_dir).absolute() if context_dir else "").encode())
+        h.update(b"\0")
+        h.update(_tree_sha(snapshot).encode())
+        return h.hexdigest()[:16]
     if context_dir:
         root = Path(context_dir)
         h.update(str(root.resolve()).encode("utf-8", errors="replace"))

@@ -35,6 +35,10 @@ class ProcessResult:
     reason: str | None = None
 
 
+class SandboxTeardownError(RuntimeError):
+    """The process boundary could not confirm quiescence; do not collect or retry."""
+
+
 def real_dir(path: Path) -> Path:
     path = path.absolute()
     if path.resolve() != path or not path.is_dir():
@@ -322,21 +326,17 @@ class Sandbox:
                     reason = "timeout"
         finally:
             # Stop the complete service cgroup, not merely the foreground shell/process.
-            subprocess.run(
-                ["/usr/bin/systemctl", "--user", "stop", unit + ".service"],
-                env=HOST_ENV,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=15,
-            )
-            if proc.poll() is None:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            proc.wait(timeout=10)
-            proc.stdout.close()
-            proc.stderr.close()
+            try:
+                self._stop_unit(unit)
+            finally:
+                if proc.poll() is None:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                proc.wait(timeout=10)
+                proc.stdout.close()
+                proc.stderr.close()
         if reason is None and (proc.returncode < 0 or proc.returncode in (124, 137, 143)):
             reason = "resource_or_timeout"
         if reason is None and workspace_over_budget(workspace):
@@ -347,4 +347,13 @@ class Sandbox:
             chunks["stderr"].decode(errors="replace"),
             time.monotonic() - start,
             reason,
+        )
+
+    def _stop_unit(self, unit):
+        return subprocess.run(
+            ["/usr/bin/systemctl", "--user", "stop", unit + ".service"],
+            env=HOST_ENV,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
         )

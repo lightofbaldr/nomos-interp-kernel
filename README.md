@@ -50,6 +50,8 @@ Codex executors**, and **JobBench, LAB, and WorkBuddy-Bench**.
 This private Light of Baldr snapshot also adds a [Mojo / Glimmer bench](docs/MOJO.md):
 Pi executes inside bubblewrap, compile/run supplies the deterministic result, and
 an optional, separately capped Muse Wonder call supplies a code-quality opinion.
+The Mojo Claude improver also has [whole-process isolation](docs/IMPROVER-SANDBOX.md),
+including its tools and children; its real login stays in a host-side API broker.
 Its offline tests and dry run need no model credentials. Live rollouts and paid
 calls remain held pending Adam's approval through Prime. The inherited benchmark
 launchers have not been retrofitted with this sandbox.
