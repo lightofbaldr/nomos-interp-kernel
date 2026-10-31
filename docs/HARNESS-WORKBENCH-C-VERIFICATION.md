@@ -120,3 +120,47 @@ The Svelte/AI Elements guidance kept the UI in existing local components; the
 CSS-scoping guidance confined the output readability fix to tool results. Mojo
 syntax was checked against the installed compiler, and the gate ledger separates
 offline acceptance from the unrun live check.
+
+## Coordinated live follow-up — 2026-10-30
+
+Prime opened the slot after his slice-C approval. One fresh UI session and one
+user submission ran against the existing `:8091` serve, from source `75a0a92`
+(application/runtime already at `c47d9c1`; agent `a84c710`). Only `write` and
+`mojo` were enabled. The prompt supplied a minimal known source to test the tool
+path, not Glimmer's independent programming competence.
+
+Glimmer issued `write` then `mojo`, followed by a final answer: three model
+responses. The file was 45 bytes; compile and execution both exited 0, with
+stdout `glimmer-mojo-live-ok\n`. Both sandbox phases recorded the same SHA-256 as
+the written file, with their isolation checks and resource limits confirmed.
+
+**The original checker exited 1.** Its next assertion required the prompt's
+final source newline, which Glimmer omitted. The original `result.json`, log,
+snapshot, database and exit 1 remain unchanged. No live retry was made. The
+checker now verifies the actual write/disk/compiler identity and permits one
+optional EOF newline, with four offline tests including negative controls.
+Those controls run with the four existing integration tests in `npm run test:mojo`.
+
+The remaining UI check ran **offline** against a clone of the saved database,
+using a health-only local fixture that rejects model requests. Displayed compile
+and run exits/stdout match the durable tool result, before and after a page
+reload. Zero model requests; all six inventoried original inputs unchanged.
+Do not describe this as an uninterrupted green live harness run.
+
+Evidence is retained outside `/tmp`, ignored by git:
+
+- `.unlazy/workbench-c-live/live-1/` and `live-1.{log,EXIT}` — original attempt.
+- `.unlazy/workbench-c-live/offline-1/` — separate offline result and screenshots.
+- `.unlazy/workbench-c-live/fixture-*/` — CPU controls.
+
+The GPU-stage lock covered the live attempt. Established connections were empty
+before and after; during generation, sampled connections belonged only to this
+test's app process. The serve listener remained PID 4112735. Afterward `/health`
+was ready, engine `ok`, readout supported, steering off. There was no paid call,
+serve restart or merge. Prime received the release and the failed-checker scope
+in comms 1554 before any other GPU work.
+
+For a future separately coordinated run, set `GLIMMER_MOJO_PREFIX` and invoke
+`node scripts/mojo-live-e2e.mjs --live NEW_ABSOLUTE_EVIDENCE_DIR` under the shared
+GPU-stage lock. `--fixture` never contacts Nomos. `mojo-live-replay.mjs` only
+rechecks saved evidence on CPU, with a new destination and no model route.
