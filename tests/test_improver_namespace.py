@@ -153,9 +153,9 @@ time.sleep(20)
         self.assertFalse((self.work / "escaped").exists())
 
     def test_native_claude_and_its_bash_tool_with_fake_api_only(self):
-        from harness2.core.clitools import parse_claude_result
         from harness2.core.spec import ChannelSpec
-        from harness2.substrate.improver import prepare_client
+        from harness2.substrate.improver import captured_reply, prepare_client
+        from harness2.substrate.improver_audit import AttemptAudit, load_attempt
 
         binary = shutil.which("claude")
         self.assertIsNotNone(binary, "native client control needs the installed Claude binary")
@@ -248,16 +248,45 @@ time.sleep(20)
             "Use the provided tool, then finish.",
             "",
         )
+        audit_root = self.root / "native-audit"
+        audit_root.mkdir()
+        attempt = AttemptAudit(
+            audit_root,
+            label="fake native client",
+            cache_key="fixture",
+            attempt=1,
+            isolation={"fake_api": True},
+            mission="Use the provided tool, then finish.",
+            system="",
+        )
         login = Login("FAKE-NATIVE-CLIENT-UPSTREAM-TOKEN", time.time() + 300)
         with ApiBroker(
             self.controls / "api.sock", login, model="opus", max_calls=4, _connection=connection
         ) as broker:
-            result = sandbox.run(self.work, command, timeout=30, broker=self.controls / "api.sock")
+            result = sandbox.run(
+                attempt.work, command, timeout=30, broker=self.controls / "api.sock"
+            )
         self.assertEqual(result.returncode, 0, result)
-        reply = parse_claude_result(result.stdout, result.returncode, result.stderr)
+        reply = captured_reply(result)
         self.assertTrue(reply.ok, reply)
         self.assertIn("Fake API finished.", reply.text)
-        self.assertEqual((self.work / "bash-probe").read_text(), "sandboxed tool")
+        transcript = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        self.assertEqual(transcript[-1]["type"], "result")
+        blocks = [
+            block
+            for ev in transcript
+            for block in ev.get("message", {}).get("content", [])
+            if isinstance(block, dict)
+        ]
+        self.assertTrue(
+            any(b.get("type") == "tool_use" and b.get("name") == "Bash" for b in blocks)
+        )
+        self.assertTrue(any(b.get("type") == "tool_result" for b in blocks))
+        ref = attempt.finish(outcome="accepted", error="", transcript=reply.transcript)
+        doc = load_attempt(audit_root, ref)
+        self.assertEqual(doc["transcript"], "captured")
+        self.assertEqual((attempt.path / "stdout.jsonl").read_text(), result.stdout)
+        self.assertEqual((attempt.work / "bash-probe").read_text(), "sandboxed tool")
         self.assertEqual(sentinel.read_text(), "PRIVATE FAKE SENTINEL")
         self.assertNotIn(login.token, result.stdout + result.stderr)
         self.assertGreaterEqual(broker.calls, 2)

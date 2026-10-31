@@ -108,6 +108,7 @@ class Reply:
     audit: Path | None = None
     workspace: Path | None = None
     usage: dict = field(default_factory=dict)
+    attempt_audits: list[dict] = field(default_factory=list)
 
     def __bool__(self) -> bool:
         return self.ok
@@ -204,6 +205,8 @@ class Proposer:
             from ..substrate.improver import runtime_identity
             from ..substrate.improver_files import read_tree
 
+            if not self.audit_dir:
+                raise ValueError("isolated improver requires a durable audit_dir")
             # Hash and copy the same checked bytes, never re-read a link or a
             # changed context after the cache key has been decided.
             snapshot = read_tree(Path(context_dir)) if context_dir else {}
@@ -241,13 +244,30 @@ class Proposer:
         waited = 0
         attempt = 0
         last_usage = {}
+        attempt_audits = []
         t0 = time.time()
         while attempt < tries:
             attempt += 1
             if attempt > 1:
                 time.sleep(10 * (attempt - 1))
-            tmp = Path(tempfile.mkdtemp(prefix="harness2-prop-"))
-            keep = False
+            audit = None
+            if isolation is not None:
+                from ..substrate.improver_audit import AttemptAudit
+
+                audit = AttemptAudit(
+                    self.audit_dir,
+                    label=label,
+                    cache_key=cache_key,
+                    attempt=attempt,
+                    isolation=isolation,
+                    mission=mission,
+                    system=system,
+                )
+            tmp = audit.work if audit else Path(tempfile.mkdtemp(prefix="harness2-prop-"))
+            keep = audit is not None
+            transcript = None
+            outcome = "failed"
+            r = None
             try:
                 if snapshot is not None:
                     from ..substrate.improver_files import write_tree
@@ -257,6 +277,7 @@ class Proposer:
                     shutil.copytree(context_dir, tmp / "context", dirs_exist_ok=True)
                 with _SEM if _SEM is not None else contextlib.nullcontext():
                     reply = channel(tmp, mission, system, wall)
+                transcript = getattr(reply, "transcript", None)
                 spent_usd += reply.cost_usd
                 last_usage = dict(reply.usage)
                 if isolation is not None and runtime_identity() != isolation["runtime"]:
@@ -281,17 +302,19 @@ class Proposer:
                     r.workspace = self._harvest(tmp, harvest, label, cache_key)
                     if r.workspace is None:
                         _drop_workspace(self._paths(label, cache_key))
-                self._write_audit(r, mission, system, cache_key, isolation=isolation)
-                self._calls.append(r)
-                return r
+                outcome = "accepted"
             except UsageLimitError:
+                outcome = "usage_limit_stopped"
                 raise
             except SandboxTeardownError:
+                outcome = "teardown_unconfirmed"
+                last = "improver teardown unconfirmed"
                 keep = True
                 raise SandboxTeardownError(
                     f"improver teardown unconfirmed; workspace retained at {tmp}"
                 ) from None
             except ImproverIdentityError as exc:
+                outcome = "identity_refused"
                 last = str(exc)
                 break
             except subprocess.TimeoutExpired:
@@ -299,8 +322,24 @@ class Proposer:
             except Exception as exc:
                 last = f"{type(exc).__name__}: {exc}"
             finally:
+                if audit is not None:
+                    # The raw work tree is retained in place, never followed or
+                    # scanned to make this record. In particular, unknown
+                    # teardown cannot turn into a harvest or another attempt.
+                    attempt_audits.append(
+                        audit.finish(
+                            outcome=outcome,
+                            error="" if outcome == "accepted" else last,
+                            transcript=transcript,
+                        )
+                    )
                 if not keep:
                     shutil.rmtree(tmp, ignore_errors=True)
+            if r is not None and outcome == "accepted":
+                r.attempt_audits = list(attempt_audits)
+                self._write_audit(r, mission, system, cache_key, isolation=isolation)
+                self._calls.append(r)
+                return r
 
         r = Reply(
             label=label,
@@ -312,6 +351,7 @@ class Proposer:
             error=last,
             cost_usd=spent_usd,
             usage=last_usage,
+            attempt_audits=attempt_audits,
         )
         self._calls.append(r)
         self._write_audit(r, mission, system, cache_key, isolation=isolation)
@@ -473,6 +513,7 @@ class Proposer:
         if not p:
             return None
         if isolation is not None:
+            from ..substrate.improver_audit import load_attempt
             from ..substrate.improver_files import plain_directory, read_file, read_tree
 
             plain_directory(p["response"].parent)
@@ -492,6 +533,15 @@ class Proposer:
                 or meta.get("workspace_sha256") != _tree_sha(workspace)
             ):
                 raise ValueError("isolated improver cache changed or lacks its bindings")
+            refs = meta.get("attempt_audits")
+            if (
+                not isinstance(refs, list)
+                or not refs
+                or len({ref["path"] for ref in refs}) != len(refs)
+            ):
+                raise ValueError("isolated improver cache lacks attempt audits")
+            for ref in refs:
+                load_attempt(self.audit_dir, ref)
             if meta["ok"] is False:
                 if raw or workspace is not None:
                     raise ValueError("contradictory failed improver cache")
@@ -514,6 +564,7 @@ class Proposer:
             channel=self.spec.kind,
             audit=p["response"],
             workspace=p["workspace"] if p["workspace"].is_dir() else None,
+            attempt_audits=meta["attempt_audits"] if isolation is not None else [],
         )
 
     def _write_audit(
@@ -550,6 +601,7 @@ class Proposer:
                             "sandbox": isolation,
                             "response_sha256": hashlib.sha256(r.text.encode()).hexdigest(),
                             "workspace_sha256": _workspace_sha(r.workspace),
+                            "attempt_audits": r.attempt_audits,
                         }
                         if isolation is not None
                         else {}

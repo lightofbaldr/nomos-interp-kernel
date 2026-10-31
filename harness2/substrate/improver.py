@@ -1,7 +1,7 @@
 """Whole-process Claude Code improver sandbox for the Mojo bench.
 
-No host execution fallback. A fresh private home contains only an inert token;
-the real login is read by the host gateway after explicit live authorization.
+No host execution fallback. Credential relay is on hold pending compatibility
+review; the generic live flag does not enable it. Fake-endpoint controls only.
 Compiler/Pi probes, native tools, hooks and subprocesses all remain sandboxed.
 """
 
@@ -21,6 +21,9 @@ from .sandbox import HOST_ENV, Sandbox, SandboxTeardownError
 
 POLICY = "mojo-claude-process-v1"
 ENTRY = Path(__file__).with_name("improver_entry.py")
+# Deliberately not an environment option. Changing this requires a reviewed
+# auth decision, not a caller carrying an executor's existing live flag.
+CREDENTIAL_RELAY_REVIEWED = False
 
 
 class ImproverIdentityError(ValueError):
@@ -40,7 +43,7 @@ class ImproverSandbox(Sandbox):
     def identity(self):
         out = super().identity()
         files = {"claude": self.claude, "improver": Path(__file__), "improver_entry": ENTRY}
-        for name in ("improver_broker", "improver_files"):
+        for name in ("improver_broker", "improver_files", "improver_audit"):
             files[name] = Path(__file__).with_name(name + ".py")
         for name in ("clitools", "proposer", "spec"):
             files[name] = Path(__file__).parents[1] / f"core/{name}.py"
@@ -53,6 +56,8 @@ class ImproverSandbox(Sandbox):
                 "policy": POLICY,
                 "network": "api.anthropic.com:443 Messages/count_tokens only; host-owned OAuth",
                 "authentication": "private Linux Claude login; no refresh or key fallback",
+                "credential_relay_reviewed": CREDENTIAL_RELAY_REVIEWED,
+                "audit": "retained private scratch; bounded stream-json stdout/stderr",
                 "max_api_calls": MAX_CALLS,
                 "max_output_tokens_per_call": MAX_TOKENS,
                 "cpu_quota": "200%",
@@ -201,7 +206,9 @@ def prepare_client(controls, spec, mission, system):
         isolation="flags",
         binary="/opt/claude/claude",
     )
+    command[command.index("--output-format") + 1] = "stream-json"
     return command + [
+        "--verbose",
         "--settings",
         "/runtime/settings.json",
         "--mcp-config",
@@ -212,9 +219,47 @@ def prepare_client(controls, spec, mission, system):
     ]
 
 
+def captured_reply(result):
+    """Parse a bounded stream-json capture, never accept a partial/plain stream.
+
+    Called only after the credential-echo guard in the held live route; also
+    used directly by auth-independent fake-client controls.
+    """
+    reply = CliReply(error="invalid or incomplete isolated CLI stream")
+    try:
+        events = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        if (
+            events
+            and all(isinstance(event, dict) for event in events)
+            and events[-1].get("type") == "result"
+            and isinstance(events[-1].get("subtype"), str)
+        ):
+            reply = parse_claude_result(json.dumps(events[-1]), result.returncode, result.stderr)
+    except (ValueError, TypeError, AttributeError):
+        pass
+    if result.reason or result.returncode:
+        # Keep usable accounting on failed exits, never adopt killed/partial
+        # output even if the last captured event happens to be a result.
+        reply.text = ""
+        reply.error = reply.error or (
+            f"isolated improver rc={result.returncode}; reason={result.reason or 'process failure'}"
+        )
+    reply.transcript = {
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "returncode": result.returncode,
+        "reason": result.reason,
+        "seconds": result.seconds,
+        "teardown": "confirmed",
+    }
+    return reply
+
+
 def run_isolated(cwd, spec, mission, system, wall, *, expected_identity=None):
     if os.environ.get("HARNESS2_MOJO_LIVE_APPROVED") != "1":
         raise ValueError("explicit live approval required for the improver")
+    if not CREDENTIAL_RELAY_REVIEWED:
+        raise ImproverIdentityError("credential relay on hold pending compatibility review")
     if spec.kind != "claude_cli" or spec.sandbox != "mojo-claude":
         raise ValueError("unsupported isolated improver channel")
     if config.CLAUDE_USE_VERTEX or config.CLAUDE_ISOLATION != "flags":
@@ -246,20 +291,8 @@ def run_isolated(cwd, spec, mission, system, wall, *, expected_identity=None):
         # terminal output before any caller can print/audit/collect it.
         if login.token in result.stdout or login.token in result.stderr:
             raise ValueError("improver credential echo refused")
-        reply = CliReply()
-        if not result.reason:
-            try:
-                reply = parse_claude_result(result.stdout, result.returncode, result.stderr)
-            except (ValueError, TypeError, AttributeError):
-                reply = CliReply(error="invalid isolated CLI result")
-        if result.reason or result.returncode:
-            # Keep usable CLI accounting on unsuccessful exits, but never
-            # adopt a killed/partial result that happens to contain success text.
-            reply.text = ""
-            reply.error = reply.error or (
-                f"isolated improver rc={result.returncode}; "
-                f"reason={result.reason or 'process failure'}"
-            )
+        # Capture only after the echo guard, including failed/partial streams.
+        reply = captured_reply(result)
         if (
             broker.last_error
             and broker.last_error["reason"] == "improver model call budget exhausted"

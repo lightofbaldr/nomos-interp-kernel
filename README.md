@@ -51,7 +51,9 @@ This private Light of Baldr snapshot also adds a [Mojo / Glimmer bench](docs/MOJ
 Pi executes inside bubblewrap, compile/run supplies the deterministic result, and
 an optional, separately capped Muse Wonder call supplies a code-quality opinion.
 The Mojo Claude improver also has [whole-process isolation](docs/IMPROVER-SANDBOX.md),
-including its tools and children; its real login stays in a host-side API broker.
+including its tools and children, with retained scratch and tool transcripts.
+Its proposed host-side credential relay is **on hold pending compatibility review**;
+the live improver entry refuses even with the executor's live flag set.
 Its offline tests and dry run need no model credentials. Live rollouts and paid
 calls remain held pending Adam's approval through Prime. The inherited benchmark
 launchers have not been retrofitted with this sandbox.

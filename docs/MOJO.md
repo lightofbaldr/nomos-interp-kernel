@@ -19,6 +19,10 @@ the [whole-process improver sandbox](IMPROVER-SANDBOX.md), on a separate review
 branch. It does not modify the running job or authorize run 3. Mojo no longer
 offers a host-executed improver fallback; `codex_cli`, Vertex and API-key mode
 are unsupported for this new route.
+The proposed credential relay is now explicitly **held pending compatibility
+review**: no real login read or improver launch, even with the executor live flag.
+Namespace, scratch/transcript retention and fake-endpoint tests are separate from
+that unresolved authentication decision. See the sandbox document for the hold.
 
 ## Local setup and offline checks
 

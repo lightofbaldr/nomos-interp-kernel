@@ -5,6 +5,14 @@ authorization and no change to run 2.** No real credential or external model
 was used for this implementation. Legacy JobBench/LAB/WorkBuddy improver channels
 keep their old host execution path; they are not covered by this boundary.
 
+**Current hold (2026-10-31): credential relay compatibility is unresolved.**
+The relay code had already been committed at `9c23168` when Prime's hold arrived;
+it has never used a real login or provider. It is frozen, not activated or
+extended by this retention change. The live entry now refuses **before reading
+login or launching** even with `HARNESS2_MOJO_LIVE_APPROVED=1`. There is no
+environment bypass. Prime is checking the supported auth route; that decision,
+review and Adam's live authorization must precede any change to this hold.
+
 ## What runs where
 
 Mojo's proposer, composer, selector and reflection use `ChannelSpec.sandbox =
@@ -36,7 +44,10 @@ The optional compiler/Pi mounts let the improver compile probes or test an
 extension against a mock **inside** its namespace. They give it no route to the
 real executor serve. Package downloads and direct WebFetch are blocked.
 
-## Authentication and API-only network
+## Held authentication design and API-only network
+
+The following describes the existing, **unapproved** relay implementation, not
+a supported subscription configuration or permission to use it.
 
 The namespace has no host networking. Its `127.0.0.1:8092` relay reaches one
 private Unix socket. The host gateway creates verified TLS connections only to
@@ -46,20 +57,25 @@ with optional `?beta=true`, and answers the optional hello HEAD probe locally.
 No CONNECT, redirects, token refresh, arbitrary paths or arbitrary models.
 
 The actual Claude Code client uses `CLAUDE_CODE_OAUTH_TOKEN` with an inert
-placeholder. On the **host only**, after `HARNESS2_MOJO_LIVE_APPROVED=1`, the
-gateway loads the private Linux login file `~/.claude/.credentials.json`. It
+placeholder. If the code-level hold were removed after review, the **host-only**
+gateway would load the private Linux login file `~/.claude/.credentials.json`
+after `HARNESS2_MOJO_LIVE_APPROVED=1`. It
 requires owner-only permissions, a regular single-link file, inference scope
 and expiry covering the attempt plus 30 seconds. It uses only the access token,
 never refreshes it, and never copies the file or refresh token into the sandbox.
 Missing/expired login refuses; refresh outside the run under operator control.
 There is no API-key, Vertex, Bedrock, Codex or host-execution fallback.
 
-The supported integration uses the actual CLI and preserves its Messages body,
+The proposed integration uses the actual CLI and preserves its Messages body,
 `anthropic-version`, `anthropic-beta` and user-agent headers. Client authorization
 is replaced by the real bearer credential in host memory. Client cookies,
 API keys, Host and proxy headers are not forwarded. This follows the documented
 gateway routes and OAuth-header requirements; the fake API test does **not**
-establish that a real account accepts them. [Gateway protocol](https://code.claude.com/docs/en/llm-gateway-protocol),
+establish that a real account accepts them. The docs describe saved-login
+pass-through when only `ANTHROPIC_BASE_URL` is set. That is not an explicit
+endorsement of this placeholder plus host-injection design.
+[Subscriptions and gateways](https://code.claude.com/docs/en/llm-gateway#subscriptions-and-gateways),
+[Gateway protocol](https://code.claude.com/docs/en/llm-gateway-protocol),
 [OAuth environment setting](https://code.claude.com/docs/en/env-vars).
 
 Model aliases permit only their own family; explicit Claude model IDs require
@@ -105,6 +121,43 @@ identity, not a complete hermetic toolchain or whole-run immutability proof.
 Operator-owned toolchains, source, context and audit paths must remain quiescent;
 this is not protection against a hostile host writer or kernel vulnerability.
 
+## Retained attempt scratch and transcripts
+
+An isolated proposer requires an explicit durable `audit_dir`. Every attempt,
+including failed attempts and resumed calls, reserves a new owner-private
+`_attempts/attempt-*/` directory. Only its `work/` child is mounted read-write in
+the namespace. The host's mission, system text, started record, stdout/stderr
+and finished record are siblings outside that mount (directories 0700, new
+records 0600). They are not model-editable through the namespace.
+
+The native client requests `stream-json --verbose`, preserving message/tool
+events rather than only the final reply. A usable reply requires a terminal
+typed result event, successful process status and no resource-limit reason.
+The bounded UTF-8-decoded stdout and stderr are saved after the credential-echo
+check. Invalid/partial streams are retained but never adopted. The finished
+record binds all host-recorded files; returned/cached replies reference its
+digest, and cache reuse verifies it and its file hashes.
+
+The process supervisor's existing 4 MiB output limit still applies. These are
+bounded captured streams, **not a claim that every tool event survived a crash**.
+If launch failed, teardown is unknown, or output is unavailable, the record says
+so; it does not fabricate an empty successful transcript. A hard host kill can
+leave only `started.json`. Audit-write failures stop the call without a retry
+or success cache. They leave the owned attempt for reconciliation.
+
+Scratch is retained **in place**, including private HOME, tmp and caches, on
+success and failure. It is mutable, untrusted, and not hash-bound; it may contain
+symlinks or special files. The audit reader never traverses it. Never open it
+with a link-following bulk reader or treat it as the validated harness; only the
+separate bounded/no-follow harvest can be reused. Unknown teardown remains a
+fatal stop with no scratch inspection or harvest. Confirm the service has stopped
+before manually inspecting or removing an incomplete attempt.
+
+Retention is deliberate, not an automatic `/tmp` leak: there is no auto-purge.
+Budget disk space across attempts. The per-attempt scratch watchdog (256 MiB /
+8,192 entries) is still a watchdog, not a hard quota or whole-run disk limit.
+Old `9c23168` runs cannot retroactively acquire transcripts or deleted scratch.
+
 ## Checks and remaining live gate
 
 `test_improver_sandbox.py` covers isolation arguments, mocked whole-launch
@@ -115,10 +168,15 @@ route/model/budget, credential handling, streamed responses and closing races.
 paths/environment/devices, network isolation, immutable controls, fake relay,
 output/timeout/descendant teardown, and native Claude calling its Bash tool
 against a fake API. It neither compiles nor invokes Pi or any real model.
+`test_improver_retention.py` covers the live hold, durable scratch, success,
+failure/retry/resume, missing or changed audit files, unknown teardown, refused
+partial streams and audit-write failure. The real native-client fake test also
+requires both a Bash `tool_use` and its `tool_result` in the retained stream.
 
 Before any live run: Prime's six pending namespace/compiler/Pi controls for
-items 1–4 still stand; review this delta and separately obtain Adam's approval
-for a bounded real-login/model check. Do not probe :8091, read the login, refresh
+items 1–4 still stand; resolve the authentication hold, review this delta and
+separately obtain Adam's approval for a bounded real-login/model check. Do not
+probe :8091, read the login, refresh
 credentials, install anything, or widen the gateway merely because a fake test
 passed. A rejected live request comes back with its status/diagnostic; no silent
 switch to the old host route.

@@ -129,6 +129,9 @@ class CliReply:
     usage: dict = field(default_factory=dict)
     error: str = ""
     limited: bool = False
+    # Isolated clients only: bounded raw process streams, after credential-echo
+    # refusal. Kept out of repr and of generic usage/accounting output.
+    transcript: dict | None = field(default=None, repr=False)
 
     @property
     def ok(self) -> bool:

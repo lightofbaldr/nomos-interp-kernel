@@ -198,6 +198,33 @@ class Boundary(Fixture):
         self.assertNotIn("accessToken", json.dumps(identity))
         self.assertNotIn("credential", identity["files"])
 
+    def test_toolchain_mounts_remain_read_only_and_audit_siblings_stay_outside(self):
+        from harness2.substrate.improver import ImproverSandbox
+
+        mojo = self.root / "fake-mojo"
+        for rel in ("bin", "lib", "include", "share/max"):
+            (mojo / rel).mkdir(parents=True)
+        (mojo / "share/max/modular.cfg").write_text(f"prefix = {mojo}\n")
+        pi = self.root / "fake-pi"
+        pi.mkdir()
+        binary = Path(sys.executable).resolve()
+        sandbox = ImproverSandbox(claude=binary, mojo=mojo, pi=pi, node=binary)
+        args = sandbox.argv(self.work, ["/bin/true"])
+        ro = [args[i + 1 : i + 3] for i, arg in enumerate(args) if arg == "--ro-bind"]
+        for source, dest in (
+            (mojo / "bin", "/opt/mojo/bin"),
+            (mojo / "lib", "/opt/mojo/lib"),
+            (mojo / "include", "/opt/mojo/include"),
+            (pi, "/opt/pi"),
+            (binary, "/opt/node/node"),
+            (binary, "/opt/claude/claude"),
+        ):
+            self.assertIn([str(source), dest], ro)
+        self.assertNotIn(str(self.root), args)
+        self.assertNotIn(str(Path.home()), args)
+        self.assertNotIn(str(mojo / "share"), args)
+        self.assertEqual((self.work / ".modular/modular.cfg").read_text(), "prefix = /opt/mojo\n")
+
     def test_alias_is_not_misconfigured_as_a_literal_upstream_model(self):
         from harness2.substrate.improver import prepare_client
 
@@ -266,12 +293,16 @@ class Boundary(Fixture):
                 "--no-session-persistence",
             ):
                 self.assertIn(arg, command)
-            return ProcessResult(0, '{"result":"sandboxed","subtype":"success"}', "", 1)
+            return ProcessResult(
+                0, '{"type":"result","result":"sandboxed","subtype":"success"}', "", 1
+            )
 
         sandbox.run.side_effect = run
         spec = ChannelSpec("claude_cli", "opus", sandbox="mojo-claude")
         with (
             patch.dict(os.environ, {"HARNESS2_MOJO_LIVE_APPROVED": "1"}),
+            # Counterfactual fake-only wiring test, not live authorization.
+            patch("harness2.substrate.improver.CREDENTIAL_RELAY_REVIEWED", True),
             patch("harness2.substrate.improver.config.CLAUDE_USE_VERTEX", False),
             patch("harness2.substrate.improver.config.CLAUDE_ISOLATION", "flags"),
             patch("harness2.substrate.improver.load_login", return_value=login) as auth,
@@ -289,7 +320,8 @@ class Boundary(Fixture):
             self.assertFalse(run_isolated(self.work, spec, "mission", "", 60).ok)
             sandbox.run.return_value = ProcessResult(
                 1,
-                '{"result":"untrusted success","total_cost_usd":0.7,"usage":{"output_tokens":2}}',
+                '{"type":"result","subtype":"success","result":"untrusted success",'
+                '"total_cost_usd":0.7,"usage":{"output_tokens":2}}',
                 "",
                 1,
             )
@@ -320,7 +352,9 @@ class Integration(Fixture):
                 side_effect=AssertionError("host execution"),
             ),
         ):
-            reply = Proposer(self.spec(), attempts=1).call("mission", self.context, "one")
+            reply = Proposer(self.spec(), attempts=1, audit_dir=self.root / "audit").call(
+                "mission", self.context, "one"
+            )
         self.assertEqual(reply.text, "isolated")
         self.assertEqual(run.call_count, 1)
 
@@ -337,7 +371,9 @@ class Integration(Fixture):
             ),
             self.assertRaisesRegex(ProposerError, "sandbox unavailable"),
         ):
-            Proposer(self.spec(), attempts=1).call("mission", self.context, "one")
+            Proposer(self.spec(), attempts=1, audit_dir=self.root / "audit").call(
+                "mission", self.context, "one"
+            )
 
     def test_a_bound_failed_attempt_is_not_mistaken_for_a_success_cache(self):
         from harness2.core.clitools import CliReply
@@ -394,7 +430,9 @@ class Integration(Fixture):
             patch("harness2.substrate.improver.run_isolated", side_effect=AssertionError("spawn")),
             self.assertRaises((ValueError, OSError)),
         ):
-            Proposer(self.spec()).call("mission", self.context, "one")
+            Proposer(self.spec(), audit_dir=self.root / "audit").call(
+                "mission", self.context, "one"
+            )
 
     def test_cache_also_binds_effective_wall_limit_and_collection_path(self):
         from harness2.core.clitools import CliReply
@@ -435,25 +473,26 @@ class Integration(Fixture):
             ) as run,
             self.assertRaisesRegex(ProposerError, "runtime changed"),
         ):
-            Proposer(self.spec(), attempts=3).call("mission", self.context, "one")
+            Proposer(self.spec(), attempts=3, audit_dir=self.root / "audit").call(
+                "mission", self.context, "one"
+            )
         self.assertEqual(run.call_count, 1)
 
     def test_teardown_failure_is_fatal_and_retains_only_its_scratch(self):
         from harness2.substrate.sandbox import SandboxTeardownError
 
-        scratch = self.root / "retained"
-        scratch.mkdir()
+        audit = self.root / "audit"
         with (
             patch("harness2.substrate.improver.runtime_identity", return_value={"fixture": 1}),
             patch(
                 "harness2.substrate.improver.run_isolated",
                 side_effect=SandboxTeardownError("unconfirmed"),
             ) as run,
-            patch("harness2.core.proposer.tempfile.mkdtemp", return_value=str(scratch)),
             self.assertRaisesRegex(SandboxTeardownError, "workspace retained"),
         ):
-            Proposer(self.spec(), attempts=3).call("mission", self.context, "one")
+            Proposer(self.spec(), attempts=3, audit_dir=audit).call("mission", self.context, "one")
         self.assertEqual(run.call_count, 1)
+        scratch = run.call_args.args[0]
         self.assertEqual((scratch / "context/harness/systemprompt.md").read_text(), "safe input")
 
     def test_mojo_defaults_and_selector_inherit_isolation(self):
