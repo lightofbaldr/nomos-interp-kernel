@@ -51,17 +51,26 @@ command. No real credential or paid request was used for either check.
 
 - `off` (default): original trusted, unsandboxed host improver. This describes
   its trust requirement; it is never an automatic fallback from B.
-- `api-key` (B): the broker holds Adam's supplied `ANTHROPIC_API_KEY` and injects
+- `api-key` (B): the broker reads only Adam's explicitly configured
+  `HARNESS2_IMPROVER_API_KEY_FILE` (an absolute path to an owned `0600` regular
+  file), holds that key on the host, and injects
   it only into its fixed upstream request. The sandbox receives an inert
   placeholder, uses `--bare`, and has no route to the host's process environment.
   Client Authorization headers are refused, not passed through.
 
 B requires the existing `HARNESS2_MOJO_LIVE_APPROVED=1`, a separate
-`HARNESS2_MOJO_IMPROVER_API_APPROVED=1`, and a valid supplied key. The separate
+`HARNESS2_MOJO_IMPROVER_API_APPROVED=1`, and a valid dedicated key file. The separate
 opt-in is Adam's per-token billing decision: an executor approval already set
 for run 2 cannot enable API spending. Missing approval refuses before credential
 loading or sandbox launch; missing/malformed credentials also refuse before
 launch. This revision sets no flags, obtains no key, and makes no paid call.
+
+**Dedicated-source correction, 2026-10-31:** a parent Claude Code session may
+export its own internal `ANTHROPIC_API_KEY`. B therefore must not inspect or use
+that variable on the host, even as a fallback. Missing dedicated-file
+configuration refuses despite an inherited key. The sandbox's variable of that
+name remains only the inert placeholder. Fake controls exercise both the
+inherited-only refusal and two distinct keys with only the file's key injected.
 
 The current evidence is offline/fake only. The revised real namespace/native
 controls and Prime's six pending compiler/Pi controls run after the heldout

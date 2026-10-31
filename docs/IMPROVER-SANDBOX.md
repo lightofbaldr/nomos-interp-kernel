@@ -63,24 +63,38 @@ No CONNECT, redirects, token refresh, arbitrary paths or arbitrary models.
 
 - `off` (default): original trusted, unsandboxed improver. This is an operator
   selection, never a fallback after a sandbox/authentication failure.
-- `api-key`: Adam explicitly provides `ANTHROPIC_API_KEY` to the host process.
-  The sandbox gets only an inert placeholder under that variable. The broker
+- `api-key`: Adam provisions a private key file and explicitly points
+  `HARNESS2_IMPROVER_API_KEY_FILE` at its absolute path. The host never reads the
+  inherited `ANTHROPIC_API_KEY`: a parent Claude Code session can set that to its
+  own internal credential. Missing dedicated configuration refuses even if the
+  inherited variable is present. The sandbox gets only an inert placeholder
+  under `ANTHROPIC_API_KEY`. The broker
   replaces the placeholder `x-api-key` with the host-held key. The client uses
   `--bare`. This is billed per token to the key's account, not the subscription.
 
 Selecting `api-key` alone is insufficient. Launch requires both
 `HARNESS2_MOJO_LIVE_APPROVED=1` and the separate
-`HARNESS2_MOJO_IMPROVER_API_APPROVED=1`, plus the supplied API key. The latter is
-Adam's explicit API-spend decision, not the executor's existing live approval.
+`HARNESS2_MOJO_IMPROVER_API_APPROVED=1`, plus the dedicated key file. The separate
+API approval records Adam's explicit spending decision, not the executor's existing live approval.
 Without it, admission refuses before reading the key or starting the sandbox.
-The `.env.example` defaults are `off` and API approval `0`; this implementation
-does not set either flag or provision a key. A missing/malformed key after
-approval also refuses before launching anything. There is no fallback to host
+The `.env.example` defaults are `off`, API approval `0`, and an empty file path;
+this implementation does not set either flag or provision a key. A missing or
+malformed key after approval also refuses before launching anything. There is no fallback to host
 execution after an isolated admission or authentication failure.
 
-The supplied key must be a nonempty bounded ASCII value. Missing/malformed
-values refuse without printing them. Other inherited credentials and provider/
-proxy overrides never enter the namespace. The bridge forwards the original
+The file must be a regular file owned by the current user, with mode exactly
+`0600` and a single hard link. The loader opens every path component without
+following symlinks, bounds the read, and checks metadata before and after.
+Its contents are one 16..4096-byte printable ASCII key, optionally ending with
+one LF or CRLF; additional lines or whitespace refuse. Errors never include the
+key or file contents. Adam should provision it outside all sandbox-mounted paths
+and run roots (for example in his private host configuration directory); the
+operator-owned source must stay quiescent. It is read once into host memory and
+closed before launch, never mounted, copied or put in the client environment or
+run identity. These checks are not a defense against a hostile host writer.
+
+Missing/malformed values refuse without printing them. Other inherited
+credentials and provider/proxy overrides never enter the namespace. The bridge forwards the original
 body and version/beta/user-agent headers but not cookies or client-selected Host.
 Any Authorization header, duplicate authentication, or key other than the exact
 placeholder refuses. The broker always injects its own host-held key. There is
@@ -185,8 +199,11 @@ paths/environment/devices, network isolation, immutable controls, fake relay,
 output/timeout/descendant teardown, and native Claude calling its Bash tool
 against a fake API-key gateway, with `--bare`. It neither compiles nor invokes
 Pi or any real model. `test_improver_api_key.py` covers B-only selection,
-env-only key supply, placeholder delivery, literal redaction, and independent
+dedicated-file admission, placeholder delivery, literal redaction, and independent
 API-spend admission. It also rejects the removed subscription selection.
+`test_improver_key_file.py` covers inherited-key refusal before broker/spawn,
+file-vs-parent key selection, the sole environment lookup, permissions, owner,
+links, special files, size/encoding and a change during the read.
 `test_improver_retention.py` covers the live hold, durable scratch, success,
 failure/retry/resume, missing or changed audit files, unknown teardown, refused
 partial streams and audit-write failure. The real native-client fake test also

@@ -287,6 +287,9 @@ class Boundary(Fixture):
         from harness2.substrate.sandbox import ProcessResult
 
         token = "FAKE-OPERATOR-KEY-NOT-IN-CLIENT"
+        key_file = self.root / "operator-key"
+        key_file.write_text(token)
+        key_file.chmod(0o600)
         sandbox = Mock()
         sandbox.identity.return_value = {"fixture": "runtime"}
         seen = []
@@ -317,7 +320,8 @@ class Boundary(Fixture):
                 {
                     "HARNESS2_MOJO_LIVE_APPROVED": "1",
                     "HARNESS2_MOJO_IMPROVER_API_APPROVED": "1",
-                    "ANTHROPIC_API_KEY": token,
+                    "ANTHROPIC_API_KEY": "FAKE-INHERITED-CLAUDE-KEY",
+                    "HARNESS2_IMPROVER_API_KEY_FILE": str(key_file),
                 },
             ),
             patch("harness2.substrate.improver.config.CLAUDE_USE_VERTEX", False),

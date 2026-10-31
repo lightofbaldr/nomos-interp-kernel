@@ -55,8 +55,9 @@ including its tools and children, with retained scratch and tool transcripts.
 `HARNESS2_MOJO_IMPROVER_AUTH=off` is the default: the original **trusted,
 unsandboxed host improver**, not a sandbox fallback. The only isolated auth path
 is `api-key`: host injection, client placeholder, and `--bare`. It requires the
-separate `HARNESS2_MOJO_IMPROVER_API_APPROVED=1` spend opt-in plus Adam's supplied
-API key and the existing live approval. The saved-login and subscription relay
+separate `HARNESS2_MOJO_IMPROVER_API_APPROVED=1` spend opt-in, the existing live
+approval, and `HARNESS2_IMPROVER_API_KEY_FILE` naming Adam's owned `0600` key file.
+It never reads the inherited `ANTHROPIC_API_KEY`. The saved-login and subscription relay
 paths are deleted, not hidden behind a warning; the
 [archived `/proc` witness](docs/IMPROVER-AUTH-DECISION.md) records why.
 Its offline tests and dry run need no model credentials. Live rollouts and paid

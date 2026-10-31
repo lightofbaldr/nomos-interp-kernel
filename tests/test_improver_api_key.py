@@ -12,14 +12,15 @@ KEY = "FAKE-OPERATOR-API-KEY-NOT-A-REAL-CREDENTIAL"
 
 
 class ApiKeyOnly(unittest.TestCase):
-    def test_only_explicit_api_key_environment_is_read(self):
+    def test_parent_key_and_login_are_not_a_credential_source(self):
         from harness2.substrate.improver_auth import ApiCredential
 
         with patch.object(Path, "open", side_effect=AssertionError("no credential file")):
-            auth = ApiCredential.from_env({"ANTHROPIC_API_KEY": KEY})
-            self.assertEqual(auth.secret, KEY)
-            self.assertNotIn(KEY, repr(auth))
-            for env in ({}, {"CLAUDE_CODE_OAUTH_TOKEN": "FAKE-UNSUPPORTED-TOKEN"}):
+            for env in (
+                {},
+                {"ANTHROPIC_API_KEY": KEY},
+                {"CLAUDE_CODE_OAUTH_TOKEN": "FAKE-UNSUPPORTED-TOKEN"},
+            ):
                 with self.assertRaises(ValueError):
                     ApiCredential.from_env(env)
 
@@ -28,7 +29,7 @@ class ApiKeyOnly(unittest.TestCase):
 
         for val in (None, "", 1, True, KEY + "\n", KEY + "é", "x" * 4097):
             with self.subTest(kind=type(val).__name__), self.assertRaises(ValueError) as err:
-                ApiCredential.from_env({"ANTHROPIC_API_KEY": val})
+                ApiCredential(val)
             self.assertNotIn(KEY, str(err.exception))
 
     def test_default_off_and_explicit_api_key_are_the_only_adapter_options(self):
@@ -150,7 +151,8 @@ class ApiKeyOnly(unittest.TestCase):
                 {
                     "HARNESS2_MOJO_LIVE_APPROVED": "1",
                     "HARNESS2_MOJO_IMPROVER_API_APPROVED": "1",
-                    "ANTHROPIC_API_KEY": KEY,
+                    "ANTHROPIC_API_KEY": "FAKE-PARENT-CLIENT-INTERNAL-KEY",
+                    "HARNESS2_IMPROVER_API_KEY_FILE": str(Path(tmp) / "operator-key"),
                 },
                 clear=True,
             ),
@@ -159,8 +161,13 @@ class ApiKeyOnly(unittest.TestCase):
             patch("harness2.substrate.improver.ApiBroker") as broker,
         ):
             broker.return_value.__enter__.return_value = Mock(calls=0, last_error=None)
+            key_file = Path(tmp) / "operator-key"
+            key_file.write_text(KEY)
+            key_file.chmod(0o600)
+            work = Path(tmp) / "work"
+            work.mkdir()
             reply = run_isolated(
-                Path(tmp),
+                work,
                 ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="api-key"),
                 "mission",
                 "",
@@ -171,6 +178,9 @@ class ApiKeyOnly(unittest.TestCase):
             self.assertNotIn("mode", broker.call_args.kwargs)
             self.assertNotIn("input_data", sandbox.run.call_args.kwargs)
             self.assertNotIn(KEY, repr(sandbox.run.call_args) + json.dumps(reply.transcript))
+            self.assertNotIn(
+                str(key_file), repr(sandbox.run.call_args) + json.dumps(reply.transcript)
+            )
 
     def test_literal_echo_is_redacted_and_attempt_fails(self):
         from harness2.substrate.improver_auth import ApiCredential
