@@ -53,3 +53,22 @@ identity is Light of Baldr throughout.
 This is slice **(a)** only. Sandboxed file tools **(b)** and fixed-argv sandboxed
 Mojo compile/run **(c)** remain next. Inline import deliberately differs from
 Harness²'s on-demand skills; no exact executor-reproduction claim is made.
+
+## Follow-up: server settlement race
+
+Prime subsequently reproduced the timeout at `c47d9c1`: the browser reached
+Remove skill / Save while Pi's durable run or inbox still made the server busy.
+The save correctly became pending, but the test expected "Profile applied."
+Send becoming visible is not a durable settlement acknowledgement.
+
+The test now polls a fresh conversation bridge snapshot before settled-only
+saves and the next submissions. It requires no run/generation and empty inbox,
+tools, nested tools and compactions; missing/foreign state refuses. The same
+12-second bound remains. The deliberately held-run pending-save assertion is
+unchanged. There is no product/API or Send-button behavior change.
+
+Verification on Node 24.22.1: seven profile tests (the original three plus four
+waiter controls) and three consecutive full profile-browser runs pass, using
+fake providers only. The timeout control uses a controlled clock, not a narrow
+wall-time assumption. Evidence: `.unlazy/profile-settle/{unit,browser-1,browser-2,browser-3}.log`.
+No `:8091` request, paid call, serve restart or merge in this follow-up.

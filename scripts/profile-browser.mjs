@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {harness} from './harness.mjs';
 import {fakeKernel,until} from '../tests/live/fixture.ts';
+import {waitForProfileSettled} from './profile-settled.mjs';
 const f=await fakeKernel();let h,page;
 try{
   await mkdir(f.root+'/imports/example/skills/checked',{recursive:true});await mkdir(f.root+'/imports/example/extensions');
@@ -18,15 +19,18 @@ try{
   await page.getByLabel('Message Muse',{exact:true}).fill('one');await page.getByRole('button',{name:'Send message',exact:true}).click();
   const attribution=page.getByRole('button',{name:/Profile r\d+ · inline skills · 0 tools/});await attribution.waitFor();assert.match(JSON.stringify(f.requests[0]),/UI_PROFILE_A/);assert.match(JSON.stringify(f.requests[0]),/UI_SKILL_BODY/);assert.equal(f.requests[0].tools?.length??0,0);
   await attribution.click();await page.getByRole('dialog').waitFor();assert.match(await page.getByRole('dialog').innerText(),/UI_PROFILE_A/);await page.getByRole('button',{name:'Close profile',exact:true}).click();
+  await waitForProfileSettled(h.base,a);
   f.hold(true);await page.getByLabel('Message Muse',{exact:true}).fill('hold');await page.getByRole('button',{name:'Send message',exact:true}).click();await until(()=>f.requests.length===2);
   await instructions.fill('UI_PENDING');await page.getByRole('button',{name:'Save profile',exact:true}).click();await page.getByTestId('profile-state').filter({hasText:'Pending'}).waitFor();
   assert.match(JSON.stringify(f.requests[1]),/UI_PROFILE_A/);assert.doesNotMatch(JSON.stringify(f.requests[1]),/UI_PENDING/);
-  await page.getByRole('button',{name:'Stop generating',exact:true}).click();await page.getByRole('button',{name:'Send message',exact:true}).waitFor();f.hold(false);
+  await page.getByRole('button',{name:'Stop generating',exact:true}).click();await page.getByRole('button',{name:'Send message',exact:true}).waitFor();await waitForProfileSettled(h.base,a);f.hold(false);
   await page.getByLabel('Message Muse',{exact:true}).fill('next');await page.getByRole('button',{name:'Send message',exact:true}).click();await until(()=>f.requests.length===3);await page.getByTestId('profile-state').filter({hasText:'Active'}).waitFor();assert.match(JSON.stringify(f.requests[2]),/UI_PENDING/);
   await page.getByRole('button',{name:'Send message',exact:true}).waitFor();
+  await waitForProfileSettled(h.base,a);
   await page.getByLabel('Enable careful',{exact:true}).uncheck();await page.getByRole('button',{name:'Save profile',exact:true}).click();await page.getByText('Profile applied.',{exact:true}).waitFor();
   await page.getByLabel('Message Muse',{exact:true}).fill('disabled skill');await page.getByRole('button',{name:'Send message',exact:true}).click();await until(()=>f.requests.length===4);await page.getByRole('button',{name:'Send message',exact:true}).waitFor();
   assert.doesNotMatch(JSON.stringify(f.requests[3]),/UI_SKILL_BODY/);
+  await waitForProfileSettled(h.base,a);
   await page.getByRole('button',{name:'Remove skill 1',exact:true}).click();await page.getByRole('button',{name:'Save profile',exact:true}).click();await page.getByText('Profile applied.',{exact:true}).waitFor();assert.equal(await page.getByLabel('Skill 1 Markdown').count(),0);
   await page.getByRole('button',{name:'New session',exact:true}).click();await until(async()=>await selector.inputValue()!==a);await instructions.waitFor();
   await until(async()=>await instructions.inputValue()==='You are a helpful AI assistant.\nReasoning strength: high.');
