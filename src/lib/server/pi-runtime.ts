@@ -4,6 +4,8 @@ import {createModels} from '@earendil-works/pi-ai';
 import {BACKGROUND_CONTEXT as ctx,createRegistry,Harness,openNodeSqliteStorage,type ConversationId,type EntryId,type Storage} from 'glimmer-agent/pi';
 import {ProfileHost,profileExtension} from 'glimmer-agent/profile';
 import type {ProfileOrigin} from 'glimmer-agent/profile-model';
+import {fileToolsExtension,type FileBroker} from 'glimmer-agent/file-tools';
+import type {ToolAvailability} from './file-broker.ts';
 import {ReadoutHost,readoutExtension,type ReadoutConfig,type Steer} from 'glimmer-agent/extension';
 import {NOMOS_MODEL,NOMOS_PROVIDER,nomosProvider} from 'glimmer-agent/provider';
 import {openBridge,type Bridge,type BridgeMessage} from 'glimmer-agent/bridge';
@@ -14,11 +16,13 @@ export function checkedBase(value:string){
   if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.search||url.hash||!['','/'].includes(url.pathname))throw Error('Invalid operator-configured kernel URL.');
   return url.origin;
 }
-export async function createRuntime(baseUrl:string, database:string|Storage){
-  const base=checkedBase(baseUrl), host=new ReadoutHost(ctx), profiles=new ProfileHost(ctx), models=createModels(), registry=createRegistry();
+export async function createRuntime(baseUrl:string, database:string|Storage,files?:FileBroker & {status():ToolAvailability;close():Promise<void>}){
+  const fileExtension=files?fileToolsExtension(files):null;
+  const base=checkedBase(baseUrl), host=new ReadoutHost(ctx), profiles=new ProfileHost(ctx,files?{ready:()=>files.ready(),tools:fileExtension!.tools!}:undefined), models=createModels(), registry=createRegistry();
   models.setProvider(nomosProvider({baseUrl:base+'/v1',requests:host.requests,maxTokens:2048}));
   registry.install(readoutExtension(host));
   registry.install(profileExtension(profiles));
+  if(fileExtension)registry.install(fileExtension);
   if(typeof database==='string')await mkdir(path.dirname(database),{recursive:true,mode:0o700});
   const storage=typeof database==='string'?await openNodeSqliteStorage(database):database;
   const harness=await Harness.open(storage,
@@ -33,6 +37,8 @@ export async function createRuntime(baseUrl:string, database:string|Storage){
     if(!chat)throw Error('Conversation not found.');return chat;
   }
   const api={host,harness,
+    toolStatus(){return files?.status()??{available:false,reason:'No sandbox broker configured.',policy:'glimmer.files/bwrap-1'};},
+    async checkTools(){if(!files)throw Error('No sandbox broker configured.');await files.ready();return files.status();},
     async list(){return (await storage.scanConversations({order:'descending'},100,undefined,ctx)).items.map(c=>({id:String(c.id),busy:active===c.id}));},
     async create(){
       if(closing)throw Error('Agent is closing.');
@@ -73,7 +79,7 @@ export async function createRuntime(baseUrl:string, database:string|Storage){
       const c=await conversation(id);const bridge=await openBridge(harness,host,c.id,ctx,send);bridges.add(bridge);
       return {snapshot:bridge.snapshot,stop:async()=>{bridges.delete(bridge);await bridge.stop();}};
     },
-    async close(){closing=true;if(active!==null)await (await conversation(String(active))).abort(ctx);for(const b of bridges)await b.stop();await host.close();await harness.close(ctx);}
+    async close(){closing=true;if(active!==null)await (await conversation(String(active))).abort(ctx);await files?.close();for(const b of bridges)await b.stop();await host.close();await harness.close(ctx);}
   };return api;
 }
 export type Runtime=Awaited<ReturnType<typeof createRuntime>>;

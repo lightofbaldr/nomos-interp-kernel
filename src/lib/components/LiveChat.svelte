@@ -13,6 +13,7 @@
   import MetaAnnotation from './MetaAnnotation.svelte';
   import {annotationFor} from '$lib/pi/annotation';
   import ProfileDetails from './ProfileDetails.svelte';
+  import FileToolCalls from './FileToolCalls.svelte';
   import type {ProfileUsed} from 'glimmer-agent/profile-model';
 
   let {onState}:{onState:(state:LiveState)=>void}=$props();
@@ -116,9 +117,10 @@
             <Collapsible.Content class="live-reasoning-content"><div class="live-plain reasoning-text">{thinking}</div></Collapsible.Content>
           </Reasoning.Root>{/if}
           <Message.Root from="assistant" class="assistant-body"><Message.Content class="message-copy"><div class="response-text live-plain" aria-busy={entry.streaming}>{answer}</div></Message.Content></Message.Root>
-          {#if !answer}<p class="live-reply-status">{entry.streaming?'Waiting for answer text…':'No answer text received. Reasoning is preserved above.'}</p>{/if}
+          <FileToolCalls message={entry.message} entries={pi.entries} streaming={entry.streaming}/>
+          {#if !answer&&!(entry.message.role==='assistant'&&entry.message.content.some(b=>b.type==='toolCall'))}<p class="live-reply-status">{entry.streaming?'Waiting for answer text…':'No answer text received. Reasoning is preserved above.'}</p>{/if}
           <div class="live-turn-footer">{entry.streaming?'Generating':entry.message.role==='assistant'?`Generation: ${entry.message.stopReason}`:''}</div>
-          {#if !entry.streaming}{#if used}<ProfileDetails profile={used.profile} label={`Profile r${used.profile.revision} · inline skills · no tools`}/>{:else}<small>Profile unrecorded for this historical turn.</small>{/if}{/if}
+          {#if !entry.streaming}{#if used}<ProfileDetails profile={used.profile} label={`Profile r${used.profile.revision} · inline skills · ${used.profile.content.tools?.length??0} tools`}/>{:else}<small>Profile unrecorded for this historical turn.</small>{/if}{/if}
           {#if measuredTurn&&!entry.streaming}<MetaAnnotation {conversation} request={measuredTurn.request} turn={measuredTurn.turn} rules={view.alertRules??defaultRules()} available={metaAvailable} saved={annotationFor(pi.entries,measuredTurn.request)}/>{/if}
         </article>{/if}
       {/each}

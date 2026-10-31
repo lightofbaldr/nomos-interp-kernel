@@ -5,11 +5,15 @@ import {createRuntime,checkedBase,type Runtime} from './pi-runtime.ts';
 import {assetCatalog,loadLabels} from './pi-assets.ts';
 import {createAnnotator} from './meta-annotator.ts';
 import {readMetaKey,META_MODEL} from './meta-client.ts';
+import {createFileBroker} from './file-broker.ts';
+import {installShutdown} from './shutdown.ts';
 
 // One harness per server process, never per HTTP request or browser attachment.
 let pending:Promise<Runtime>|undefined;
 let vocabulary:ReturnType<typeof loadLabels>|undefined;
 let annotationService:Promise<ReturnType<typeof createAnnotator>>|undefined;
+let stopping=false;
+installShutdown(async()=>{stopping=true;if(pending)await (await pending).close();});
 const metaKey=()=>readMetaKey(env.GLIMMER_META_ENV_FILE||path.join(os.homedir(),'.env'));
 export async function metaAvailability(){return {available:Boolean(await metaKey()),model:META_MODEL};}
 export function metaAnnotator(){
@@ -27,9 +31,10 @@ export function metaAnnotator(){
   }})).catch(e=>{annotationService=undefined;throw e;});
 }
 export function service(){
+  if(stopping)throw Error('Pi service is shutting down.');
   if(!env.NOMOS_API_BASE_URL)throw Error('No kernel endpoint is configured.');
-  return pending??=createRuntime(env.NOMOS_API_BASE_URL,
-    env.GLIMMER_SESSION_DB||path.join(os.homedir(),'nomos_data/glimmer-lab/sessions.sqlite')).catch(e=>{pending=undefined;throw e;});
+  const db=env.GLIMMER_SESSION_DB||path.join(os.homedir(),'nomos_data/glimmer-lab/sessions.sqlite');
+  return pending??=createRuntime(env.NOMOS_API_BASE_URL,db,createFileBroker(path.resolve(db)+'.workspaces')).catch(e=>{pending=undefined;throw e;});
 }
 export async function capabilities(){
   const base=checkedBase(env.NOMOS_API_BASE_URL??'');

@@ -10,7 +10,7 @@
     <Dialog.Title>Applied profile r{profile.revision}</Dialog.Title>
     <Dialog.Description>Recorded instructions and inline skills for this revision. Metadata is not sent to Glimmer. Filesystem state is not rewound.</Dialog.Description>
     <p>{size.characters.toLocaleString()} rendered characters · ~{size.approximateTokens.toLocaleString()} estimated tokens / {size.contextTokens.toLocaleString()} context. Character/4 heuristic, not tokenizer usage; conversation and response need space too.</p>
-    <p>Tools: none · Skills: inline · Policy: {profile.policy}</p><code>{profile.digest}</code>
+    <p>Tools: {profile.content.tools?.join(', ')||'none'} · Skills: inline · Policy: {profile.policy}</p><code>{profile.digest}</code>
     <pre>{renderedProfile(profile.content)}</pre>
     {#if profile.origin}<h3>Import provenance</h3><p>{profile.origin.delivery}</p><p>{profile.origin.edited?'Edited since import.':'Imported text snapshot.'} {profile.origin.source}</p><pre>{JSON.stringify(profile.origin,null,2)}</pre>{/if}
     <Dialog.Close class="profile-close">Close profile</Dialog.Close>

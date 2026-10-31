@@ -16,7 +16,7 @@ try{
   await instructions.fill('UI_PROFILE_A');await page.getByLabel('New skill Markdown').fill('---\nname: careful\ndescription: Verify first\n---\nUI_SKILL_BODY');await page.getByRole('button',{name:'Add inline skill',exact:true}).click();
   await page.getByTestId('profile-state').filter({hasText:'Unsaved'}).waitFor();await page.getByRole('button',{name:'Save profile',exact:true}).click();await page.getByText('Profile applied.',{exact:true}).waitFor();
   await page.getByLabel('Message Muse',{exact:true}).fill('one');await page.getByRole('button',{name:'Send message',exact:true}).click();
-  const attribution=page.getByRole('button',{name:/Profile r\d+ · inline skills · no tools/});await attribution.waitFor();assert.match(JSON.stringify(f.requests[0]),/UI_PROFILE_A/);assert.match(JSON.stringify(f.requests[0]),/UI_SKILL_BODY/);assert.equal(f.requests[0].tools?.length??0,0);
+  const attribution=page.getByRole('button',{name:/Profile r\d+ · inline skills · 0 tools/});await attribution.waitFor();assert.match(JSON.stringify(f.requests[0]),/UI_PROFILE_A/);assert.match(JSON.stringify(f.requests[0]),/UI_SKILL_BODY/);assert.equal(f.requests[0].tools?.length??0,0);
   await attribution.click();await page.getByRole('dialog').waitFor();assert.match(await page.getByRole('dialog').innerText(),/UI_PROFILE_A/);await page.getByRole('button',{name:'Close profile',exact:true}).click();
   f.hold(true);await page.getByLabel('Message Muse',{exact:true}).fill('hold');await page.getByRole('button',{name:'Send message',exact:true}).click();await until(()=>f.requests.length===2);
   await instructions.fill('UI_PENDING');await page.getByRole('button',{name:'Save profile',exact:true}).click();await page.getByTestId('profile-state').filter({hasText:'Pending'}).waitFor();

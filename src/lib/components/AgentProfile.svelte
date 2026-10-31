@@ -1,5 +1,6 @@
 <script lang="ts">
-  import {emptyContent,parseSkill,profileSize,validateContent,type ProfileState,type ProfileContent,type ProfileRevision} from 'glimmer-agent/profile-model';
+  import {emptyContent,parseSkill,profileSize,validateContent,FILE_TOOLS,type FileTool,type ProfileState,type ProfileContent,type ProfileRevision} from 'glimmer-agent/profile-model';
+  import type {ToolAvailability} from '$lib/server/file-broker';
   import type {ImportPreview} from '$lib/server/profile-import';
   import type {LiveState} from '$lib/live';
   import ProfileDetails from './ProfileDetails.svelte';
@@ -8,6 +9,7 @@
   let loaded=$state(''),waiting=$state(false),error=$state(''),notice=$state(''),skillText=$state('');
   let roots=$state<{id:number;label:string}[]>([]),root=$state(0),importPath=$state(''),useBase=$state(false),baseRoot=$state(0),basePath=$state('');
   let preview=$state<ImportPreview|null>(null),allowImportLarge=$state(false);
+  let tools=$state<ToolAvailability>({available:false,reason:'Isolation not checked.',policy:'glimmer.files/bwrap-1'});
   let requestSerial=0,observed='';
   const dirty=$derived(JSON.stringify(draft)!==base);
   const validation=$derived.by(()=>{try{validateContent(draft);return '';}catch(e){return e instanceof Error?e.message:'Invalid profile.';}});
@@ -18,7 +20,7 @@
     const serial=++requestSerial;
     try{const response=await fetch(`/api/pi/profile?conversation=${encodeURIComponent(id)}`),data=await response.json();
       if(serial!==requestSerial||id!==live.conversation)return;if(!response.ok)throw Error(data.error);
-      const changed=loaded!==id;loaded=id;roots=data.roots;
+      const changed=loaded!==id;loaded=id;roots=data.roots;tools=data.tools;
       if(changed||reset||!dirty)hydrate(data.profile);
       else {profile=data.profile;if(expected!==data.profile.version)notice='Saved profile changed elsewhere. Your unsaved draft is kept; reload before saving.';}
       error='';
@@ -37,17 +39,19 @@
       if(!r.ok)throw Error(data.error??'Profile operation failed.');if(id!==live.conversation)return;
       if(data.profile){hydrate(data.profile);notice=data.profile.pending?'Saved pending. Applies before the next user submission after this run settles.':'Profile applied.';}
       if(data.preview){preview=data.preview;allowImportLarge=false;}
+      if(data.tools)tools=data.tools;
       if(data.conversation)await live.openConversation?.(data.conversation);
-    }catch(e){if(id===live.conversation)error=e instanceof Error?e.message:String(e);}finally{waiting=false;}
+    }catch(e){if(id===live.conversation){error=e instanceof Error?e.message:String(e);if(body.action==='checkTools')tools={...tools,available:false,reason:error};}}finally{waiting=false;}
   }
   function addSkill(){try{parseSkill(skillText);draft.skills.push({markdown:skillText,enabled:true});skillText='';error='';}catch(e){error=String(e);}}
+  function toggleTool(name:FileTool,enabled:boolean){draft.tools=FILE_TOOLS.filter(t=>t===name?enabled:(draft.tools??[]).includes(t));}
   function skillName(text:string,i:number){try{return parseSkill(text).name;}catch{return `Skill ${i+1} (needs valid frontmatter)`;}}
   async function upload(event:Event){const input=event.currentTarget as HTMLInputElement,file=input.files?.[0];if(!file)return;
     try{if(file.size>16384)throw Error('SKILL.md exceeds 16 KiB.');skillText=new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());parseSkill(skillText);}catch(e){error=String(e);}finally{input.value='';}}
 </script>
 <div class="agent-profile">
   <header><h3>Agent profile</h3><span data-testid="profile-state">{loaded!==live.conversation?'Loading':dirty?'Unsaved':profile?.pending?'Pending':'Active'}</span></header>
-  <p>Instructions and inline skills for this Pi conversation. No callable tools in this slice.</p>
+  <p>Instructions, inline skills and optional sandboxed file tools for this Pi conversation.</p>
   {#if profile?.active&&loaded===live.conversation}
     <div class="revision"><ProfileDetails profile={profile.active} label={`Active r${profile.active.revision}`}/>{#if profile.pending}<ProfileDetails profile={profile.pending} label={`Pending r${profile.pending.revision}`}/>{/if}</div>
     <p>Edits during a run wait until the next user submission, after the whole model/tool run settles.</p>
@@ -56,7 +60,13 @@
       <div class="budget" data-testid="profile-budget">{#if size}{size.characters.toLocaleString()} rendered characters · ~{size.approximateTokens.toLocaleString()} estimated tokens / 32,768 context{:else}Size unavailable until skill frontmatter is valid.{/if}
         <small>Character/4 estimate, not tokenizer usage or remaining context. Conversation, template and response need space too.</small></div>
       <label class="check"><input type="checkbox" bind:checked={draft.allowLarge}/>Allow more than 6,000 rendered characters (64 KiB hard limit)</label>
-      <h4>Skills <span>INLINE</span></h4><p>Enabled skills are sent in full. No on-demand file access yet.</p>
+      <h4>File tools <span>SANDBOXED · OFF BY DEFAULT</span></h4>
+      <p data-testid="tools-availability">{tools.available?'Tools available':'Tools unavailable'} — {tools.reason}</p>
+      <button onclick={()=>action({action:'checkTools'})}>Check tool isolation</button>
+      <div class="tool-toggles">{#each FILE_TOOLS as name}<label class="check"><input type="checkbox" aria-label={`Enable tool ${name}`} checked={(draft.tools??[]).includes(name)} disabled={!tools.available&&!(draft.tools??[]).includes(name)} onchange={e=>toggleTool(name,e.currentTarget.checked)}/>{name}</label>{/each}</div>
+      <p>Only this session's /work: UTF-8 files up to 1 MiB; bounded results; no shell, compiler, network or host home. A fork starts with empty files. Restore changes the profile, not files. Interrupted writes may have completed: inspect before retrying.</p>
+      <p>Workspace ceiling: 256 MiB / 8,192 entries (checked per operation, not a filesystem quota). Tool schemas use additional context beyond the estimate above.</p>
+      <h4>Skills <span>INLINE</span></h4><p>Enabled skills are sent in full. They are not materialized as workspace files; on-demand skill delivery is not implemented.</p>
       {#each draft.skills as skill,i}
         <section class="skill"><div class="skill-heading"><label class="check"><input type="checkbox" aria-label={`Enable ${skillName(skill.markdown,i)}`} bind:checked={skill.enabled}/>{skillName(skill.markdown,i)}</label><button onclick={()=>draft.skills.splice(i,1)} aria-label={`Remove skill ${i+1}`}>Remove</button></div>
           <textarea aria-label={`Skill ${i+1} Markdown`} bind:value={skill.markdown} rows="6" spellcheck="false"></textarea></section>

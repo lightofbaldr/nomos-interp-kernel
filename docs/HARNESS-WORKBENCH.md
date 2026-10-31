@@ -1,9 +1,9 @@
-# Harness workbench — slice A
+# Harness workbench — slices A/B
 
 The **Profile** tab beside Controls manages each Pi conversation's instructions,
-ordered Markdown skills and imported advisory text. This slice has **no callable
-tools**. File tools and a fixed-argv sandboxed Mojo build/run tool are separate,
-later slices; nothing here runs a model-supplied command or extension.
+ordered Markdown skills, imported advisory text and optional sandboxed file tools.
+The fixed-argv sandboxed Mojo build/run tool is a later slice. Nothing here runs
+a model-supplied command, shell, compiler or extension.
 
 ## Editing and history
 
@@ -78,17 +78,92 @@ warning and diff reference; later manual edits mark it as edited since import.
 slice inlines them. Inlining can hide a failure to read the skill, so an imported
 base profile is not a faithful reproduction of Harness²'s base executor. Tools are
 off; imported instructions that reference scripts, files or tools may be unusable.
+Empty/whitespace-only prompt, advisory, skill and extension files are listed as
+**omitted (empty)** and contribute no prompt headings. Applying an import turns
+tools off; enable the required fixed-catalog tools explicitly afterwards. Inline
+skills are not workspace files; on-demand delivery remains a future option.
+
+## Sandboxed file tools
+
+Click **Check tool isolation**, then select `read`, `write`, `edit`, `ls`, `find`
+and/or `grep` and save the profile. All are off by default. Each operation uses a
+new Linux bwrap worker in a transient user **service** with its own cgroup, not
+the terminal's scope. Missing bwrap/user services or failed checks mean **tools
+unavailable**; there is no host fallback. Text-only profiles still work. Isolation
+is checked on enabling tools, before a tool-enabled submission, and inside every
+worker before it receives the model's request. Saved tool settings survive restart;
+availability is checked again rather than inherited.
+
+The operator's session DB path determines its private root:
+`<absolute GLIMMER_SESSION_DB>.workspaces/workspaces/<conversation-id>` (0700).
+Only that conversation directory is mounted as `/work`; parent directories,
+other conversations, home, host sockets, and the service manager's bus are absent.
+The system runtime is read-only. Network/PID/user namespaces are isolated,
+capabilities dropped and new user namespaces disabled. The broker uses fixed
+argv and a small explicit environment; model input is JSON on stdin. No shell
+interpolation or workspace code loading occurs. Keep `runtime/files/` with the
+application and start from the repository root, including production `npm start`.
+
+| Tool | Semantics |
+| --- | --- |
+| read | UTF-8 text, character offset, up to 12,000 characters per page |
+| write | Atomic create/replace, creating parent directories within bounds |
+| edit | Exactly one literal old-text occurrence; ambiguous edits refuse |
+| ls | One directory, at most 200 entries |
+| find | Recursive literal name substring (not regex/glob), at most 200 entries |
+| grep | Recursive literal text, at most 200 matching lines clipped to 240 characters |
+
+Paths are plain relative paths or `/work/...`, with `.` for a directory root.
+Descriptor-relative/no-follow operations reject traversal, symlinks, hardlinks,
+special files and reserved `.glimmer-` names. Files are at most 1 MiB; results at
+most 64 KiB. Workspace checks enforce 256 MiB/8,192 entries/depth 32. This is a
+bounded inventory and mutation check, **not a hard filesystem quota**. The worker
+has effective limits of 256 MiB RAM, no swap, 16 tasks, 100% CPU, 1 MiB file size,
+128 descriptors and 30 seconds. The broker reads those service properties back
+before releasing the request. A contended workspace lock waits at most 35 seconds;
+the outer deadline and mandatory cleanup have separate bounded allowances.
+
+All operations serialize per workspace with an OS lock, including across app
+processes. Abort/shutdown stops and joins the entire service cgroup; an unconfirmed
+cleanup cannot return success. A new operation first stops any orphaned service
+for that workspace. A broker killed outright may leave a worker until the service's
+30-second limit or that cleanup; there is no claim of instantaneous cleanup after
+SIGKILL. Forced termination of a stuck Node broker makes it unavailable until
+restart. The service limits remain in force independently of Node/Pi.
+The server hooks SIGTERM, SIGINT and adapter-node shutdown into one joined runtime
+cleanup; this does not replace adapter-node's HTTP shutdown handlers.
+
+Write/edit have Pi's **unsafe** replay policy. An interrupted mutation is not
+automatically repeated; inspect before retrying, since it may have committed.
+Atomic-write temporaries left before rename are discarded on the next inventory
+only if they match the broker's reserved, owner-private regular-file pattern.
+This never retries the write or deletes its destination. Failed operations may
+leave newly created parent directories. Profile restore does not undo files;
+forks deliberately start with empty, independent workspaces. Tool calls/results
+are Pi's durable transcript entries, rendered as escaped text in the chat.
+
+This boundary assumes a trusted kernel and local operator; it does not defend
+against a malicious same-UID host process moving directories during an operation.
+Workspace parents must remain quiescent. No authentication for remote/multi-user
+deployment is added. The app's existing loopback restriction remains mandatory.
+
+Policy lineage: reviewed Harness² `1bc5c61` sandbox, narrowed to a fixed Python
+file worker. References: [bubblewrap security model](https://github.com/containers/bubblewrap),
+[systemd transient services](https://www.freedesktop.org/software/systemd/man/255/systemd-run.html).
+The resources and probe assertions above were verified locally, not inferred from
+the mere presence of those binaries.
 
 ## Authority and integration
 
-The loopback/same-origin endpoint is `/api/pi/profile`. JSON schemas reject tool,
+The loopback/same-origin endpoint is `/api/pi/profile`. JSON schemas accept only
+fixed-catalog names inside profile `tools`, and reject arbitrary tool definitions,
 model, provider, cwd, sandbox and extension-selection fields. Profile bodies have
 an explicit 512 KiB transport ceiling, followed by the smaller content limits;
 other control APIs retain their 32,000-byte ceiling. No key is involved in profiles.
 Imported code and Markdown are displayed as escaped text, never raw HTML.
 
 Native Pi instructions remain authoritative. The pinned glimmer-agent profile host
-atomically writes native instructions/empty tools, its rewindable profile document
+atomically writes native instructions/enabled tool registrations, its rewindable profile document
 and a change entry. All app profile edits/submissions use its per-conversation
 lock and version check. Do not bypass it with direct `Conversation.configure` or
 `submit` calls. Existing readout and alert semantics are unchanged.
@@ -105,9 +180,13 @@ npm run test:profiles           # real Pi + fake kernel, memory and SQLite
 npm run test:profile-import     # path, identity, budget, inert-code controls
 npm run test:profile-ui         # isolated fake-kernel browser, desktop/mobile
 node scripts/profile-regression.mjs  # fresh build + existing offline regression
+npm run test:file-tools          # real Pi + fake model + real file sandbox, including crash recovery
+npm run test:file-sandbox        # real service isolation, bounds, cancellation and resource probes
+npm run test:file-ui             # fresh production build required first, fake model only
+node scripts/filetool-regression.mjs # full offline regression + both profile/tool browsers
 ```
 
 No live `:8091` request, GPU job, paid API call or host tool rollout was used to
 build or verify this slice. Screenshots are under `preview/checks/profile-fake-*`
-and remain uncommitted. The skill guidance kept the UI on the existing local
+and `preview/checks/file-tools-*`, and remain uncommitted. The skill guidance kept the UI on the existing local
 Svelte/AI-elements components; Bits UI supplies the accessible profile inspector.

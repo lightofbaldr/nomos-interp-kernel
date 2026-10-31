@@ -10,7 +10,8 @@ alert statistics and limitations. [The steering-diff guide](docs/STEERING-DIFF.m
 describes the recorded Baseline | Steered | Difference explorer.
 The [harness workbench](docs/HARNESS-WORKBENCH.md) adds per-conversation
 instructions, inline skills, a text-only Harness² import and recorded profile
-attribution. Its first slice intentionally has no callable tools.
+attribution. Optional file tools run only in checked, resource-limited Linux
+sandboxes; shell and Mojo execution are not included.
 
 ## Run
 

@@ -11,7 +11,7 @@ export async function GET({request,url}:RequestEvent){
   if(!sameOrigin(request,url))return json({error:'Same-origin loopback access required.'},{status:403,...options});
   try{
     const id=url.searchParams.get('conversation');if(!id)throw Error('Conversation required.');
-    return json({profile:await (await service()).profile(id),roots:importer().roots()},options);
+    const runtime=await service();return json({profile:await runtime.profile(id),roots:importer().roots(),tools:runtime.toolStatus()},options);
   }catch(e){return json({error:e instanceof Error?e.message:'Profile unavailable.'},{status:400,...options});}
 }
 export async function POST({request,url}:RequestEvent){
