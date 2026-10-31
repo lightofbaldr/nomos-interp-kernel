@@ -5,6 +5,7 @@ a terminal scope, owns the worker. Only the selected workspace is persistent RW.
 Resource properties are read back before the request is released to the worker.
 """
 import fcntl
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -171,18 +172,11 @@ def run(work_fd, source, unit, request):
                 stream.close()
 
 
-def main():
-    if len(sys.argv) != 3 or not (sys.argv[2] == "probe" or sys.argv[2].isdigit() and 0 < int(sys.argv[2]) < 10**15):
+@contextmanager
+def locked_workspace(value, ident):
+    if not (ident == "probe" or ident.isdigit() and 0 < int(ident) < 10**15):
         raise Refusal("invalid workspace identity")
-    root = private_root(sys.argv[1])
-    ident = sys.argv[2]
-    request = json.loads(sys.stdin.buffer.read(2097153))
-    if len(json.dumps(request, ensure_ascii=False).encode()) > 2097152:
-        raise Refusal("request limit")
-    if ident == "probe":
-        request = {"op": "probe", "args": {}}
-    elif not isinstance(request, dict) or request.get("op") not in ("read", "write", "edit", "ls", "find", "grep"):
-        raise Refusal("unknown operation")
+    root = private_root(value)
     unit = "glimmer-files-" + hashlib.sha256(str(root).encode()).hexdigest()[:16] + "-" + ident + ".service"
     fds = []
     try:
@@ -208,10 +202,24 @@ def main():
         fds.append(workspaces)
         workspace = childdir(workspaces, ident)
         fds.append(workspace)
-        result = run(workspace, str(root / "workspaces" / ident), unit, request)
+        yield workspace, str(root / "workspaces" / ident), unit
     finally:
         for fd in reversed(fds):
             os.close(fd)
+
+
+def main():
+    if len(sys.argv) != 3:
+        raise Refusal("invalid broker arguments")
+    request = json.loads(sys.stdin.buffer.read(2097153))
+    if len(json.dumps(request, ensure_ascii=False).encode()) > 2097152:
+        raise Refusal("request limit")
+    if sys.argv[2] == "probe":
+        request = {"op": "probe", "args": {}}
+    elif not isinstance(request, dict) or request.get("op") not in ("read", "write", "edit", "ls", "find", "grep"):
+        raise Refusal("unknown operation")
+    with locked_workspace(sys.argv[1], sys.argv[2]) as (workspace, source, unit):
+        result = run(workspace, source, unit, request)
     print(json.dumps(result, allow_nan=False), flush=True)
 
 

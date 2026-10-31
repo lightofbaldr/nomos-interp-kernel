@@ -1,9 +1,9 @@
-# Harness workbench — slices A/B
+# Harness workbench — slices A–C
 
 The **Profile** tab beside Controls manages each Pi conversation's instructions,
-ordered Markdown skills, imported advisory text and optional sandboxed file tools.
-The fixed-argv sandboxed Mojo build/run tool is a later slice. Nothing here runs
-a model-supplied command, shell, compiler or extension.
+ordered Markdown skills, imported advisory text and optional sandboxed tools.
+The `mojo` tool builds/runs a workspace source with fixed argv. No model-supplied
+command string, compiler flags, host extension or shell tool is accepted.
 
 ## Editing and history
 
@@ -102,7 +102,10 @@ The system runtime is read-only. Network/PID/user namespaces are isolated,
 capabilities dropped and new user namespaces disabled. The broker uses fixed
 argv and a small explicit environment; model input is JSON on stdin. No shell
 interpolation or workspace code loading occurs. Keep `runtime/files/` with the
-application and start from the repository root, including production `npm start`.
+application. Broker paths derive from the source module in direct TS execution,
+or Vite's fixed build root in production, never the server's working directory.
+The resolved file broker path is logged at first runtime creation. Rebuild after
+relocating the application; a copied build does not discover runtime code in cwd.
 
 | Tool | Semantics |
 | --- | --- |
@@ -153,6 +156,57 @@ file worker. References: [bubblewrap security model](https://github.com/containe
 The resources and probe assertions above were verified locally, not inferred from
 the mere presence of those binaries.
 
+## Mojo build / run
+
+The operator supplies **`GLIMMER_MOJO_PREFIX`**, an absolute, non-symlink installed
+Mojo prefix with `bin`, `lib`, `include` and `share/max/modular.cfg`. No compiler
+is downloaded, installed, activated or updated by the app. Click **Check Mojo
+toolchain**, then explicitly enable `mojo`. Missing configuration leaves file
+tools available but Mojo unavailable. The readiness probe runs `mojo --version`
+inside the checked sandbox; it is not a claim that every source will build.
+
+The only model argument is `{ "path": "main.mojo" }`. Under the same workspace
+lock as file tools, the trusted broker launches two separate services:
+
+1. `/opt/mojo/bin/mojo build /work/<validated-path> -o /build/program`.
+2. `/build/program`, only after a zero compile exit, with a regular, non-linked
+   ELF artifact and matching source identity.
+
+There are no caller-selected flags, program arguments, stdin, environment, output
+paths or executable choices. `/work` is **read-only** in both phases. A private
+build directory is writable and discarded after the call; compiler cache/crash
+data goes to a private 256 MiB tmpfs, never the installed toolchain. Relative
+source imports can use the conversation's regular files. The compiled program
+is arbitrary native code **inside the sandbox** and can spawn subprocesses there;
+“no shell tool” does not mean it cannot invoke a sandboxed system executable.
+No host home, model endpoint, service-manager socket, GPU device or host network
+is exposed. The source and compiler runtime stay read-only.
+
+The entry proves isolation before receiving its source path, then `exec`s the
+fixed command. The host owns phase/exit status and bounds stdout/stderr separately;
+program text is never parsed as a trusted result or executed on the host. Both
+phases have effective limits of 4 GiB RAM, zero swap, 128 tasks, two CPU cores,
+64 MiB/file and 256 descriptors. Compile wall limit: 90 seconds; run: 10 seconds;
+the independent service deadline is two seconds later. Build scratch has a
+256 MiB/8,192-entry/depth-32 watchdog, **not a hard disk quota**. Output is capped
+at 16 KiB per stream per phase; overflow stops the service and is a failed tool
+result. Oversized serialized output is additionally shortened and marked failed.
+
+Each result keeps compile/run exit codes, bounded stdout/stderr, stop reason,
+source SHA-256, checked isolation and selected compiler identity hashes (compiler,
+linker, stdlib archive and config). These are **not an attestation of every shared
+library or OS byte**. Rechecks detect changes to those selected files during a
+call; the local operator must keep the installation quiescent. Results are not
+correctness grades. Build failure never runs a leftover executable: every call
+has fresh scratch. Cancellation/shutdown joins the service. Mojo uses unsafe Pi
+recovery, so interrupted execution is never automatically replayed.
+
+An outright broker SIGKILL cannot clean its private temporary build directory;
+the service deadline still applies and next workspace admission stops the orphan.
+Any leftover `glimmer-mojo-*` temporary directory is infrastructure residue, not
+an adopted workspace or a successful output. This is the same trusted local
+operator/kernel boundary as the file tools, not a general hostile-host boundary.
+
 ## Authority and integration
 
 The loopback/same-origin endpoint is `/api/pi/profile`. JSON schemas accept only
@@ -184,6 +238,9 @@ npm run test:file-tools          # real Pi + fake model + real file sandbox, inc
 npm run test:file-sandbox        # real service isolation, bounds, cancellation and resource probes
 npm run test:file-ui             # fresh production build required first, fake model only
 node scripts/filetool-regression.mjs # full offline regression + both profile/tool browsers
+npm run test:mojo                 # Pi + fake model + actual compiler, cwd and abort checks
+npm run test:mojo-sandbox         # real compile/run and negative containment controls
+node scripts/mojo-regression.mjs  # all file/application gates, then the Mojo browser
 ```
 
 No live `:8091` request, GPU job, paid API call or host tool rollout was used to

@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:mojo": "node scripts/mojo-tests.mjs integration",
+    "test:mojo-sandbox": "node scripts/mojo-tests.mjs sandbox",
+    "test:mojo-ui": "node scripts/mojo-browser.mjs",
     "test:file-tools": "node scripts/filetool-tests.mjs integration",
     "test:file-sandbox": "node scripts/filetool-tests.mjs sandbox",
     "test:file-ui": "node scripts/filetool-browser.mjs",
@@ -37,7 +40,7 @@
     "@nomos/svelte-fancy": "file:vendor/nomos-svelte-fancy-0.1.0.tgz",
     "@nomos/svelte-magic": "file:vendor/nomos-svelte-magic-0.1.0.tgz",
     "bits-ui": "2.19.5",
-    "glimmer-agent": "file:vendor/glimmer-agent-0b67613.tgz",
+    "glimmer-agent": "file:vendor/glimmer-agent-a84c710.tgz",
     "phosphor-svelte": "3.0.1"
   },
   "devDependencies": {

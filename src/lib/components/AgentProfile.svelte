@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {emptyContent,parseSkill,profileSize,validateContent,FILE_TOOLS,type FileTool,type ProfileState,type ProfileContent,type ProfileRevision} from 'glimmer-agent/profile-model';
+  import {emptyContent,parseSkill,profileSize,validateContent,FILE_TOOLS,SANDBOX_TOOLS,type SandboxTool,type ProfileState,type ProfileContent,type ProfileRevision} from 'glimmer-agent/profile-model';
   import type {ToolAvailability} from '$lib/server/file-broker';
   import type {ImportPreview} from '$lib/server/profile-import';
   import type {LiveState} from '$lib/live';
@@ -41,17 +41,17 @@
       if(data.preview){preview=data.preview;allowImportLarge=false;}
       if(data.tools)tools=data.tools;
       if(data.conversation)await live.openConversation?.(data.conversation);
-    }catch(e){if(id===live.conversation){error=e instanceof Error?e.message:String(e);if(body.action==='checkTools')tools={...tools,available:false,reason:error};}}finally{waiting=false;}
+    }catch(e){if(id===live.conversation){error=e instanceof Error?e.message:String(e);if(body.action==='checkTools')tools={...tools,available:false,reason:error};if(body.action==='checkMojo')tools={...tools,mojo:{available:false,reason:error}};}}finally{waiting=false;}
   }
   function addSkill(){try{parseSkill(skillText);draft.skills.push({markdown:skillText,enabled:true});skillText='';error='';}catch(e){error=String(e);}}
-  function toggleTool(name:FileTool,enabled:boolean){draft.tools=FILE_TOOLS.filter(t=>t===name?enabled:(draft.tools??[]).includes(t));}
+  function toggleTool(name:SandboxTool,enabled:boolean){draft.tools=SANDBOX_TOOLS.filter(t=>t===name?enabled:(draft.tools??[]).includes(t));}
   function skillName(text:string,i:number){try{return parseSkill(text).name;}catch{return `Skill ${i+1} (needs valid frontmatter)`;}}
   async function upload(event:Event){const input=event.currentTarget as HTMLInputElement,file=input.files?.[0];if(!file)return;
     try{if(file.size>16384)throw Error('SKILL.md exceeds 16 KiB.');skillText=new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());parseSkill(skillText);}catch(e){error=String(e);}finally{input.value='';}}
 </script>
 <div class="agent-profile">
   <header><h3>Agent profile</h3><span data-testid="profile-state">{loaded!==live.conversation?'Loading':dirty?'Unsaved':profile?.pending?'Pending':'Active'}</span></header>
-  <p>Instructions, inline skills and optional sandboxed file tools for this Pi conversation.</p>
+  <p>Instructions, inline skills and optional sandboxed tools for this Pi conversation.</p>
   {#if profile?.active&&loaded===live.conversation}
     <div class="revision"><ProfileDetails profile={profile.active} label={`Active r${profile.active.revision}`}/>{#if profile.pending}<ProfileDetails profile={profile.pending} label={`Pending r${profile.pending.revision}`}/>{/if}</div>
     <p>Edits during a run wait until the next user submission, after the whole model/tool run settles.</p>
@@ -66,6 +66,11 @@
       <div class="tool-toggles">{#each FILE_TOOLS as name}<label class="check"><input type="checkbox" aria-label={`Enable tool ${name}`} checked={(draft.tools??[]).includes(name)} disabled={!tools.available&&!(draft.tools??[]).includes(name)} onchange={e=>toggleTool(name,e.currentTarget.checked)}/>{name}</label>{/each}</div>
       <p>Only this session's /work: UTF-8 files up to 1 MiB; bounded results; no shell, compiler, network or host home. A fork starts with empty files. Restore changes the profile, not files. Interrupted writes may have completed: inspect before retrying.</p>
       <p>Workspace ceiling: 256 MiB / 8,192 entries (checked per operation, not a filesystem quota). Tool schemas use additional context beyond the estimate above.</p>
+      <h4>Mojo build / run <span>SANDBOXED · OFF BY DEFAULT</span></h4>
+      <p data-testid="mojo-availability">{tools.mojo?.available?'Mojo available':'Mojo unavailable'} — {tools.mojo?.reason??'Compiler not checked.'}</p>
+      <button onclick={()=>action({action:'checkMojo'})}>Check Mojo toolchain</button>
+      <label class="check"><input type="checkbox" aria-label="Enable tool mojo" checked={(draft.tools??[]).includes('mojo')} disabled={!tools.mojo?.available&&!(draft.tools??[]).includes('mojo')} onchange={e=>toggleTool('mojo',e.currentTarget.checked)}/>mojo</label>
+      <p>Build and run a .mojo file with fixed arguments. /work stays read-only; the executable and scratch are discarded. No caller flags, program arguments, interactive input or network. Build: 90 seconds; run: 10 seconds; worker memory: 4 GiB. Output is untrusted program text, not proof of correctness. Interrupted execution is not replayed.</p>
       <h4>Skills <span>INLINE</span></h4><p>Enabled skills are sent in full. They are not materialized as workspace files; on-demand skill delivery is not implemented.</p>
       {#each draft.skills as skill,i}
         <section class="skill"><div class="skill-heading"><label class="check"><input type="checkbox" aria-label={`Enable ${skillName(skill.markdown,i)}`} bind:checked={skill.enabled}/>{skillName(skill.markdown,i)}</label><button onclick={()=>draft.skills.splice(i,1)} aria-label={`Remove skill ${i+1}`}>Remove</button></div>

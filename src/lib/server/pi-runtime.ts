@@ -3,7 +3,7 @@ import path from 'node:path';
 import {createModels} from '@earendil-works/pi-ai';
 import {BACKGROUND_CONTEXT as ctx,createRegistry,Harness,openNodeSqliteStorage,type ConversationId,type EntryId,type Storage} from 'glimmer-agent/pi';
 import {ProfileHost,profileExtension} from 'glimmer-agent/profile';
-import type {ProfileOrigin} from 'glimmer-agent/profile-model';
+import type {ProfileOrigin,SandboxTool} from 'glimmer-agent/profile-model';
 import {fileToolsExtension,type FileBroker} from 'glimmer-agent/file-tools';
 import type {ToolAvailability} from './file-broker.ts';
 import {ReadoutHost,readoutExtension,type ReadoutConfig,type Steer} from 'glimmer-agent/extension';
@@ -18,7 +18,7 @@ export function checkedBase(value:string){
 }
 export async function createRuntime(baseUrl:string, database:string|Storage,files?:FileBroker & {status():ToolAvailability;close():Promise<void>}){
   const fileExtension=files?fileToolsExtension(files):null;
-  const base=checkedBase(baseUrl), host=new ReadoutHost(ctx), profiles=new ProfileHost(ctx,files?{ready:()=>files.ready(),tools:fileExtension!.tools!}:undefined), models=createModels(), registry=createRegistry();
+  const base=checkedBase(baseUrl), host=new ReadoutHost(ctx), profiles=new ProfileHost(ctx,files?{ready:tools=>files.ready(tools),tools:fileExtension!.tools!}:undefined), models=createModels(), registry=createRegistry();
   models.setProvider(nomosProvider({baseUrl:base+'/v1',requests:host.requests,maxTokens:2048}));
   registry.install(readoutExtension(host));
   registry.install(profileExtension(profiles));
@@ -38,7 +38,7 @@ export async function createRuntime(baseUrl:string, database:string|Storage,file
   }
   const api={host,harness,
     toolStatus(){return files?.status()??{available:false,reason:'No sandbox broker configured.',policy:'glimmer.files/bwrap-1'};},
-    async checkTools(){if(!files)throw Error('No sandbox broker configured.');await files.ready();return files.status();},
+    async checkTools(tools:readonly SandboxTool[]=[]){if(!files)throw Error('No sandbox broker configured.');await files.ready(tools);return files.status();},
     async list(){return (await storage.scanConversations({order:'descending'},100,undefined,ctx)).items.map(c=>({id:String(c.id),busy:active===c.id}));},
     async create(){
       if(closing)throw Error('Agent is closing.');

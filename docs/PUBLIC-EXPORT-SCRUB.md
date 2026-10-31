@@ -29,6 +29,10 @@ Workbench imports retain operator-selected absolute source paths and per-file
 hashes in the private session database and preview responses. These are runtime
 data, not committed source. Scrub them before exporting sessions/screenshots.
 `GLIMMER_HARNESS_IMPORT_ROOTS` is operator configuration and must not be committed.
+Mojo test fixtures/runners and verification docs name the local compiler prefix.
+Mojo tool results include that prefix and selected hashes. Vite embeds the app
+build root for trusted broker resolution: rebuild on the target host, and scrub
+runtime data/screenshots rather than treating paths as portable deployment data.
 
 Inventory again at export time with a tracked-file search for `/home/adam`,
 `192.168.`, `design-kits`, private hostnames and local data paths. Also check the
