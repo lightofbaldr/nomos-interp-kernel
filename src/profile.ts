@@ -14,7 +14,9 @@ export const ProfileUsedEntry = defineEntry<ProfileUsed>("glimmer.profile.used")
 const RequestDoc = defineDoc<{ key: string }>({ kind: "glimmer.profile.request", version: 1, scope: "conversation", history: "rewindable", fork: "initial", initial: () => ({ key: "" }) });
 export function profileDigest(content: ProfileContent) { return createHash("sha256").update(JSON.stringify([PROFILE_POLICY, content])).digest("hex"); }
 function revision(n: number, content: ProfileContent, origin: ProfileOrigin | null): ProfileRevision {
-	return { revision: n, digest: profileDigest(content), policy: PROFILE_POLICY, content: structuredClone(content), origin: structuredClone(origin) };
+	// Origin may be read from a Chord transaction draft; copy its data, never structuredClone its proxies.
+	return { revision: n, digest: profileDigest(content), policy: PROFILE_POLICY, content: structuredClone(content),
+		origin: origin && { ...origin, files: origin.files.map(f => ({ ...f })) } };
 }
 async function busy(tx: Tx, id: ConversationId) {
 	const live = await tx.doc(LiveDoc, id), inbox = await tx.doc(InboxDoc, id);

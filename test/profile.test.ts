@@ -97,3 +97,12 @@ test("profiles: simultaneous saves at one version have one winner", async () => 
 		assert.equal(r.filter(x => x.status === "fulfilled").length, 1);
 	} finally { await t.close(); }
 });
+test("profiles: imported provenance survives manual edits and is marked as edited", async () => {
+	const t = await setup(); try {
+		const state = await t.profiles.get(t.chat);
+		const origin = { source: "/operator/harness", digest: "d".repeat(64), files: [{ path: "systemprompt.md", sha256: "e".repeat(64), disposition: "instructions" }], delivery: "on-demand to inline", reference: "Current profile", referenceDigest: "f".repeat(64), edited: false };
+		const imported = await t.profiles.save(t.chat, state.version, emptyContent("IMPORTED"), origin);
+		const edited = await t.profiles.save(t.chat, imported.version, emptyContent("EDITED"));
+		assert.deepEqual(edited.active?.origin, { ...origin, edited: true });
+	} finally { await t.close(); }
+});
