@@ -39,6 +39,19 @@ def strip_nested_env(env: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+def claude_env(env: Mapping[str, str], *, isolation: str = "flags") -> dict[str, str]:
+    """Choose login auth for flags isolation; preserve API auth for explicit --bare.
+
+    A parent Claude Code session may export an internal/stale API key. Letting it
+    override the child's login breaks otherwise authenticated headless sessions.
+    Do not mutate the parent or change non-Claude children's authentication.
+    """
+    child = strip_nested_env(env)
+    if isolation != "bare":
+        child.pop("ANTHROPIC_API_KEY", None)
+    return child
+
+
 def claude_argv(
     *,
     model: str,
@@ -272,4 +285,5 @@ __all__ = [
     "parse_json_object",
     "retry_after_seconds",
     "strip_nested_env",
+    "claude_env",
 ]

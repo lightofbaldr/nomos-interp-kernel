@@ -34,6 +34,7 @@ from .. import config
 from ..core.clitools import (
     CliReply,
     claude_argv,
+    claude_env,
     claude_system_args,
     codex_argv,
     codex_system_block,
@@ -282,6 +283,7 @@ def run_backend(backend: Backend, req: Request, *, timeout: int, workdir: Path) 
     env = strip_nested_env(os.environ)
     workdir = Path(workdir)
     if backend.kind == "claude":
+        env = claude_env(os.environ, isolation=config.CLAUDE_ISOLATION)
         system_arg, stdin = claude_system_args(req.system, req.prompt)
         argv = claude_argv(
             model=backend.model,

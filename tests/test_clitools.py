@@ -9,6 +9,7 @@ from harness2.core.clitools import (
     SYSTEM_ARG_MAX,
     classify_failure,
     claude_argv,
+    claude_env,
     claude_system_args,
     codex_argv,
     codex_system_block,
@@ -25,6 +26,15 @@ class EnvAndArgvTests(unittest.TestCase):
             {"CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_PID": "7", "PATH": "/x"}
         )
         self.assertEqual(out, {"PATH": "/x"})
+
+    def test_claude_auth_isolation_does_not_mutate_or_change_other_children(self):
+        parent = {"ANTHROPIC_API_KEY": "fake-parent-key", "CLAUDECODE": "1", "PATH": "/x"}
+        before = dict(parent)
+        self.assertEqual(claude_env(parent), {"PATH": "/x"})
+        expected_api = {"ANTHROPIC_API_KEY": "fake-parent-key", "PATH": "/x"}
+        self.assertEqual(claude_env(parent, isolation="bare"), expected_api)
+        self.assertEqual(strip_nested_env(parent), expected_api)
+        self.assertEqual(parent, before)
 
     def test_claude_argv_flags_isolation(self):
         argv = claude_argv(model="opus", effort="high", system="S", skip_permissions=True)

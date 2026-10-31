@@ -72,11 +72,25 @@ to the session's `context/` tree. `codex_cli` runs `codex exec --ignore-user-con
 sandbox bypassed for the same reason. `HARNESS2_IMPROVER_MODEL` is a bare id or alias
 (`opus`, `sonnet`, `gpt-5.6-sol`).
 
+The default login isolation removes inherited `ANTHROPIC_API_KEY` along with nested
+Claude session markers, so a parent session's stale key cannot override the login.
+Explicit `HARNESS2_CLAUDE_ISOLATION=bare` keeps the API key instead. This applies to
+both the improver and the Claude judge bridge; the parent environment is unchanged.
+
 **Plan usage limits.** A usage or rate limit reported by the CLI is waited out inside the
 call (5 minutes, doubling; 30 seconds for a rate limit) up to `HARNESS2_LIMIT_MAX_WAIT`
 seconds, then the stage falls back to its input tree exactly as upstream does, visible as a
 fallback in `harness2-report`. With `HARNESS2_STOP_ON_LIMIT=1` the sweep stops instead
 (exit status 3); re-running the same command resumes from the cached summaries.
+
+**Fallback-only adaptation.** If every improvement stage falls back, its mode is
+not successful. A task with only such modes prints `fallback-only` (not `ok`), is
+counted as failed, and makes the sweep exit 2. A mix of successful and fallback-only
+modes is `partial`, also failed. Accepted no-op edits remain valid successes. The
+fallback evidence and retained input trees are preserved, but no experience is
+promoted from a fallback-only mode. Resuming an intact old all-fallback summary cannot turn
+its historical `ok` into a successful skip or silently retry paid calls; after fixing
+the cause, use an explicitly fresh run root for a new attempt.
 
 ## The judge bridge
 

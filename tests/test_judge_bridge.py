@@ -263,6 +263,27 @@ class ShutdownTests(unittest.TestCase):
 
 
 class BackendTests(unittest.TestCase):
+    def test_claude_login_drops_api_key_but_bare_keeps_it(self):
+        req = Request(system="S", prompt="P", images=[], schema=None, effort="low")
+        reply = SimpleNamespace(stdout='{"result":"ok","subtype":"success"}', returncode=0, stderr="")
+        for isolation in ("flags", "bare"):
+            with (
+                self.subTest(isolation=isolation),
+                tempfile.TemporaryDirectory() as td,
+                patch.object(jb, "_run_cli", return_value=reply) as run,
+                patch.object(jb.config, "CLAUDE_ISOLATION", isolation),
+                patch.dict(jb.os.environ, {"ANTHROPIC_API_KEY": "fake-parent-key", "CLAUDECODE": "1"}, clear=True),
+            ):
+                result = jb.run_backend(Backend("claude", "opus"), req, timeout=5, workdir=Path(td))
+                self.assertTrue(result.ok)
+                child = run.call_args.kwargs["env"]
+                self.assertNotIn("CLAUDECODE", child)
+                if isolation == "bare":
+                    self.assertEqual(child["ANTHROPIC_API_KEY"], "fake-parent-key")
+                else:
+                    self.assertNotIn("ANTHROPIC_API_KEY", child)
+                self.assertEqual(jb.os.environ["ANTHROPIC_API_KEY"], "fake-parent-key")
+
     def test_parse_model_id(self):
         self.assertEqual(parse_model_id("cli/claude:opus"), Backend("claude", "opus"))
         self.assertEqual(parse_model_id("codex:gpt-5.6-sol"), Backend("codex", "gpt-5.6-sol"))

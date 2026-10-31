@@ -192,6 +192,7 @@ def _main(args: argparse.Namespace) -> int:
         return 3
     done = sum(int(d.get("done", 0)) for d in rep["domains"])
     failed = sum(int(d.get("failed", 0)) for d in rep["domains"])
+    fallback_only = sum(int(d.get("fallback_only", 0)) for d in rep["domains"])
     dead = [d["domain"] for d in rep["domains"] if d.get("error")]
     if not rep["domains"]:
         print(
@@ -202,7 +203,7 @@ def _main(args: argparse.Namespace) -> int:
         print(f"record: {rec}")
         return 1
     print(
-        f"\nsweep {summary_ns}: {done} tasks ok, {failed} failed, "
+        f"\nsweep {summary_ns}: {done} tasks ok, {failed} failed ({fallback_only} fallback-only), "
         f"{len(dead)} domain(s) died{': ' + ', '.join(dead) if dead else ''}"
     )
     print(f"record: {rec}")

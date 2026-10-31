@@ -75,6 +75,25 @@ class ChannelTests(unittest.TestCase):
         self.assertEqual(kw["env"]["CLAUDE_CODE_USE_VERTEX"], "1")
         self.assertNotIn("ANTHROPIC_API_KEY", kw["env"])
 
+    def test_login_drops_inherited_api_key_but_bare_keeps_it(self):
+        for isolation in ("flags", "bare"):
+            with self.subTest(isolation=isolation):
+                fake = FakeRun((CLAUDE_OK, 0, ""))
+                with (
+                    patch.object(config, "CLAUDE_USE_VERTEX", False),
+                    patch.object(config, "CLAUDE_ISOLATION", isolation),
+                    patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-parent-key", "CLAUDECODE": "1"}, clear=True),
+                ):
+                    self._call(ChannelSpec("claude_cli", "opus"), fake)
+                    self.assertEqual(os.environ["ANTHROPIC_API_KEY"], "fake-parent-key")
+                argv, kw = fake.calls[0]
+                self.assertEqual("--bare" in argv, isolation == "bare")
+                self.assertNotIn("CLAUDECODE", kw["env"])
+                if isolation == "bare":
+                    self.assertEqual(kw["env"].get("ANTHROPIC_API_KEY"), "fake-parent-key")
+                else:
+                    self.assertNotIn("ANTHROPIC_API_KEY", kw["env"])
+
     def test_codex_channel_reads_last_message(self):
         def run(argv, kw):
             Path(argv[argv.index("-o") + 1]).write_text("<notes>done</notes>", encoding="utf-8")

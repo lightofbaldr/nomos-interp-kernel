@@ -70,7 +70,12 @@ class ModeResult:
 
     @property
     def ok(self) -> bool:
-        return bool(self.finals) and not self.errors
+        return bool(self.finals) and not self.errors and not self.fallback_only
+
+    @property
+    def fallback_only(self) -> bool:
+        # An accepted, deliberately unchanged tree is not an exhausted stage.
+        return bool(self.stages) and all(s.fell_back for s in self.stages)
 
     @property
     def fell_back(self) -> list[str]:
@@ -83,6 +88,7 @@ class ModeResult:
             "k": self.k,
             "finals": self.finals,
             "ok": self.ok,
+            "fallback_only": self.fallback_only,
             "fell_back": self.fell_back,
             "kept_base": [s.label for s in self.stages if s.kept_base],
             "stages": [

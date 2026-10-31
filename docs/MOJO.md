@@ -114,7 +114,9 @@ confirm Prime's serve fix. Do not set a live flag until approval arrives.
    and explicitly set `HARNESS2_IMPROVER_MODEL`. Always-on text is capped at
    6,000 characters; the entire editable harness at 80,000. Subagents are disabled.
 4. Select and freeze an adopted training harness from the task summary's
-   `selections` / `chosen_label`, under that task's `harnesses/` directory. Then
+   `selections` / `chosen_label`, under that task's `harnesses/` directory. A
+   `fallback-only` mode retained its input after all improvement stages failed;
+   it is not an adapted success, even if `chosen_label` exists. Then
    run `harness2-mojo evaluate --split test --harness <base-path>` and the same
    command with the frozen improved harness. Both use the identical ten-task
    heldout selection. This CLI never proposes, selects or reflects on heldout.

@@ -262,15 +262,29 @@ class TaskResult:
         }
 
 
+def _mode_fallback_only(record: dict) -> bool:
+    """Derive from stage evidence, including old records incorrectly marked ok."""
+    stages = record.get("stages") or []
+    return bool(stages) and all(s.get("fell_back") is True for s in stages)
+
+
+def _fallback_error(mode: str, record: dict) -> str:
+    labels = ", ".join(str(s.get("label", "?")) for s in record["stages"])
+    return f"{mode}: fallback-only; all improvement stages fell back ({labels}); input harness retained"
+
+
 def _merged_status(merged: dict) -> str:
-    """ok iff every mode record on the merged summary succeeded and no error is recorded."""
+    """Distinguish all-stage fallback from real success and other partial failures."""
     modes = merged.get("modes") or {}
     selections = merged.get("selections") or {}
+    if modes and all(_mode_fallback_only(value or {}) for value in modes.values()):
+        return "fallback-only"
     ok = (
         bool(modes)
         and not merged.get("errors")
         and all(
             (value or {}).get("ok")
+            and not _mode_fallback_only(value or {})
             and (selections.get(mode) or {}).get("ok")
             and (selections.get(mode) or {}).get("chosen_label")
             for mode, value in modes.items()
@@ -308,7 +322,9 @@ def _write_summary(summary_path: Path, res: TaskResult) -> None:
                 merged["errors"] = list(merged.get("errors") or [])
                 seen = {json.dumps(e, sort_keys=True, default=str) for e in merged["errors"]}
                 for e in old.get("errors") or []:
-                    if e == "no base rollout produced anything" and res.status in ("ok", "partial"):
+                    if e == "no base rollout produced anything" and res.status in (
+                        "ok", "partial", "fallback-only"
+                    ):
                         continue
                     mode = str(e).partition(":")[0]
                     if (
@@ -319,7 +335,7 @@ def _write_summary(summary_path: Path, res: TaskResult) -> None:
                         continue
                     if json.dumps(e, sort_keys=True, default=str) not in seen:
                         merged["errors"].append(e)
-                if merged.get("status") in ("ok", "partial"):
+                if merged.get("status") in ("ok", "partial", "fallback-only"):
                     merged["status"] = _merged_status(merged)
             tmp = summary_path.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(merged, indent=2, default=str))
@@ -368,7 +384,7 @@ def _resume(
             flush=True,
         )
         return False
-    if got.get("status") != "ok":
+    if got.get("status") not in ("ok", "fallback-only"):
         return False
     cached_modes = _modes_of(got)
     cached_sels = got.get("selections") or {}
@@ -376,7 +392,10 @@ def _resume(
         m
         for m in modes
         if not (
-            (cached_modes.get(m) or {}).get("ok")
+            (
+                (cached_modes.get(m) or {}).get("ok")
+                or _mode_fallback_only(cached_modes.get(m) or {})
+            )
             and (cached_sels.get(m) or {}).get("ok")
             and (cached_sels.get(m) or {}).get("chosen_label")
         )
@@ -416,8 +435,22 @@ def _resume(
     res.base = got.get("base", [])
     res.modes = cached_modes
     res.selections = cached_sels
-    res.errors = got.get("errors", [])
-    _restore_libraries(task_id, k, adapter, runs_root, modes, seed, tag, mode_libs, res.selections)
+    res.errors = list(got.get("errors", []))
+    fallback_modes = [mode for mode in modes if _mode_fallback_only(cached_modes[mode])]
+    for mode in fallback_modes:
+        res.modes[mode] = {**cached_modes[mode], "ok": False, "fallback_only": True}
+        message = _fallback_error(mode, cached_modes[mode])
+        if message not in res.errors:
+            res.errors.append(message)
+    if fallback_modes:
+        # Preserve the failed record without paying for an automatic rerun or
+        # silently promoting its historical "ok" to successful "skipped".
+        res.status = "fallback-only" if len(fallback_modes) == len(modes) else "partial"
+    _restore_libraries(
+        task_id, k, adapter, runs_root,
+        [mode for mode in modes if mode not in fallback_modes],
+        seed, tag, mode_libs, res.selections,
+    )
     return True
 
 
@@ -510,6 +543,8 @@ def _run_one_mode(
         library_dir=lib_dir,
     )
     res.modes[mode] = r.to_dict()
+    if r.fallback_only:
+        res.errors.append(_fallback_error(mode, res.modes[mode]))
     candidates = selection.selection_pool(mode, k, r.rollouts, base)
     if pool_policy == "finals" and k == 1:
         sel = selection.trivial_selection(
@@ -526,7 +561,7 @@ def _run_one_mode(
             work_dir=work_dir,
             pool_kind="finals",
         )
-    if mode_lib and sel.ok:
+    if mode_lib and sel.ok and not r.fallback_only:
         selection.reflect_adoption(
             task_id,
             sel,
@@ -552,7 +587,7 @@ def _run_one_mode(
     chosen = candidates.get(sel.chosen_label)
     if sel.ok and chosen is not None and not chosen.delivered:
         res.errors.append(f"{mode}: selected run {chosen.run_id} produced no deliverable")
-    if mode_lib and sel.ok and library_store.has_experience(sel.experience):
+    if mode_lib and sel.ok and not r.fallback_only and library_store.has_experience(sel.experience):
         mode_lib.add(
             task_id,
             chosen_tree,
@@ -693,6 +728,7 @@ def run_domain(
         "seed": seed,
         "done": 0,
         "failed": 0,
+        "fallback_only": 0,
         "stopped": False,
         "tasks": [],
     }
@@ -727,6 +763,8 @@ def run_domain(
                 row = {"task": tid, "status": r.status, "library_entries_before": before}
             else:
                 out["failed"] += 1
+                if r.status == "fallback-only":
+                    out["fallback_only"] += 1
                 row = {
                     "task": tid,
                     "status": r.status,

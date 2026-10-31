@@ -39,6 +39,7 @@ from .clitools import (
     CliReply,
     classify_failure,
     claude_argv,
+    claude_env,
     claude_system_args,
     codex_argv,
     codex_system_block,
@@ -130,6 +131,7 @@ class Proposer:
         """The session environment: a fresh CLI (no nested-session markers), Vertex on request."""
         e = strip_nested_env(os.environ)
         if self.spec.kind == "claude_cli":
+            e = claude_env(os.environ, isolation=config.CLAUDE_ISOLATION)
             if config.CLAUDE_USE_VERTEX:
                 e = {k: v for k, v in e.items() if k not in _DROP_ENV}
                 e.update(
