@@ -46,8 +46,9 @@ class Namespace(unittest.TestCase):
 assert not pathlib.Path({str(sentinel)!r}).exists()
 for path in ['/home/adam/.env', '/home/adam/.claude', '/run/user/1000', '/dev/nvidia0']:
     assert not pathlib.Path(path).exists(), path
-for key in ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'HTTP_PROXY', 'CLAUDECODE']:
+for key in ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'HTTP_PROXY', 'CLAUDECODE']:
     assert key not in os.environ, key
+assert os.environ['ANTHROPIC_API_KEY'] == {PLACEHOLDER!r}
 assert 'CapEff:\\t0000000000000000' in pathlib.Path('/proc/self/status').read_text()
 for path in ['/usr/h2-canary', '/etc/h2-canary', '/outside', '/opt/claude/claude']:
     try: pathlib.Path(path).write_text('forbidden')
@@ -102,7 +103,6 @@ print('NETWORK VERIFIED')
         conn.getresponse.return_value = reply
         with ApiBroker(
             self.controls / "api.sock",
-            mode="api-key",
             api_key=token,
             model="opus",
             _connection=lambda: conn,
@@ -128,9 +128,7 @@ assert r.status == 404
 r.read()
 print('FAKE GATEWAY VERIFIED')
 """
-            result = self.run_code(
-                code, broker=self.controls / "api.sock", input_data=PLACEHOLDER.encode()
-            )
+            result = self.run_code(code, broker=self.controls / "api.sock")
             self.assertEqual(broker.calls, 1)
         self.assertEqual(result.returncode, 0, result)
         self.assertIn("FAKE GATEWAY VERIFIED", result.stdout)
@@ -153,25 +151,14 @@ time.sleep(20)
         time.sleep(3.1)
         self.assertFalse((self.work / "escaped").exists())
 
-    def test_native_subscription_and_bash_with_fake_pass_through(self):
-        self.native_fake("subscription")
-
     def test_native_api_key_and_bash_with_fake_injecting_gateway(self):
-        self.native_fake("api-key")
-
-    def test_fake_subscription_token_remains_tool_readable_through_proc(self):
-        # This is a LIMITATION witness, not a security success. It must keep the
-        # live subscription guard closed until the trust decision is explicit.
-        self.native_fake("subscription", exposure=True)
-
-    def native_fake(self, mode, exposure=False):
         from harness2.core.spec import ChannelSpec
         from harness2.substrate.improver import captured_reply, prepare_client
         from harness2.substrate.improver_audit import AttemptAudit, load_attempt
 
         binary = shutil.which("claude")
         self.assertIsNotNone(binary, "native client control needs the installed Claude binary")
-        sandbox = ImproverSandbox(claude=Path(binary), controls=self.controls, auth_mode=mode)
+        sandbox = ImproverSandbox(claude=Path(binary), controls=self.controls)
         sentinel = self.root / "host-sentinel"
         sentinel.write_text("PRIVATE FAKE SENTINEL")
         token = "FAKE-NATIVE-CLIENT-OPERATOR-CREDENTIAL"
@@ -181,20 +168,15 @@ time.sleep(20)
             "assert all(not value.startswith('FAKE-NATIVE-CLIENT-OPERATOR-') for value in os.environ.values()); "
             "pathlib.Path('/work/bash-probe').write_text('sandboxed tool')"
         )
-        if exposure or mode == "api-key":
-            probe += "\n" + "\n".join(
-                [
-                    "found = []",
-                    "for path in pathlib.Path('/proc').glob('[0-9]*/environ'):",
-                    "    try: raw = path.read_bytes()",
-                    "    except OSError: continue",
-                    "    for field in raw.split(b'\\0'):",
-                    "        if field.startswith(b'CLAUDE_CODE_OAUTH_TOKEN=FAKE-NATIVE-CLIENT-OPERATOR-'):",
-                    "            found.append(field.split(b'=', 1)[1])",
-                    "        assert not field.startswith(b'ANTHROPIC_API_KEY=FAKE-NATIVE-CLIENT-OPERATOR-')",
-                    "if found: pathlib.Path('/work/fake-token-exposure').write_bytes(found[0])",
-                ]
-            )
+        probe += "\n" + "\n".join(
+            [
+                "for path in pathlib.Path('/proc').glob('[0-9]*/environ'):",
+                "    try: raw = path.read_bytes()",
+                "    except OSError: continue",
+                "    for field in raw.split(b'\\0'):",
+                "        assert not field.startswith(b'ANTHROPIC_API_KEY=FAKE-NATIVE-CLIENT-OPERATOR-')",
+            ]
+        )
         import shlex
 
         bash = "/usr/bin/python3 -I -c " + shlex.quote(probe)
@@ -271,7 +253,7 @@ time.sleep(20)
 
         command = prepare_client(
             self.controls,
-            ChannelSpec("claude_cli", "opus", steps=3, sandbox="mojo-claude", auth_mode=mode),
+            ChannelSpec("claude_cli", "opus", steps=3, sandbox="mojo-claude", auth_mode="api-key"),
             "Use the provided tool, then finish.",
             "",
         )
@@ -288,8 +270,7 @@ time.sleep(20)
         )
         with ApiBroker(
             self.controls / "api.sock",
-            mode=mode,
-            api_key=token if mode == "api-key" else None,
+            api_key=token,
             model="opus",
             max_calls=4,
             _connection=connection,
@@ -299,7 +280,6 @@ time.sleep(20)
                 command,
                 timeout=30,
                 broker=self.controls / "api.sock",
-                input_data=(token if mode == "subscription" else PLACEHOLDER).encode(),
             )
         self.assertEqual(result.returncode, 0, result)
         reply = captured_reply(result)
@@ -322,18 +302,9 @@ time.sleep(20)
         self.assertEqual(doc["transcript"], "captured")
         self.assertEqual((attempt.path / "stdout.jsonl").read_text(), result.stdout)
         self.assertEqual((attempt.work / "bash-probe").read_text(), "sandboxed tool")
-        if exposure:
-            self.assertEqual((attempt.work / "fake-token-exposure").read_bytes(), token.encode())
-        else:
-            self.assertFalse((attempt.work / "fake-token-exposure").exists())
         self.assertEqual(sentinel.read_text(), "PRIVATE FAKE SENTINEL")
         self.assertNotIn(token, result.stdout + result.stderr)
         self.assertGreaterEqual(broker.calls, 2)
-        if mode == "subscription":
-            self.assertNotIn("--bare", command)
-            self.assertTrue(all(h["Authorization"] == "Bearer " + token for _, h in requests))
-            self.assertTrue(all("oauth-" in h.get("anthropic-beta", "") for _, h in requests))
-        else:
-            self.assertIn("--bare", command)
-            self.assertTrue(all(h["x-api-key"] == token for _, h in requests))
-            self.assertTrue(all("Authorization" not in h for _, h in requests))
+        self.assertIn("--bare", command)
+        self.assertTrue(all(h["x-api-key"] == token for _, h in requests))
+        self.assertTrue(all("Authorization" not in h for _, h in requests))

@@ -183,7 +183,7 @@ class Boundary(Fixture):
         self.assertNotIn("FAKE-PARENT-KEY", argv)
         self.assertNotIn("/run/user/1000", argv)
         self.assertNotIn("--share-net", argv)
-        self.assertNotIn(PLACEHOLDER, argv)  # client auth arrives through a pipe
+        self.assertIn(PLACEHOLDER, argv)  # the only credential visible to the client
         self.assertIn("http://127.0.0.1:8092", argv)
         self.assertIn("/runtime/improver-entry.py", argv)
         self.assertEqual(argv[-2:], ["/opt/claude/claude", "-p"])
@@ -192,7 +192,7 @@ class Boundary(Fixture):
     def test_process_manifest_binds_runtime_and_does_not_contain_login(self):
         sandbox = self.sandbox()
         identity = sandbox.identity()
-        self.assertEqual(identity["policy"], "mojo-claude-process-v2")
+        self.assertEqual(identity["policy"], "mojo-claude-api-key-v1")
         self.assertIn("claude", identity["files"])
         self.assertIn("improver", identity["files"])
         self.assertNotIn("accessToken", json.dumps(identity))
@@ -255,7 +255,7 @@ class Boundary(Fixture):
         with (
             patch.dict(os.environ, {}, clear=True),
             patch(
-                "harness2.substrate.improver.Credentials.from_env",
+                "harness2.substrate.improver.ApiCredential.from_env",
                 side_effect=AssertionError("auth read"),
             ),
             patch("harness2.substrate.improver.Sandbox.run", side_effect=AssertionError("spawn")),
@@ -284,7 +284,6 @@ class Boundary(Fixture):
     def test_whole_launch_uses_fake_operator_key_without_copying_it(self):
         from harness2.core.clitools import CliReply
         from harness2.substrate.improver import run_isolated
-        from harness2.substrate.improver_auth import PLACEHOLDER
         from harness2.substrate.sandbox import ProcessResult
 
         token = "FAKE-OPERATOR-KEY-NOT-IN-CLIENT"
@@ -298,7 +297,7 @@ class Boundary(Fixture):
             self.assertEqual(work, self.work)
             self.assertEqual((controls / "mission.txt").read_text(), "mission")
             self.assertNotIn(token, str(command) + (controls / "settings.json").read_text())
-            self.assertEqual(kw["input_data"], PLACEHOLDER.encode())
+            self.assertNotIn("input_data", kw)
             self.assertEqual(command[0], "/opt/claude/claude")
             for arg in (
                 "--bare",
@@ -314,7 +313,12 @@ class Boundary(Fixture):
         spec = ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="api-key")
         with (
             patch.dict(
-                os.environ, {"HARNESS2_MOJO_LIVE_APPROVED": "1", "ANTHROPIC_API_KEY": token}
+                os.environ,
+                {
+                    "HARNESS2_MOJO_LIVE_APPROVED": "1",
+                    "HARNESS2_MOJO_IMPROVER_API_APPROVED": "1",
+                    "ANTHROPIC_API_KEY": token,
+                },
             ),
             patch("harness2.substrate.improver.config.CLAUDE_USE_VERTEX", False),
             patch("harness2.substrate.improver.config.CLAUDE_ISOLATION", "flags"),

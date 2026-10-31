@@ -51,7 +51,7 @@ class Broker(unittest.TestCase):
         h = {
             "x-api-key": PLACEHOLDER,
             "anthropic-version": "2023-06-01",
-            "anthropic-beta": "oauth-2025-04-20,fixture-new-capability",
+            "anthropic-beta": "fixture-new-capability",
             **(headers or {}),
         }
         # Send the small fixture atomically: a fail-fast HTTP/1.0 refusal may
@@ -74,9 +74,7 @@ class Broker(unittest.TestCase):
         from harness2.substrate.improver_broker import ApiBroker
 
         conn = self.upstream()
-        with ApiBroker(
-            self.path, mode="api-key", api_key=TOKEN, model="opus", _connection=lambda: conn
-        ) as broker:
+        with ApiBroker(self.path, api_key=TOKEN, model="opus", _connection=lambda: conn) as broker:
             status, headers, body = self.request()
             self.assertEqual(status, 200)
             self.assertIn(b"message_stop", body)
@@ -88,7 +86,7 @@ class Broker(unittest.TestCase):
         self.assertEqual(args, ("POST", "/v1/messages?beta=true"))
         self.assertEqual(json.loads(kw["body"])["model"], "claude-opus-4-6")
         self.assertEqual(kw["headers"]["x-api-key"], TOKEN)
-        self.assertEqual(kw["headers"]["anthropic-beta"], "oauth-2025-04-20,fixture-new-capability")
+        self.assertEqual(kw["headers"]["anthropic-beta"], "fixture-new-capability")
         self.assertNotIn("Authorization", kw["headers"])
         self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
 
@@ -97,7 +95,6 @@ class Broker(unittest.TestCase):
 
         with ApiBroker(
             self.path,
-            mode="api-key",
             api_key=TOKEN,
             model="opus",
             _connection=lambda: self.fail("unexpected forwarding"),
@@ -156,7 +153,7 @@ class Broker(unittest.TestCase):
             patch(
                 "harness2.substrate.improver_broker.http.client.HTTPSConnection", return_value=conn
             ) as factory,
-            ApiBroker(self.path, mode="api-key", api_key=TOKEN, model="opus"),
+            ApiBroker(self.path, api_key=TOKEN, model="opus"),
         ):
             self.assertEqual(self.request()[0], 200)
         factory.assert_called_once_with("api.anthropic.com", 443, timeout=5)
@@ -167,9 +164,7 @@ class Broker(unittest.TestCase):
         conn = self.upstream(chunks=[b"x" * 65])
         with (
             patch("harness2.substrate.improver_broker.MAX_RESPONSE", 64),
-            ApiBroker(
-                self.path, mode="api-key", api_key=TOKEN, model="opus", _connection=lambda: conn
-            ) as broker,
+            ApiBroker(self.path, api_key=TOKEN, model="opus", _connection=lambda: conn) as broker,
         ):
             status, _, body = self.request()
             self.assertEqual(status, 200)  # headers already sent; the unsafe stream is truncated
@@ -182,7 +177,6 @@ class Broker(unittest.TestCase):
         conn = self.upstream()
         with ApiBroker(
             self.path,
-            mode="api-key",
             api_key=TOKEN,
             model="opus",
             max_calls=1,
@@ -207,7 +201,6 @@ class Broker(unittest.TestCase):
         results = []
         with ApiBroker(
             self.path,
-            mode="api-key",
             api_key=TOKEN,
             model="opus",
             _connection=lambda: self.fail("queued request escaped"),
@@ -232,9 +225,7 @@ class Broker(unittest.TestCase):
 
         for status in (401, 413, 429, 503):
             conn = self.upstream(status)
-            with ApiBroker(
-                self.path, mode="api-key", api_key=TOKEN, model="opus", _connection=lambda: conn
-            ):
+            with ApiBroker(self.path, api_key=TOKEN, model="opus", _connection=lambda: conn):
                 actual, headers, body = self.request()
                 self.assertEqual(actual, status)
                 self.assertNotIn(TOKEN.encode(), body)
@@ -243,9 +234,7 @@ class Broker(unittest.TestCase):
             self.path.unlink()
         conn = self.upstream()
         conn.getresponse.side_effect = http.client.HTTPException(TOKEN)
-        with ApiBroker(
-            self.path, mode="api-key", api_key=TOKEN, model="opus", _connection=lambda: conn
-        ):
+        with ApiBroker(self.path, api_key=TOKEN, model="opus", _connection=lambda: conn):
             status, _, body = self.request()
             self.assertEqual(status, 502)
             self.assertNotIn(TOKEN.encode(), body)
@@ -254,9 +243,7 @@ class Broker(unittest.TestCase):
         from harness2.substrate.improver_broker import ApiBroker
 
         conn = self.upstream(chunks=[b"data: ", TOKEN[:8].encode(), TOKEN[8:].encode(), b"\n\n"])
-        with ApiBroker(
-            self.path, mode="api-key", api_key=TOKEN, model="opus", _connection=lambda: conn
-        ):
+        with ApiBroker(self.path, api_key=TOKEN, model="opus", _connection=lambda: conn):
             _, _, body = self.request()
             self.assertNotIn(TOKEN.encode(), body)
             self.assertNotIn(TOKEN[:8].encode(), body)
@@ -269,93 +256,37 @@ class Broker(unittest.TestCase):
             ("anthropic-ratelimit-unified-" + TOKEN, "allowed"),
             ("anthropic-ratelimit-unified-status", TOKEN),
         ]
-        with ApiBroker(
-            self.path, mode="api-key", api_key=TOKEN, model="opus", _connection=lambda: conn
-        ):
+        with ApiBroker(self.path, api_key=TOKEN, model="opus", _connection=lambda: conn):
             status, headers, body = self.request()
         self.assertEqual(status, 200)
         self.assertNotIn(TOKEN, repr(headers))
         self.assertNotIn(TOKEN.encode(), body)
 
-    def test_duplicate_authentication_is_rejected_in_both_modes(self):
+    def test_duplicate_key_or_any_bearer_is_rejected_before_upstream(self):
         from harness2.substrate.improver_broker import PLACEHOLDER, ApiBroker
 
-        for mode in ("subscription", "api-key"):
-            with ApiBroker(
-                self.path,
-                mode=mode,
-                api_key=TOKEN if mode == "api-key" else None,
-                model="opus",
-                _connection=lambda: self.fail("duplicate auth forwarded"),
-            ):
-                if mode == "subscription":
-                    h = {
-                        "x-api-key": None,
-                        "Authorization": "Bearer " + TOKEN + "\r\nAuthorization: Bearer " + TOKEN,
-                    }
-                else:
-                    h = {"x-api-key": PLACEHOLDER + "\r\nx-api-key: " + PLACEHOLDER}
-                self.assertEqual(self.request(headers=h)[0], 403)
-            self.path.unlink()
-
-    def test_subscription_has_no_configured_credential_and_passes_each_clients_headers(self):
-        from harness2.substrate.improver_broker import ApiBroker
-
-        connections = []
-
-        def connection():
-            conn = self.upstream()
-            connections.append(conn)
-            return conn
-
         with ApiBroker(
-            self.path, mode="subscription", model="opus", _connection=connection
+            self.path,
+            api_key=TOKEN,
+            model="opus",
+            _connection=lambda: self.fail("client authentication forwarded"),
         ) as broker:
-            for token in ("FAKE-SETUP-TOKEN-ONE", "FAKE-SETUP-TOKEN-TWO"):
-                status, _, _ = self.request(
-                    headers={"x-api-key": None, "Authorization": "Bearer " + token}
-                )
-                self.assertEqual(status, 200)
-                args, kw = connections[-1].request.call_args
-                self.assertEqual(args, ("POST", "/v1/messages?beta=true"))
-                self.assertEqual(kw["headers"]["Authorization"], "Bearer " + token)
-                self.assertNotIn("x-api-key", kw["headers"])
-                self.assertEqual(
-                    kw["headers"]["anthropic-beta"], "oauth-2025-04-20,fixture-new-capability"
-                )
-                self.assertEqual(kw["headers"]["anthropic-version"], "2023-06-01")
-                self.assertNotIn(token, repr(vars(broker)))
-            self.assertEqual(broker.calls, 2)
+            for headers in (
+                {"x-api-key": PLACEHOLDER + "\r\nx-api-key: " + PLACEHOLDER},
+                {"Authorization": "Bearer " + TOKEN},
+                {"x-api-key": None, "Authorization": "Bearer " + TOKEN},
+                {"x-api-key": TOKEN},
+            ):
+                self.assertEqual(self.request(headers=headers)[0], 403)
+            self.assertEqual(broker.calls, 0)
 
-    def test_subscription_refuses_mixed_auth_or_missing_oauth_capability(self):
+    def test_host_key_is_required_and_validated_before_bind(self):
         from harness2.substrate.improver_broker import ApiBroker
 
-        with ApiBroker(
-            self.path, mode="subscription", model="opus", _connection=lambda: self.fail("upstream")
-        ):
-            self.assertEqual(self.request()[0], 403)
-            self.assertEqual(self.request(headers={"Authorization": "Bearer " + TOKEN})[0], 403)
-            self.assertEqual(
-                self.request(
-                    headers={
-                        "x-api-key": None,
-                        "Authorization": "Bearer " + TOKEN,
-                        "anthropic-beta": "not-oauth",
-                    }
-                )[0],
-                400,
-            )
-
-    def test_broker_auth_configuration_is_explicit_and_validated_before_bind(self):
-        from harness2.substrate.improver_broker import ApiBroker
-
-        for mode, key in (
-            ("subscription", TOKEN),
-            ("off", None),
-            ("api-key", None),
-            ("api-key", TOKEN + "\n"),
-        ):
-            with self.subTest(mode=mode), self.assertRaises(ValueError) as err:
-                ApiBroker(self.path, mode=mode, api_key=key, model="opus")
+        with self.assertRaises(TypeError):
+            ApiBroker(self.path, model="opus")
+        for key in (None, "", True, TOKEN + "\n"):
+            with self.subTest(key_type=type(key).__name__), self.assertRaises(ValueError) as err:
+                ApiBroker(self.path, api_key=key, model="opus")
             self.assertNotIn(TOKEN, str(err.exception))
             self.assertFalse(self.path.exists())

@@ -53,7 +53,7 @@ class ChannelSpec:
         if self.sandbox == "mojo-claude" and self.kind != "claude_cli":
             raise ValueError("Mojo process sandbox supports only claude_cli; no host fallback")
         if (self.sandbox == "host" and self.auth_mode != "off") or (
-            self.sandbox == "mojo-claude" and self.auth_mode not in ("subscription", "api-key")
+            self.sandbox == "mojo-claude" and self.auth_mode != "api-key"
         ):
             raise ValueError("isolated improver requires an explicit auth mode; host uses off")
 

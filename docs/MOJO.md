@@ -18,13 +18,14 @@ This branch must be reviewed and authorized before a new live run. Item 5 adds
 the [whole-process improver sandbox](IMPROVER-SANDBOX.md), on a separate review
 branch. It does not modify the running job or authorize run 3.
 `HARNESS2_MOJO_IMPROVER_AUTH=off` is the default, retaining the existing trusted
-host improver. Opt-in `api-key` and `subscription` select the whole-process
-Claude sandbox; a failure never falls back to the host. API-key mode injects
-Adam's explicit operator key at the broker, with a placeholder in the client.
-Subscription passes through the native client's setup-token without broker
-injection and is **live-held** over tool-visible token exposure via `/proc`.
-The old saved-login reader and its tests are removed. See the sandbox document
-for the exact modes, fake-only evidence and outstanding trust decision.
+host improver. Only `api-key` selects the whole-process Claude sandbox; a failure
+never falls back to the host. It injects Adam's supplied key at the broker, with
+a placeholder in the client. It additionally requires
+`HARNESS2_MOJO_IMPROVER_API_APPROVED=1` for the separate per-token spending
+decision; the executor's generic live approval is insufficient. The old
+saved-login reader, subscription relay and their tests are removed. See the
+[auth decision](IMPROVER-AUTH-DECISION.md) for the archived `/proc` evidence and
+the sandbox document for the held B route and deferred real controls.
 
 ## Local setup and offline checks
 

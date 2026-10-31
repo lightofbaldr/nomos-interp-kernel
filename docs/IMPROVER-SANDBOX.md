@@ -5,26 +5,18 @@ authorization and no change to run 2.** No real credential or external model
 was used for this implementation. Legacy JobBench/LAB/WorkBuddy improver channels
 keep their old host execution path; they are not covered by this boundary.
 
-**Auth revision (2026-10-31): the existing-login reader is removed, including
-its tests.** Neither isolated mode discovers or reads saved Linux login files.
-There are exactly two explicit sandbox authentication modes, described below;
-`off` disables this sandbox and retains the original trusted host behavior.
-No real credential, live-provider request or live rollout tested this revision.
-
-**Subscription live hold:** the installed native client's Bash tool can read
-`CLAUDE_CODE_OAUTH_TOKEN` through the client's `/proc/<pid>/environ` and copy it
-into retained scratch. It does not need to inherit the variable itself. A fake
-credential canary demonstrated this. Pass-through does not change this boundary.
-The code-level `SUBSCRIPTION_TOOLS_REVIEWED=False` refuses subscription before
-credential loading or launch, even with the generic live flag. No environment
-override exists. Implementing/testing the protocol is not a claim that arbitrary
-model-written files cannot contain the token. Prime/Adam must decide that trust
-boundary before any subscription activation; API-key injection avoids giving
-the real credential to the sandbox.
+**API-key-only revision (2026-10-31):** the saved-login reader, subscription
+pass-through, token-delivery pipe and their tests are deleted. Subscription mode
+is rejected, not an offered route with a documentation caveat. See the
+[decision and archived `/proc` witness](IMPROVER-AUTH-DECISION.md). The one
+isolated route is host-held API-key injection; `off` retains the original trusted
+host behavior. No real credential, live-provider request or live rollout tested
+this revision. API mode remains held until Adam supplies a key and explicitly
+approves per-token spending.
 
 ## What runs where
 
-With `HARNESS2_MOJO_IMPROVER_AUTH=api-key` or `subscription`, Mojo's proposer,
+With `HARNESS2_MOJO_IMPROVER_AUTH=api-key`, Mojo's proposer,
 composer, selector and reflection use `ChannelSpec.sandbox = "mojo-claude"`.
 With the default `off`, they remain the original trusted host processes.
 An invalid selection or failed selected sandbox never falls back to host mode.
@@ -49,8 +41,8 @@ and their children, not every tool. [Claude sandbox scope](https://code.claude.c
   and reported for operator reconciliation. Do not delete/reuse it until the
   service is independently confirmed stopped. No automatic host-health action.
 - CLI settings are immutable mounts; hooks and configured plugins are disabled,
-  with an explicit empty MCP configuration. Subscription uses the isolation
-  flags, not `--bare`; API-key mode uses `--bare`. Built-in client tools/plugins
+  with an explicit empty MCP configuration. The client uses `--bare`.
+  Built-in client tools/plugins
   can still appear, depending on client version. Settings narrow behavior;
   the process namespace, not the client's tool list, is the security boundary.
 
@@ -58,7 +50,7 @@ The optional compiler/Pi mounts let the improver compile probes or test an
 extension against a mock **inside** its namespace. They give it no route to the
 real executor serve. Package downloads and direct WebFetch are blocked.
 
-## Explicit authentication modes and API-only network
+## Explicit admission and API-only network
 
 The namespace has no host networking. Its `127.0.0.1:8092` relay reaches one
 private Unix socket. The host gateway creates verified TLS connections only to
@@ -71,36 +63,34 @@ No CONNECT, redirects, token refresh, arbitrary paths or arbitrary models.
 
 - `off` (default): original trusted, unsandboxed improver. This is an operator
   selection, never a fallback after a sandbox/authentication failure.
-- `subscription`: Adam generates a token with `claude setup-token` and supplies
-  `CLAUDE_CODE_OAUTH_TOKEN`. If the live hold is separately resolved, the framework
-  passes it over a bounded anonymous stdin pipe into the sandbox entry, which
-  puts it in the native client's environment, not systemd/bwrap argv, settings
-  or run manifests. Framework transcripts redact literal echoes, not encoded
-  copies. The broker has **no
-  configured OAuth credential**: it forwards each client's Authorization value
-  and OAuth `anthropic-beta` capability unchanged; no injection, refresh or login
-  discovery. The real token is accessible to that client's sandboxed tools as
-  explained above. It is a model-request token, not a Remote Control/connector
-  credential. This mode must not use `--bare`.
 - `api-key`: Adam explicitly provides `ANTHROPIC_API_KEY` to the host process.
   The sandbox gets only an inert placeholder under that variable. The broker
   replaces the placeholder `x-api-key` with the host-held key. The client uses
   `--bare`. This is billed per token to the key's account, not the subscription.
 
-Selected credentials must be nonempty bounded ASCII values. Missing/malformed
-ones refuse without printing them. Other inherited credentials and provider/
+Selecting `api-key` alone is insufficient. Launch requires both
+`HARNESS2_MOJO_LIVE_APPROVED=1` and the separate
+`HARNESS2_MOJO_IMPROVER_API_APPROVED=1`, plus the supplied API key. The latter is
+Adam's explicit API-spend decision, not the executor's existing live approval.
+Without it, admission refuses before reading the key or starting the sandbox.
+The `.env.example` defaults are `off` and API approval `0`; this implementation
+does not set either flag or provision a key. A missing/malformed key after
+approval also refuses before launching anything. There is no fallback to host
+execution after an isolated admission or authentication failure.
+
+The supplied key must be a nonempty bounded ASCII value. Missing/malformed
+values refuse without printing them. Other inherited credentials and provider/
 proxy overrides never enter the namespace. The bridge forwards the original
 body and version/beta/user-agent headers but not cookies or client-selected Host.
-Mixed or duplicate authentication refuses. Subscription requires an OAuth beta
-capability; API-key mode requires the exact placeholder, not a supplied real key.
+Any Authorization header, duplicate authentication, or key other than the exact
+placeholder refuses. The broker always injects its own host-held key. There is
+no client-credential forwarding branch and no saved-login discovery.
 
 The native client runs with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. WebFetch
 preflight and fast-mode side requests cannot bypass the network namespace;
 there is no SOCKS route. These fakes test protocol wiring, not real-account
-acceptance or permission for live use. See [authentication/setup-token and bare
-mode](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token),
-[subscriptions and gateways](https://code.claude.com/docs/en/llm-gateway#subscriptions-and-gateways),
-and [gateway protocol](https://code.claude.com/docs/en/llm-gateway-protocol).
+acceptance or permission for live use. This is the API-key gateway design, not a
+subscription-login adapter.
 
 Model aliases permit only their own family; explicit Claude model IDs require
 an exact match. Aliases use the client's own resolution; explicit IDs also pin
@@ -193,18 +183,20 @@ route/model/budget, credential handling, streamed responses and closing races.
 `test_improver_namespace.py` is the separate tiny real namespace suite: private
 paths/environment/devices, network isolation, immutable controls, fake relay,
 output/timeout/descendant teardown, and native Claude calling its Bash tool
-against fake APIs in both modes (flags vs bare). It neither compiles nor invokes
-Pi or any real model. `test_improver_auth_modes.py` covers explicit selection,
-env-only credential sources, pipe delivery, literal redaction and the live hold.
+against a fake API-key gateway, with `--bare`. It neither compiles nor invokes
+Pi or any real model. `test_improver_api_key.py` covers B-only selection,
+env-only key supply, placeholder delivery, literal redaction, and independent
+API-spend admission. It also rejects the removed subscription selection.
 `test_improver_retention.py` covers the live hold, durable scratch, success,
 failure/retry/resume, missing or changed audit files, unknown teardown, refused
 partial streams and audit-write failure. The real native-client fake test also
 requires both a Bash `tool_use` and its `tool_result` in the retained stream.
 
 Before any live run: Prime's six pending namespace/compiler/Pi controls for
-items 1–4 still stand; review this delta, resolve the tool-token hold if choosing
-subscription, and separately obtain Adam's approval for a bounded credential/model
-check. Do not probe :8091, read saved login files, refresh
+items 1–4 still stand. The revised namespace/native-fake controls are also deferred
+until run 2's heldout phase is finished; this revision runs only the CPU-light
+offline suite. Review this delta, then separately obtain Adam's key and explicit
+API-spend approval for a bounded model check. Do not probe :8091, read saved login files, refresh
 credentials, install anything, or widen the gateway merely because a fake test
 passed. A rejected live request comes back with its status/diagnostic; no silent
 switch to the old host route.

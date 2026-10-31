@@ -69,8 +69,8 @@ class MojoAdapter:
             },
         )
         auth_mode = os.environ.get("HARNESS2_MOJO_IMPROVER_AUTH", "off")
-        if auth_mode not in ("off", "subscription", "api-key"):
-            raise ValueError("HARNESS2_MOJO_IMPROVER_AUTH must be off, subscription or api-key")
+        if auth_mode not in ("off", "api-key"):
+            raise ValueError("HARNESS2_MOJO_IMPROVER_AUTH must be off or api-key")
         channel = ChannelSpec(
             os.environ.get("HARNESS2_IMPROVER_CHANNEL", "claude_cli"),
             config.IMPROVER_MODEL,
@@ -104,7 +104,7 @@ class MojoAdapter:
             "improver_sandbox": (
                 "trusted-host"
                 if self.spec.channels["proposer"].auth_mode == "off"
-                else "mojo-claude-process-v2"
+                else "mojo-claude-api-key-v1"
             ),
             "improver_auth": self.spec.channels["proposer"].auth_mode,
         }

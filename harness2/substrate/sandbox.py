@@ -253,12 +253,9 @@ class Sandbox:
         timeout=240,
         broker=None,
         output_limit=4 * 1024 * 1024,
-        input_data=None,
     ) -> ProcessResult:
         if type(timeout) is not int or not 1 <= timeout <= 3600:
             raise ValueError("timeout must be 1..3600 seconds")
-        if input_data is not None and (type(input_data) is not bytes or len(input_data) > 4096):
-            raise ValueError("sandbox input must be bounded bytes")
         unit = "harness2-" + uuid.uuid4().hex
         cmd = [
             "/usr/bin/systemd-run",
@@ -287,7 +284,7 @@ class Sandbox:
         try:
             proc = subprocess.Popen(
                 cmd,
-                stdin=subprocess.DEVNULL if input_data is None else subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=HOST_ENV,
@@ -302,10 +299,6 @@ class Sandbox:
             with selectors.DefaultSelector() as sel:
                 for name in chunks:
                     sel.register(getattr(proc, name), selectors.EVENT_READ, name)
-                if input_data is not None:
-                    os.set_blocking(proc.stdin.fileno(), False)
-                    sel.register(proc.stdin, selectors.EVENT_WRITE, "input")
-                    pending_input = memoryview(input_data)
                 while sel.get_map():
                     if time.monotonic() >= next_scan:
                         next_scan = time.monotonic() + 0.5
@@ -316,19 +309,6 @@ class Sandbox:
                         reason = "timeout"
                         break
                     for key, _ in sel.select(timeout=0.1):
-                        if key.data == "input":
-                            try:
-                                if pending_input:
-                                    pending_input = pending_input[
-                                        os.write(key.fileobj.fileno(), pending_input) :
-                                    ]
-                            except BrokenPipeError:
-                                reason = "input_closed"
-                                break
-                            if not pending_input:
-                                sel.unregister(key.fileobj)
-                                key.fileobj.close()
-                            continue
                         data = os.read(key.fileobj.fileno(), 65536)
                         if not data:
                             sel.unregister(key.fileobj)
@@ -355,8 +335,6 @@ class Sandbox:
                     except ProcessLookupError:
                         pass
                 proc.wait(timeout=10)
-                if proc.stdin:
-                    proc.stdin.close()
                 proc.stdout.close()
                 proc.stderr.close()
         if reason is None and (proc.returncode < 0 or proc.returncode in (124, 137, 143)):

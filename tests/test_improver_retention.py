@@ -256,21 +256,21 @@ class ClientContract(unittest.TestCase):
                 self.assertFalse(reply.ok)
                 self.assertEqual(reply.transcript["reason"], reason)
 
-    def test_subscription_hold_refuses_even_with_generic_live_flag_before_auth_or_spawn(self):
+    def test_api_spend_hold_refuses_with_generic_live_flag_before_auth_or_spawn(self):
         from harness2.substrate.improver import run_isolated
 
         with (
-            patch.dict(os.environ, {"HARNESS2_MOJO_LIVE_APPROVED": "1"}),
+            patch.dict(os.environ, {"HARNESS2_MOJO_LIVE_APPROVED": "1"}, clear=True),
             patch("harness2.substrate.improver.runtime", side_effect=AssertionError("runtime")),
             patch(
-                "harness2.substrate.improver.Credentials.from_env",
+                "harness2.substrate.improver.ApiCredential.from_env",
                 side_effect=AssertionError("auth"),
             ),
-            self.assertRaisesRegex(ValueError, "subscription.*hold"),
+            self.assertRaisesRegex(ValueError, "API-key improver held"),
         ):
             run_isolated(
                 Path(tempfile.gettempdir()),
-                ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="subscription"),
+                ChannelSpec("claude_cli", "opus", sandbox="mojo-claude", auth_mode="api-key"),
                 "mission",
                 "",
                 10,

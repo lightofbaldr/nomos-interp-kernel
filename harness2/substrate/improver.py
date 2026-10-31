@@ -1,7 +1,7 @@
 """Whole-process Claude Code improver sandbox for the Mojo bench.
 
-No fallback from a selected sandbox to host execution. Subscription pass-through
-is code-held over tool-visible token exposure; protocol tests use fakes only.
+No fallback from a selected sandbox to host execution. The only isolated auth
+path is host-held API-key injection, requiring explicit operator spend approval.
 Compiler/Pi probes, native tools, hooks and subprocesses all remain sandboxed.
 """
 
@@ -15,16 +15,13 @@ from pathlib import Path
 
 from .. import config
 from ..core.clitools import CliReply, claude_argv, claude_system_args, parse_claude_result
-from .improver_auth import MODES, Credentials
+from .improver_auth import PLACEHOLDER, ApiCredential
 from .improver_broker import MAX_CALLS, MAX_TOKENS, ApiBroker
 from .improver_files import plain_directory
 from .sandbox import HOST_ENV, Sandbox, SandboxTeardownError
 
-POLICY = "mojo-claude-process-v2"
+POLICY = "mojo-claude-api-key-v1"
 ENTRY = Path(__file__).with_name("improver_entry.py")
-# Deliberately not an environment option. Changing this requires a reviewed
-# trust decision, not a caller carrying an executor's existing live flag.
-SUBSCRIPTION_TOOLS_REVIEWED = False
 
 
 class ImproverIdentityError(ValueError):
@@ -32,11 +29,8 @@ class ImproverIdentityError(ValueError):
 
 
 class ImproverSandbox(Sandbox):
-    def __init__(self, *, claude, controls=None, auth_mode="api-key", **kwargs):
-        if auth_mode not in MODES:
-            raise ValueError("invalid improver auth mode")
+    def __init__(self, *, claude, controls=None, **kwargs):
         super().__init__(**kwargs)
-        self.auth_mode = auth_mode
         self.claude = Path(claude).resolve(strict=True)
         # The supported install is the native Claude binary, not a host shell shim.
         with self.claude.open("rb") as file:
@@ -59,8 +53,8 @@ class ImproverSandbox(Sandbox):
             {
                 "policy": POLICY,
                 "network": "api.anthropic.com:443 Messages/count_tokens only",
-                "authentication": self.auth_mode,
-                "subscription_tools_reviewed": SUBSCRIPTION_TOOLS_REVIEWED,
+                "authentication": "api-key",
+                "spend_admission": "HARNESS2_MOJO_IMPROVER_API_APPROVED=1 plus supplied API key",
                 "audit": "retained private scratch; bounded stream-json stdout/stderr",
                 "max_api_calls": MAX_CALLS,
                 "max_output_tokens_per_call": MAX_TOKENS,
@@ -87,6 +81,7 @@ class ImproverSandbox(Sandbox):
             "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
             "CLAUDE_CONFIG_DIR": "/work/.home/.claude",
             "ANTHROPIC_BASE_URL": "http://127.0.0.1:8092",
+            "ANTHROPIC_API_KEY": PLACEHOLDER,
         }
         for key, value in env.items():
             args += ["--setenv", key, value]
@@ -110,8 +105,6 @@ class ImproverSandbox(Sandbox):
                 "/usr/bin/python3",
                 "-I",
                 "/runtime/improver-entry.py",
-                "--auth",
-                self.auth_mode,
                 "--",
                 *command,
             ]
@@ -157,7 +150,7 @@ class ImproverSandbox(Sandbox):
             raise SandboxTeardownError("improver supervision failed; stop and reconcile") from None
 
 
-def runtime(*, controls=None, auth_mode="api-key"):
+def runtime(*, controls=None):
     binary = shutil.which("claude")
     if not binary:
         raise ValueError("native Claude Code not installed; no host fallback")
@@ -171,22 +164,21 @@ def runtime(*, controls=None, auth_mode="api-key"):
     return ImproverSandbox(
         claude=Path(binary),
         controls=controls,
-        auth_mode=auth_mode,
         mojo=Path(os.environ.get("HARNESS2_MOJO_PREFIX", Path.home() / ".pixi/envs/mojo")),
         node=Path(shutil.which("node") or "/missing/node"),
         pi=pi,
     )
 
 
-def runtime_identity(*, auth_mode):
+def runtime_identity():
     """No authentication read, invocation, model request or GPU access."""
-    return runtime(auth_mode=auth_mode).identity()
+    return runtime().identity()
 
 
 def prepare_client(controls, spec, mission, system):
     """Immutable client inputs; shared with the native-client fake-API control."""
-    if spec.auth_mode not in MODES:
-        raise ValueError("explicit client auth mode required")
+    if spec.auth_mode != "api-key":
+        raise ValueError("isolated client supports API-key mode only")
     sys_arg, stdin = claude_system_args(system, mission)
     (controls / "mission.txt").write_text(stdin)
     settings = {
@@ -217,7 +209,7 @@ def prepare_client(controls, spec, mission, system):
         effort=spec.effort,
         system=sys_arg,
         skip_permissions=True,
-        isolation="flags" if spec.auth_mode == "subscription" else "bare",
+        isolation="bare",
         binary="/opt/claude/claude",
     )
     command[command.index("--output-format") + 1] = "stream-json"
@@ -272,36 +264,33 @@ def captured_reply(result):
 def run_isolated(cwd, spec, mission, system, wall, *, expected_identity=None):
     if os.environ.get("HARNESS2_MOJO_LIVE_APPROVED") != "1":
         raise ValueError("explicit live approval required for the improver")
-    if spec.kind != "claude_cli" or spec.sandbox != "mojo-claude":
+    if spec.kind != "claude_cli" or spec.sandbox != "mojo-claude" or spec.auth_mode != "api-key":
         raise ValueError("unsupported isolated improver channel")
-    if spec.auth_mode == "subscription" and not SUBSCRIPTION_TOOLS_REVIEWED:
-        raise ImproverIdentityError("subscription live route on hold: tool-visible token")
+    if os.environ.get("HARNESS2_MOJO_IMPROVER_API_APPROVED") != "1":
+        raise ImproverIdentityError("API-key improver held: explicit API-spend approval required")
     if config.CLAUDE_USE_VERTEX:
         raise ValueError("isolated Mojo improver supports Anthropic only; no provider fallback")
     if type(wall) is not int or not 1 <= wall <= 3600:
         raise ValueError("improver timeout must be 1..3600 seconds")
     if type(spec.steps) is not int or not 1 <= spec.steps <= MAX_CALLS:
         raise ValueError("improver turns must be 1..128")
-    auth = Credentials.from_env(spec.auth_mode)
+    auth = ApiCredential.from_env()
     cwd = plain_directory(cwd)
     with tempfile.TemporaryDirectory(prefix="h2-improver-controls-") as temp:
         controls = Path(temp)
-        sandbox = runtime(controls=controls, auth_mode=spec.auth_mode)
+        sandbox = runtime(controls=controls)
         identity = sandbox.identity()
         if expected_identity is not None and identity != expected_identity:
             raise ImproverIdentityError("improver runtime changed before launch")
         # No inherited settings, plugins or MCP servers. Hooks would still be
         # contained by the namespace, but disabling them also narrows behavior.
         command = prepare_client(controls, spec, mission, system)
-        with ApiBroker(
-            controls / "api.sock", mode=auth.mode, api_key=auth.broker_key(), model=spec.model
-        ) as broker:
+        with ApiBroker(controls / "api.sock", api_key=auth.secret, model=spec.model) as broker:
             result = sandbox.run(
                 cwd,
                 command,
                 timeout=wall,
                 broker=controls / "api.sock",
-                input_data=auth.client_input(),
             )
         if sandbox.identity() != identity:
             raise ImproverIdentityError("improver runtime changed during the attempt")

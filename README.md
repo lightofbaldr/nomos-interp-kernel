@@ -53,11 +53,12 @@ an optional, separately capped Muse Wonder call supplies a code-quality opinion.
 The Mojo Claude improver has opt-in [whole-process isolation](docs/IMPROVER-SANDBOX.md),
 including its tools and children, with retained scratch and tool transcripts.
 `HARNESS2_MOJO_IMPROVER_AUTH=off` is the default: the original **trusted,
-unsandboxed host improver**, not a sandbox fallback. The two isolated auth paths
-are `api-key` (host injection, client placeholder) and `subscription` (client-held
-setup-token pass-through). The old Linux-login reader is removed. Subscription
-live use remains code-held because tools can read the client's token through
-`/proc` and store it in retained scratch; env-only delivery does not prevent that.
+unsandboxed host improver**, not a sandbox fallback. The only isolated auth path
+is `api-key`: host injection, client placeholder, and `--bare`. It requires the
+separate `HARNESS2_MOJO_IMPROVER_API_APPROVED=1` spend opt-in plus Adam's supplied
+API key and the existing live approval. The saved-login and subscription relay
+paths are deleted, not hidden behind a warning; the
+[archived `/proc` witness](docs/IMPROVER-AUTH-DECISION.md) records why.
 Its offline tests and dry run need no model credentials. Live rollouts and paid
 calls remain held pending Adam's approval through Prime. The inherited benchmark
 launchers have not been retrofitted with this sandbox.

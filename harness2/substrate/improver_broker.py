@@ -1,8 +1,7 @@
-"""Fixed Messages gateway: subscription pass-through OR operator API-key injection.
+"""Fixed Messages gateway: operator API-key injection only.
 
-Subscription has no configured broker credential: each request carries the native
-client's own Authorization, forwarded unchanged along with its OAuth beta header.
-API-key mode replaces an inert client key with the operator's host-held key.
+Replace an inert client key with the operator's host-held API key. Client bearer
+credentials are refused, never forwarded. No subscription/pass-through mode.
 No login-file reader, refresh, alternate provider, redirect or proxy environment.
 """
 
@@ -13,7 +12,7 @@ import socket
 import threading
 from http.server import BaseHTTPRequestHandler
 
-from .improver_auth import MODES, PLACEHOLDER, check_secret
+from .improver_auth import PLACEHOLDER, check_secret
 from .model_broker import _Server
 
 MAX_BODY = 4 * 1024 * 1024
@@ -61,11 +60,8 @@ class _SecretGuard:
 
 
 class ApiBroker:
-    def __init__(self, path, *, mode, model, api_key=None, max_calls=MAX_CALLS, _connection=None):
-        if mode not in MODES or (mode == "subscription" and api_key is not None):
-            raise ValueError("invalid broker authentication mode")
-        if mode == "api-key":
-            check_secret(api_key)
+    def __init__(self, path, *, model, api_key, max_calls=MAX_CALLS, _connection=None):
+        check_secret(api_key)
         if type(max_calls) is not int or not 1 <= max_calls <= MAX_CALLS:
             raise ValueError("invalid improver call budget")
         if not (model in ("opus", "sonnet", "haiku") or model_allowed(model, model)):
@@ -122,29 +118,12 @@ class ApiBroker:
             def do_POST(self):
                 if self.path not in PATHS:
                     return self.refuse(404, "model API path is not allowed")
-                # Duplicate or mixed auth cannot choose a different credential.
-                # A subscription request's token is local to this handler, never
-                # configured on the broker or written to its diagnostics.
-                try:
-                    if mode == "subscription":
-                        values = self.headers.get_all("Authorization", [])
-                        if (
-                            len(values) != 1
-                            or not values[0].startswith("Bearer ")
-                            or self.headers.get_all("x-api-key")
-                        ):
-                            raise ValueError
-                        secret = check_secret(values[0][7:])
-                        auth = {"Authorization": values[0]}
-                    else:
-                        if self.headers.get_all("x-api-key") != [
-                            PLACEHOLDER
-                        ] or self.headers.get_all("Authorization"):
-                            raise ValueError
-                        secret = api_key
-                        auth = {"x-api-key": api_key}
-                except ValueError:
-                    return self.refuse(403, "authentication does not match selected mode")
+                # No client-supplied credential is ever sent upstream. Duplicate
+                # keys and any bearer header refuse before upstream admission.
+                if self.headers.get_all("x-api-key") != [PLACEHOLDER] or self.headers.get_all(
+                    "Authorization"
+                ):
+                    return self.refuse(403, "API-key placeholder authentication required")
                 if (
                     self.headers.get("Transfer-Encoding") is not None
                     or len(self.headers.get_all("Content-Length", [])) != 1
@@ -175,7 +154,7 @@ class ApiBroker:
                         raise ValueError
                     headers = {
                         "Content-Type": "application/json",
-                        **auth,
+                        "x-api-key": api_key,
                     }
                     for name in self.headers.keys():
                         lower = name.lower()
@@ -190,11 +169,6 @@ class ApiBroker:
                                 raise ValueError
                             headers[lower] = values[0]
                     if headers.get("anthropic-version") != "2023-06-01":
-                        raise ValueError
-                    if mode == "subscription" and not any(
-                        re.fullmatch(r"oauth-\d{4}-\d{2}-\d{2}", part.strip())
-                        for part in headers.get("anthropic-beta", "").split(",")
-                    ):
                         raise ValueError
                 except (ValueError, TypeError, OSError):
                     return self.refuse(400, "invalid or over-budget model request")
@@ -240,13 +214,13 @@ class ApiBroker:
                                     and re.fullmatch(r"[A-Za-z0-9-]+", name)
                                     and value.isascii()
                                     and all(32 <= ord(c) < 127 for c in value)
-                                    and secret not in value
-                                    and secret.lower() not in name.lower()
+                                    and api_key not in value
+                                    and api_key.lower() not in name.lower()
                                 ):
                                     self.send_header(name, value)
                         self.end_headers()
                         sent = True
-                        guard, total = _SecretGuard(secret), 0
+                        guard, total = _SecretGuard(api_key), 0
                         while chunk := response.read1(65536):
                             total += len(chunk)
                             if total > MAX_RESPONSE:

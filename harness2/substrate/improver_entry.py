@@ -1,10 +1,9 @@
-"""Read-only entry, inside the improver namespace.
+"""Read-only entry, inside the improver namespace. No real credentials live here.
 
 The only network peer is the mounted, host-side Messages gateway. All tools and
 descendants stay in this namespace and the supervising service's cgroup.
 """
 
-import os
 import selectors
 import socket
 import socketserver
@@ -58,39 +57,14 @@ class Server(socketserver.ThreadingTCPServer):
             self.slots.release()
 
 
-def client_env(mode, stream):
-    # No credential in argv, files, diagnostics or inherited host environment.
-    # The bounded anonymous input pipe closes before the model client starts.
-    raw = stream.read(4097)
-    if (
-        mode not in ("subscription", "api-key")
-        or not 16 <= len(raw) <= 4096
-        or any(not 32 < c < 127 for c in raw)
-    ):
-        raise ValueError("invalid improver client credential input")
-    token = raw.decode("ascii")
-    if mode == "api-key" and token != "harness2-inert-api-placeholder":
-        raise ValueError("API client requires placeholder, not a real key")
-    env = dict(os.environ)
-    for key in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
-        env.pop(key, None)
-    env["CLAUDE_CODE_OAUTH_TOKEN" if mode == "subscription" else "ANTHROPIC_API_KEY"] = token
-    return env
-
-
 def main():
-    if sys.argv[1:2] != ["--auth"] or sys.argv[3:4] != ["--"] or len(sys.argv) < 5:
-        return 2
-    try:
-        env = client_env(sys.argv[2], sys.stdin.buffer)
-    except (ValueError, OSError):
-        print("improver credential input refused", file=sys.stderr)
+    if sys.argv[1:2] != ["--"] or len(sys.argv) < 3:
         return 2
     with Server(("127.0.0.1", 8092), Relay) as proxy:
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         try:
             with open("/runtime/mission.txt", "rb") as mission:
-                return subprocess.call(sys.argv[4:], stdin=mission, env=env)
+                return subprocess.call(sys.argv[2:], stdin=mission)
         finally:
             proxy.shutdown()
 
