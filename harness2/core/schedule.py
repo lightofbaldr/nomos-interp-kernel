@@ -36,7 +36,7 @@ from . import library as library_store
 from . import recursion, runmark, selection
 from . import tree as harness_tree
 from .proposer import Proposer
-from .spec import BenchmarkAdapter, RunView
+from .spec import BenchmarkAdapter, RecordedRolloutFailure, RunView
 
 MODES = ("agg", "seq")
 MODE_NAMES = {"agg": "parallel", "seq": "sequential"}
@@ -499,6 +499,8 @@ def _roll_bases(
             return RunView(
                 label=label, run_id=rid, run_dir=rd, ok=True, delivered=adapter.delivered(rd)
             )
+        except RecordedRolloutFailure as exc:
+            return _dead(label, rid, exc.run_dir, str(exc))
         except Exception as exc:
             return _dead(label, rid, dead_dir, f"{type(exc).__name__}: {exc}")
 

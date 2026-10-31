@@ -100,6 +100,7 @@ class BenchPrompts:
     selection_lead: str = ""
     selection_conformance: str = "full"
     prompt_pack: str = "adapt"
+    executor_constraints: str = ""
 
     def __post_init__(self) -> None:
         if self.prompt_pack not in ("adapt", "tts"):
@@ -114,6 +115,7 @@ class BenchPrompts:
             "yardstick": self.yardstick,
             "domain_guidance": self.domain_guidance,
             "selection_checks": self.selection_checks,
+            "executor_constraints": self.executor_constraints,
         }
         for field_name, value in visible.items():
             low = value.lower()
@@ -190,6 +192,15 @@ class RunView:
     cost_usd: float = 0.0
     wall_s: float = 0.0
     error: str = ""
+
+
+class RecordedRolloutFailure(RuntimeError):
+    """A failed execution with a validated retained trajectory, never a deliverable."""
+
+    def __init__(self, run_dir: Path, reason: str):
+        self.run_dir = Path(run_dir)
+        self.reason = reason
+        super().__init__(f"Pi rollout failed or did not settle: {reason}")
 
 
 @runtime_checkable

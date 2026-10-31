@@ -31,7 +31,7 @@ from . import context, prompts
 from . import tree as harness_tree
 from .ledger import Ledger
 from .proposer import Proposer, ProposerError
-from .spec import BenchmarkAdapter, RunView, resolve_prompts
+from .spec import BenchmarkAdapter, RecordedRolloutFailure, RunView, resolve_prompts
 
 STAGE_ATTEMPTS = 2
 TRANSPORT_ATTEMPTS = config.TRANSPORT_ATTEMPTS
@@ -291,6 +291,15 @@ def _roll(
             ok=exists,
             delivered=exists and adapter.delivered(rd),
             error="" if exists else "adapter returned a missing run directory",
+        )
+    except RecordedRolloutFailure as exc:
+        rv = RunView(
+            label=label,
+            run_id=run_id,
+            run_dir=exc.run_dir,
+            ok=False,
+            delivered=False,
+            error=str(exc),
         )
     except Exception as exc:
         rv = RunView(

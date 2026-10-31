@@ -6,11 +6,17 @@ and Pi 1.3.0 substrate. Glimmer executes the task; the existing `claude_cli` or
 Muse Wonder is an optional code-quality opinion beside that outcome, never its
 replacement. Neither grade is fed back into the adaptation loop.
 
-**Delivery status: offline only.** No live Glimmer rollout, improver session, or
+**Original implementation delivery status: offline only.** No live Glimmer rollout, improver session, or
 paid Muse request was run for this implementation. Adam's approval, relayed by
 Prime, is required before the first live step. The serve's tool-name fix belongs
 to Prime; this runner does not strip or repair tool names. It never starts,
 stops, or restarts the serve.
+
+**2026-10-31 follow-ups (possible run 3):** items 1–4 below are offline-tested
+changes, not changes to run 2. Run 2 remains on `0a70ca2` and its unchanged method.
+This branch must be reviewed and authorized before a new live run. The larger
+improver-sandbox follow-up is separate; the boundary described below still covers
+the executor, not the improver.
 
 ## Local setup and offline checks
 
@@ -31,6 +37,12 @@ The sandbox tests use the real installed Pi binary against an ephemeral local
 fake HTTP/SSE model, not the running Glimmer serve. They also compile and run small
 fixture programs in the real no-network sandbox. The judge tests use a temporary
 fake key and fake HTTP API; they never load the real credential.
+
+During a reserved live run, use the lighter sequential regression instead:
+`OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 nice -n 10 .venv/bin/python -B scripts/check_mojo_followups_offline.py`.
+It excludes real sandbox/compiler/Pi integration jobs, retains the three
+broker-only controls, and blocks connections to :8091 or non-loopback hosts.
+It is not a substitute for the real sandbox suite before a live authorization.
 
 ```bash
 .venv/bin/harness2 --bench mojo --substrate pi --split train --k 1 --dry-run
@@ -125,6 +137,46 @@ confirm Prime's serve fix. Do not set a live flag until approval arrives.
    `harness2-judge --bench mojo --substrate pi --k 1` also plugs into the existing
    adaptation reports; do not use its feedback to choose a heldout harness.
 
+### Recorded failures and executor budgets
+
+`evaluate` continues after a **validated, recorded** unsuccessful rollout (such
+as a call-cap or context failure). The row has `rollout: failed`,
+`ground_truth.status: rollout_failed`, a FAIL outcome, the admitted model-call
+count, process return code and reason. No compiler grading or Muse call occurs
+for it, and resuming the same identity does not retry it. `report` includes these
+failures alongside completed runs. A processed evaluation can exit zero even
+when some task outcomes are FAIL; zero means processing succeeded, not that all
+programs passed.
+
+A directory with neither terminal record is **incomplete/unknown**, not FAIL.
+It is preserved without retry, represented with a null score, and makes evaluate
+and report exit 3. Contradictory complete/failed records, mismatched identities,
+changed evidence and unrecorded infrastructure exceptions still refuse rather
+than manufacturing a score. Resume requires the same runner/runtime identity;
+these changes do not authorize cross-version resume of a historical run.
+
+Failed trajectories are also available to the composer and post-adoption
+reflection, clearly marked as failed, with their reason and call count. They
+are evidence, not delivered programs or adoptable successful candidates. Private
+grader tests, reference programs and scores remain excluded from improver context.
+
+Mojo improver missions now state the executor's unchanged limits: **32 admitted
+model calls** (not tool calls, with admitted upstream failures counting),
+**32,768 context tokens** (`NOMOS_MAX_SEQ=32768`), no automatic compaction or retry,
+and the need to reserve room for verification and a final answer. These are the
+executor's limits, not the improver's own budget. The same constants configure
+Pi and the broker and are recorded in the rollout identity/launch. The serve's
+context setting remains operator-managed; no service configuration is changed.
+
+The fixed-route broker preserves upstream non-200 HTTP status (including 413),
+with a small JSON diagnostic made solely from the status and fixed wording.
+It does **not** forward upstream bodies, headers, redirects or exception text,
+which could contain credentials or echoed prompts. A 413 says request size or
+context limit exceeded; it does not pretend to distinguish those causes. Cap
+refusals say `call cap reached at 32`. The last broker diagnostic is retained
+with a failed rollout; where applicable it is explicitly described as the last
+broker error, not a proven causal explanation of every Pi error.
+
 Executor admission requires `HARNESS2_MOJO_LIVE_APPROVED=1`. Optional judging
 separately requires `HARNESS2_MUSE_APPROVED=1` and an explicit positive
 `HARNESS2_MUSE_MAX_CALLS` (maximum 100). The default is **no paid calls**. Each
@@ -183,6 +235,12 @@ Each rollout records its task/harness digest, fixed executor/sampling settings,
 selected runtime-file hashes, arguments, call count, process outcome and Pi
 events. Completion binds the exact harvested output set. Resume rechecks hashes
 and refuses partial/changed output; failed attempts are preserved, not retried.
+New `failed.json` version-2 records bind `launch.json`, `pi.jsonl` and `stderr.txt`;
+the reader re-derives their failure reason. Historical failure records remain
+readable only when their identity agrees with their launch and their duplicated
+stdout/stderr exactly match the saved files. That legacy check is not a
+retroactive hash binding: no historical file is rewritten. Unknown or
+contradictory failure schemas refuse.
 Compiler identity/control and Muse payload digest/rubric accompany their results.
 This records selected runtime files, **not a full hermetic dependency closure**.
 

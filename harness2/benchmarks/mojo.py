@@ -18,7 +18,15 @@ from ..core.spec import BenchPrompts, BenchSpec, ChannelSpec
 from ..substrate.pi import PI_SURFACE, PiSubstrate, render_events
 from ..substrate.sandbox import Sandbox
 from .mojo_grade import compiler_health, grade
-from .mojo_pi_runner import Runner, file_bytes, load_completed, write_json
+from .mojo_limits import EXECUTOR_CONSTRAINTS
+from .mojo_pi_runner import (
+    Runner,
+    failed_score,
+    file_bytes,
+    load_completed,
+    load_failed,
+    write_json,
+)
 from .mojo_tasks import Corpus
 
 BASE = {name: "" for name in PI_SURFACE.always_on} | {
@@ -71,6 +79,7 @@ class MojoAdapter:
                 work="write correct, clear Mojo 1.0 programs",
                 deliverable_word="program",
                 yardstick="satisfy the stated contract with simple, idiomatic code",
+                executor_constraints=EXECUTOR_CONSTRAINTS,
             ),
             {"proposer": channel, "selector": channel},
             leak_globs=("*grade*", "*judge*", "*reference*", "*heldout*"),
@@ -190,9 +199,16 @@ class MojoAdapter:
             return False
 
     def trajectory(self, run_dir, *, obs_trunc):
-        return render_events(run_dir / "pi.jsonl", obs_trunc=obs_trunc, max_chars=100_000)
+        prefix = ""
+        if (run_dir / "failed.json").is_file():
+            saved = load_failed(run_dir)
+            prefix = f"[ERROR] Failed rollout: {saved['reason']}; admitted model calls: {saved['model_calls']}\n"
+        return prefix + render_events(run_dir / "pi.jsonl", obs_trunc=obs_trunc, max_chars=100_000)
 
     def deliverable_text(self, run_dir):
+        if (run_dir / "failed.json").is_file():
+            load_failed(run_dir)
+            return ""  # A failed attempt's workspace is not a harvested deliverable.
         try:
             return file_bytes(run_dir / "solution.mojo").decode()
         except FileNotFoundError:
@@ -203,6 +219,11 @@ class MojoAdapter:
 
     def score(self, run_dir, task_id):
         task = self.corpus.tasks[task_id]
+        if (run_dir / "failed.json").is_file():
+            saved = load_failed(run_dir)
+            if saved["identity"]["task"] != task.sha256:
+                raise ValueError("wrong task for failed rollout")
+            return failed_score(saved)  # No compiler control or Muse request on this path.
         code = self.deliverable_text(run_dir)
         done = load_completed(run_dir)
         if done["identity"]["task"] != task.sha256:

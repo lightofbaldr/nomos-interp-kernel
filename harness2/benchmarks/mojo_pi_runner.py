@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import stat
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
 
 from ..core import tree as HT
+from ..core.spec import RecordedRolloutFailure
 from ..substrate.model_broker import MODEL, ModelBroker
 from ..substrate.pi import (
     PI_SURFACE,
@@ -21,6 +23,7 @@ from ..substrate.pi import (
     stream_usage,
 )
 from ..substrate.sandbox import Sandbox
+from .mojo_limits import CONTEXT_WINDOW, MODEL_CALL_LIMIT, OUTPUT_TOKENS
 from .mojo_tasks import Task
 
 
@@ -45,6 +48,8 @@ def file_bytes(path: Path, *, limit=1_048_576) -> bytes:
 
 
 def load_completed(run_dir: Path):
+    if (run_dir / "failed.json").exists():
+        raise ValueError("rollout has both complete and failed records")
     saved = json.loads(file_bytes(run_dir / "complete.json"))
     expected = {"pi.jsonl", "stderr.txt", "result.json"}
     if (run_dir / "solution.mojo").exists():
@@ -55,6 +60,118 @@ def load_completed(run_dir: Path):
         if hashlib.sha256(file_bytes(run_dir / name, limit=16 * 1024 * 1024)).hexdigest() != digest:
             raise ValueError("rollout output changed")
     return saved
+
+
+def failure_reason(process, calls, limit, usage, assistants, broker_error=None):
+    """Explain an observed unsuccessful terminal path, not a scientific grade."""
+    if process.get("reason"):
+        return str(process["reason"])[:512]
+    if process["returncode"] != 0:
+        return f"rollout process exited {process['returncode']}"
+    if usage["aborted"]:
+        return "Pi run aborted"
+    last = assistants[-1] if assistants else {}
+    if last.get("stopReason") == "error":
+        if broker_error:
+            if broker_error["code"] == "model_call_cap" and calls == limit:
+                return broker_error["message"]
+            return "terminal model error; last broker error: " + broker_error["message"]
+        error = str(last.get("errorMessage", ""))
+        if calls == limit and error.startswith("429 "):
+            return f"call cap reached at {limit}"
+        return "terminal model error: " + (error[:480] or "no detail recorded")
+    if not usage["settled"]:
+        return "Pi stream ended before agent_settled"
+    if not assistants or last.get("stopReason") not in ("stop", "length"):
+        return "Pi has no successful terminal assistant message"
+    raise ValueError("failed record contradicts the successful terminal process/stream")
+
+
+def assistant_messages(run_dir):
+    return [
+        e.get("message", {})
+        for e in parse_events(run_dir / "pi.jsonl")
+        if e.get("type") == "message_end" and e.get("message", {}).get("role") == "assistant"
+    ]
+
+
+def load_failed(run_dir: Path):
+    """Verify v2 bindings, or the legacy record's duplicated process bytes and launch.
+
+    Legacy records are read-only: no retroactive binding or rerun is performed.
+    """
+    if (run_dir / "complete.json").exists():
+        raise ValueError("rollout has both complete and failed records")
+    saved = json.loads(file_bytes(run_dir / "failed.json", limit=64 * 1024 * 1024))
+    launch = json.loads(file_bytes(run_dir / "launch.json"))
+    identity, process, calls = saved.get("identity"), saved.get("process"), saved.get("model_calls")
+    limit = launch.get("max_model_calls")
+    if (
+        not isinstance(identity, dict)
+        or identity != launch.get("identity")
+        or any(
+            not isinstance(identity.get(key), str)
+            or re.fullmatch(r"[a-f0-9]{64}", identity[key]) is None
+            for key in ("task", "harness")
+        )
+        or identity.get("model") != MODEL
+        or not isinstance(process, dict)
+        or type(process.get("returncode")) is not int
+        or type(limit) is not int
+        or not 1 <= limit <= 128
+        or type(calls) is not int
+        or not 0 <= calls <= limit
+    ):
+        raise ValueError("invalid failed rollout identity/process/call count")
+    names = {"launch.json", "pi.jsonl", "stderr.txt"}
+    contents = {name: file_bytes(run_dir / name, limit=16 * 1024 * 1024) for name in names}
+    broker_error = saved.get("broker_error")
+    if saved.get("v") == 2:
+        outputs = saved.get("outputs")
+        if not isinstance(outputs, dict) or set(outputs) != names:
+            raise ValueError("failed rollout does not bind the exact output set")
+        if any(hashlib.sha256(contents[name]).hexdigest() != outputs[name] for name in names):
+            raise ValueError("failed rollout output changed")
+        if broker_error is not None:
+            from ..substrate.model_broker import error_detail
+
+            if not isinstance(broker_error, dict) or broker_error != error_detail(
+                broker_error.get("status"), broker_error.get("code"), limit
+            ):
+                raise ValueError("invalid broker failure diagnostic")
+    elif "v" not in saved and "outputs" not in saved and broker_error is None:
+        for name, field in (("pi.jsonl", "stdout"), ("stderr.txt", "stderr")):
+            if not isinstance(process.get(field), str) or process[field].encode() != contents[name]:
+                raise ValueError("legacy failed rollout process bytes disagree")
+    else:
+        raise ValueError("unsupported failed rollout record")
+    reason = failure_reason(
+        process,
+        calls,
+        limit,
+        stream_usage(run_dir / "pi.jsonl"),
+        assistant_messages(run_dir),
+        broker_error,
+    )
+    if saved.get("v") == 2 and saved.get("reason") != reason:
+        raise ValueError("failed rollout reason contradicts its evidence")
+    return saved | {"reason": reason}
+
+
+def failed_score(saved):
+    return {
+        "n_passed": 0,
+        "n_criteria": 1,
+        "all_pass": False,
+        "ground_truth": {
+            "status": "rollout_failed",
+            "passed": False,
+            "task_sha256": saved["identity"]["task"],
+            "reason": saved["reason"],
+        },
+        "muse_quality": None,
+        "quality_not_in_ground_truth": True,
+    }
 
 
 def harness_tree(path: Path):
@@ -100,8 +217,8 @@ def prepare_agent(work: Path):
                             "name": "Glimmer",
                             "reasoning": True,
                             "input": ["text"],
-                            "contextWindow": 32768,
-                            "maxTokens": 8192,
+                            "contextWindow": CONTEXT_WINDOW,
+                            "maxTokens": OUTPUT_TOKENS,
                             "samplingParams": {"temperature": 0},
                             "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                         }
@@ -129,8 +246,18 @@ class Runner:
             "sandbox": "bwrap-model-only-v1",
             "runtime": self.sandbox.identity(),
             "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "budgets": {
+                "model_calls": MODEL_CALL_LIMIT,
+                "context_window": CONTEXT_WINDOW,
+                "output_tokens": OUTPUT_TOKENS,
+            },
         }
         if run_dir.exists():
+            if (run_dir / "failed.json").is_file():
+                saved = load_failed(run_dir)
+                if saved["identity"] != identity:
+                    raise ValueError("failed rollout identity changed")
+                raise RecordedRolloutFailure(run_dir, saved["reason"])
             done = run_dir / "complete.json"
             if not done.is_file():
                 raise ValueError("partial rollout exists; preserve it and choose a fresh run id")
@@ -178,25 +305,28 @@ class Runner:
         args = ["/opt/node/node", *args]
         write_json(
             run_dir / "launch.json",
-            {"identity": identity, "argv": args, "stdin": "DEVNULL", "max_model_calls": 32},
+            {
+                "identity": identity,
+                "argv": args,
+                "stdin": "DEVNULL",
+                "max_model_calls": MODEL_CALL_LIMIT,
+                "context_window": CONTEXT_WINDOW,
+            },
         )
         with tempfile.TemporaryDirectory(prefix="h2-model-") as private:
             socket = Path(private) / "model.sock"
-            with self.broker(socket, max_calls=32) as broker:
+            with self.broker(socket, max_calls=MODEL_CALL_LIMIT) as broker:
                 result = self.sandbox.run(
                     work, args, timeout=timeout, broker=socket, output_limit=16 * 1024 * 1024
                 )
                 calls = broker.calls
+                broker_error = getattr(broker, "last_failure", None)
         (run_dir / "pi.jsonl").write_text(result.stdout)
         (run_dir / "stderr.txt").write_text(result.stderr)
         usage = stream_usage(run_dir / "pi.jsonl")
         if self.sandbox.identity() != identity["runtime"]:
             raise RuntimeError("runtime changed during rollout; not completed")
-        assistants = [
-            e.get("message", {})
-            for e in parse_events(run_dir / "pi.jsonl")
-            if e.get("type") == "message_end" and e.get("message", {}).get("role") == "assistant"
-        ]
+        assistants = assistant_messages(run_dir)
         terminal_ok = bool(assistants) and assistants[-1].get("stopReason") in ("stop", "length")
         if (
             result.reason
@@ -205,11 +335,33 @@ class Runner:
             or usage["aborted"]
             or not terminal_ok
         ):
+            process = {
+                key: value
+                for key, value in asdict(result).items()
+                if key not in ("stdout", "stderr")
+            }
+            reason = failure_reason(
+                process, calls, MODEL_CALL_LIMIT, usage, assistants, broker_error
+            )
             write_json(
                 run_dir / "failed.json",
-                {"identity": identity, "process": asdict(result), "model_calls": calls},
+                {
+                    "v": 2,
+                    "identity": identity,
+                    "process": process,
+                    "model_calls": calls,
+                    "broker_error": broker_error,
+                    "reason": reason,
+                    "outputs": {
+                        name: hashlib.sha256(
+                            file_bytes(run_dir / name, limit=16 * 1024 * 1024)
+                        ).hexdigest()
+                        for name in ("launch.json", "pi.jsonl", "stderr.txt")
+                    },
+                },
             )
-            raise RuntimeError("Pi rollout failed or did not settle; not scored")
+            saved = load_failed(run_dir)
+            raise RecordedRolloutFailure(run_dir, saved["reason"])
         source = work / "solution.mojo"
         outputs = ["pi.jsonl", "stderr.txt", "result.json"]
         try:

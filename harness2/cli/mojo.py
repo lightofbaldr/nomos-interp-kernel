@@ -11,7 +11,47 @@ import os
 from pathlib import Path
 
 from ..benchmarks.mojo import MojoAdapter
-from ..benchmarks.mojo_pi_runner import harness_tree, load_completed, write_json
+from ..benchmarks.mojo_pi_runner import (
+    failed_score,
+    harness_tree,
+    load_completed,
+    load_failed,
+    write_json,
+)
+from ..core.spec import RecordedRolloutFailure
+
+
+def run_directories(root):
+    """Find rollout leaves without scanning their untrusted workspaces."""
+    if not root.exists():
+        return
+
+    def visit(path):
+        children = list(path.iterdir())
+        if any(child.is_symlink() for child in children):
+            raise ValueError("linked execution tree entry")
+        if path != root and (
+            not children or any(child.is_file() or child.name == "workspace" for child in children)
+        ):
+            yield path
+        else:
+            for child in sorted(children):
+                if child.is_dir():
+                    yield from visit(child)
+
+    yield from visit(root)
+
+
+def failure_row(task, run):
+    saved = load_failed(run)
+    return {
+        "task": task,
+        "rollout": "failed",
+        "model_calls": saved["model_calls"],
+        "returncode": saved["process"]["returncode"],
+        "reason": saved["reason"],
+        "score": failed_score(saved),
+    }
 
 
 def main(argv=None):
@@ -33,13 +73,39 @@ def main(argv=None):
     if args.action == "report":
         rows = []
         root = adapter.spec.runs_root / "executions"
-        for path in sorted(root.rglob("complete.json")):
-            done = load_completed(path.parent)
-            grade_path = path.parent / "mojo-grade.json"
+        for run in run_directories(root):
+            name = str(run.relative_to(root))
+            if (run / "failed.json").is_file():
+                saved = load_failed(run)
+                rows.append(
+                    {
+                        "run": name,
+                        "status": "rollout_failed",
+                        "ground_truth": False,
+                        "muse_quality": None,
+                        "model_calls": saved["model_calls"],
+                        "returncode": saved["process"]["returncode"],
+                        "reason": saved["reason"],
+                    }
+                )
+                continue
+            if not (run / "complete.json").is_file():
+                rows.append(
+                    {
+                        "run": name,
+                        "status": "incomplete",
+                        "ground_truth": None,
+                        "muse_quality": None,
+                        "reason": "no completed or failed record",
+                    }
+                )
+                continue
+            done = load_completed(run)
+            grade_path = run / "mojo-grade.json"
             if not grade_path.exists():
                 rows.append(
                     {
-                        "run": str(path.parent.relative_to(root)),
+                        "run": name,
                         "status": "not_graded",
                         "ground_truth": None,
                         "muse_quality": None,
@@ -54,15 +120,24 @@ def main(argv=None):
                 raise ValueError("grade belongs to a different task/program")
             rows.append(
                 {
-                    "run": str(path.parent.relative_to(root)),
+                    "run": name,
                     "status": truth["status"],
                     "ground_truth": truth["passed"],
                     "oracle": truth["oracle"],
                     "muse_quality": obj["muse_quality"],
                 }
             )
-        print(json.dumps({"rows": rows, "quality_not_in_ground_truth": True}, indent=2))
-        return 0
+        print(
+            json.dumps(
+                {
+                    "rows": rows,
+                    "quality_not_in_ground_truth": True,
+                    "rollout_failed_count": sum(r["status"] == "rollout_failed" for r in rows),
+                },
+                indent=2,
+            )
+        )
+        return 3 if any(r["status"] == "incomplete" for r in rows) else 0
     if args.harness is None:
         p.error("evaluate requires --harness (frozen, no heldout adaptation)")
     tree = harness_tree(args.harness)
@@ -100,8 +175,35 @@ def main(argv=None):
             != digest
         ):
             raise ValueError("frozen harness changed")
-        run = adapter.execute(task, args.harness, f"evaluate-{args.split}-{digest[:12]}/{task}")
-        rows.append({"task": task, "score": adapter.score(run, task)})
+        run_id = f"evaluate-{args.split}-{digest[:12]}/{task}"
+        run = adapter.spec.runs_root / "executions" / run_id
+        if run.exists() and not any(
+            (run / name).is_file() for name in ("complete.json", "failed.json")
+        ):
+            rows.append(
+                {
+                    "task": task,
+                    "rollout": "incomplete",
+                    "score": None,
+                    "reason": "no completed or failed record; preserved without retry",
+                }
+            )
+        else:
+            try:
+                run = adapter.execute(task, args.harness, run_id)
+            except RecordedRolloutFailure as exc:
+                if exc.run_dir != run:
+                    raise ValueError("failure points to a different rollout") from exc
+                rows.append(failure_row(task, run))
+            else:
+                rows.append(
+                    {"task": task, "rollout": "complete", "score": adapter.score(run, task)}
+                )
+        row = rows[-1]
+        status = (
+            row["score"].get("ground_truth", {}).get("status") if row["score"] else "incomplete"
+        )
+        print(f"{task}: rollout={row['rollout']} status={status}", flush=True)
     if (
         hashlib.sha256(json.dumps(harness_tree(args.harness), sort_keys=True).encode()).hexdigest()
         != digest

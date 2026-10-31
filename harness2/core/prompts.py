@@ -455,7 +455,10 @@ regression: it costs context and buys nothing."""
 
 
 def _work(bp: BenchPrompts) -> str:
-    return f"# THE WORK\n\n{bp.work.strip()}"
+    text = f"# THE WORK\n\n{bp.work.strip()}"
+    if bp.executor_constraints.strip():
+        text += f"\n\n# EXECUTOR BUDGET\n\n{bp.executor_constraints.strip()}"
+    return text
 
 
 def _lens(bp: BenchPrompts) -> str:
