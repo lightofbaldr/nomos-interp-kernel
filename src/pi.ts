@@ -11,6 +11,7 @@ export {
 	defineDoc,
 	defineEntry,
 	defineExtension,
+	defineTool,
 	GenerationTask,
 	Harness,
 	hook,
@@ -34,6 +35,8 @@ export type {
 	Storage,
 	StorageWrite,
 	Tx,
+	ToolExecutionApi,
+	ToolRegistration,
 } from "@earendil-works/pi-durable";
 export { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 export { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
