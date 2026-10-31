@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileToolsExtension } from "../src/file-tools.ts";
-import { emptyContent, FILE_TOOLS, validateContent } from "../src/profile-model.ts";
+import { emptyContent, SANDBOX_TOOLS, validateContent } from "../src/profile-model.ts";
 import { ProfileHost, profileExtension } from "../src/profile.ts";
 import { AgentDoc } from "../src/pi.ts";
 import { AGENT, entries, openAgent } from "./harness.ts";
@@ -9,10 +9,10 @@ import { ctx, fakeServe, chunk, waitFor } from "./support.ts";
 
 test("file catalog: fixed schemas, sequential calls, mutation replay unsafe; no shell or arbitrary tool names", () => {
   const ext = fileToolsExtension({ ready: async () => {}, execute: async () => ({ ok: true, text: "" }) });
-  assert.deepEqual(ext.tools!.map(t => t.name), FILE_TOOLS);
+  assert.deepEqual(ext.tools!.map(t => t.name), SANDBOX_TOOLS);
   for (const t of ext.tools!) {
     assert.equal(t.executionMode, "sequential");
-    assert.equal(t.replay, t.name === "write" || t.name === "edit" ? "unsafe" : "safe");
+    assert.equal(t.replay, t.name === "write" || t.name === "edit" || t.name === "mojo" ? "unsafe" : "safe");
     assert.deepEqual(t.callers, ["model"]);
     assert.equal((t.parameters as { additionalProperties?: boolean }).additionalProperties, false);
   }
@@ -61,5 +61,38 @@ test("text chat still works when isolation is missing; enabling tools fails befo
     assert.deepEqual(await profiles.get(chat), s);
     await (await profiles.submit(chat, "text only")).wait(ctx);
     assert.equal(serve.bodies[0].tools?.length ?? 0, 0);
+  } finally { await t.host.close(); await t.harness.close(ctx); await serve.close(); }
+});
+
+test("mojo is explicit, path-only and unsafe to replay; the broker receives the Pi conversation and cancellation signal", async () => {
+  const seen: unknown[] = [], signal = new AbortController().signal;
+  const ext = fileToolsExtension({ ready: async () => {}, execute: async (...args) => {
+    seen.push(args); return { ok: false, text: "compile failed" };
+  } });
+  const tool = ext.tools!.find(t => t.name === "mojo")!;
+  assert.equal(tool.replay, "unsafe");
+  assert.deepEqual(Object.keys((tool.parameters as any).properties), ["path"]);
+  assert.equal((tool.parameters as any).additionalProperties, false);
+  assert.deepEqual(emptyContent().tools, []);
+  const r = await tool.execute!({ path: "main.mojo" }, { conversationId: 12 } as any, { abortSignal: signal } as any);
+  assert.deepEqual(seen, [[12, "mojo", { path: "main.mojo" }, signal]]);
+  assert.equal((r as any).isError, true);
+});
+
+test("Mojo readiness is checked for the chosen tools before profile activation; file-only profiles do not require a compiler", async () => {
+  const selected: unknown[] = [];
+  const files = fileToolsExtension({ ready: async () => {}, execute: async () => ({ ok: true, text: "" }) });
+  const serve = await fakeServe(() => ({ chunks: [chunk("r", { content: "text" }), chunk("r", {}, "stop")] }));
+  const profiles = new ProfileHost(ctx, { tools: files.tools!, ready: async tools => {
+    selected.push(tools); if (tools?.includes("mojo")) throw Error("compiler unavailable");
+  } });
+  const t = await openAgent(serve.url, undefined, [files, profileExtension(profiles)]); profiles.attach(t.harness);
+  try {
+    const chat = await t.harness.root(ctx, { ...AGENT, agent: { ...AGENT.agent, tools: [] } });
+    const initial = await profiles.get(chat);
+    await assert.rejects(profiles.save(chat, initial.version, { ...emptyContent(), tools: ["mojo"] }), /compiler unavailable/);
+    assert.deepEqual(await profiles.get(chat), initial);
+    await profiles.save(chat, initial.version, { ...emptyContent(), tools: ["read"] });
+    assert.deepEqual(selected, [["mojo"], ["read"]]);
   } finally { await t.host.close(); await t.harness.close(ctx); await serve.close(); }
 });

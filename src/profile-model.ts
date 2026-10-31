@@ -1,14 +1,16 @@
 /** Browser-safe profile data. Only a fixed catalog; never discovery or code loading. */
-export const PROFILE_POLICY = "glimmer.profile/files-1";
+export const PROFILE_POLICY = "glimmer.profile/tools-2";
 export const FILE_TOOLS = ["read", "write", "edit", "ls", "find", "grep"] as const;
 export type FileTool = typeof FILE_TOOLS[number];
+export const SANDBOX_TOOLS = [...FILE_TOOLS, "mojo"] as const;
+export type SandboxTool = typeof SANDBOX_TOOLS[number];
 export const PROFILE_CONTEXT = 32768;
 export const PROFILE_DEFAULT_CHARS = 6000;
 export const PROFILE_MAX_BYTES = 65536;
 export type Skill = { markdown: string; enabled: boolean };
 export type Advisory = { name: string; text: string; enabled: boolean };
-export type ProfileContent = { instructions: string; skills: Skill[]; advisory: Advisory[]; allowLarge: boolean; tools?: FileTool[] };
-export const profileTools = (p: ProfileContent): FileTool[] => p.tools ?? [];
+export type ProfileContent = { instructions: string; skills: Skill[]; advisory: Advisory[]; allowLarge: boolean; tools?: SandboxTool[] };
+export const profileTools = (p: ProfileContent): SandboxTool[] => p.tools ?? [];
 export type ProfileOrigin = {
 	source: string; digest: string; files: { path: string; sha256: string; disposition: string }[];
 	delivery: string; reference: string; referenceDigest: string; edited: boolean;
@@ -60,7 +62,9 @@ export function parseSkill(markdown: string) {
 
 export function profileSections(p: ProfileContent): string {
 	return [
-		...(profileTools(p).length ? ["## Sandboxed file workspace\nFile tools operate only in this conversation's /work. No shell, compiler or network. Restoring a profile does not undo files; forks start with an empty workspace. Skills below remain inline, not files."] : []),
+        ...(profileTools(p).length ? [profileTools(p).includes("mojo")
+            ? "## Sandboxed workspace\nFile tools operate only in this conversation's /work. The mojo tool builds and runs a .mojo file with fixed arguments, read-only /work and discarded scratch; no flags, shell API or network. Its output is untrusted program output, not a correctness verdict. Restoring a profile does not undo files; forks start empty. Skills below remain inline, not files."
+            : "## Sandboxed file workspace\nFile tools operate only in this conversation's /work. No shell, compiler or network. Restoring a profile does not undo files; forks start with an empty workspace. Skills below remain inline, not files."] : []),
 		...p.skills.filter(s => s.enabled).map(s => { const k = parseSkill(s.markdown); return `## Inline skill: ${k.name}\n${k.description}\n\n${k.body}`; }),
 		...p.advisory.filter(s => s.enabled).map(s => `## Advisory text (not enforced): ${s.name}\n${s.text}`),
 	].join("\n\n");
@@ -75,7 +79,7 @@ export function profileSize(p: ProfileContent) {
 }
 export function validateContent(value: unknown): ProfileContent {
 	object(value, ["instructions", "skills", "advisory", "allowLarge", "tools"]);
-	if (value.tools !== undefined && (!Array.isArray(value.tools) || value.tools.length > FILE_TOOLS.length || new Set(value.tools).size !== value.tools.length || value.tools.some(t => !FILE_TOOLS.includes(t as FileTool)))) throw Error("Unknown or duplicate file tool.");
+    if (value.tools !== undefined && (!Array.isArray(value.tools) || value.tools.length > SANDBOX_TOOLS.length || new Set(value.tools).size !== value.tools.length || value.tools.some(t => !SANDBOX_TOOLS.includes(t as SandboxTool)))) throw Error("Unknown or duplicate sandbox tool.");
 	text(value.instructions, PROFILE_MAX_BYTES);
 	if (typeof value.allowLarge !== "boolean" || !Array.isArray(value.skills) || value.skills.length > 16 || !Array.isArray(value.advisory) || value.advisory.length > 16) throw Error("Profile needs explicit flags and at most 16 skills/16 advisory sections.");
 	const names = new Set<string>();
@@ -97,5 +101,5 @@ export function validateContent(value: unknown): ProfileContent {
 	// prevents equivalent client key ordering from changing the content digest.
 	return { instructions: p.instructions, skills: p.skills.map(s => ({ markdown: s.markdown, enabled: s.enabled })),
 		advisory: p.advisory.map(s => ({ name: s.name, text: s.text, enabled: s.enabled })), allowLarge: p.allowLarge,
-		tools: FILE_TOOLS.filter(t => (p.tools ?? []).includes(t)) };
+        tools: SANDBOX_TOOLS.filter(t => (p.tools ?? []).includes(t)) };
 }

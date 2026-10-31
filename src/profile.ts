@@ -5,7 +5,7 @@ import {
 	type Context, type Conversation, type ConversationId, type EntryId, type HarnessT, type HookApi, type Tx, type ToolRegistration,
 } from "./pi.ts";
 import { ReadoutStateDoc } from "./extension.ts";
-import { emptyContent, PROFILE_POLICY, profileSections, profileTools, validateContent, type ProfileContent, type ProfileOrigin, type ProfileRevision, type ProfileState, type ProfileUsed } from "./profile-model.ts";
+import { emptyContent, PROFILE_POLICY, profileSections, profileTools, validateContent, type SandboxTool, type ProfileContent, type ProfileOrigin, type ProfileRevision, type ProfileState, type ProfileUsed } from "./profile-model.ts";
 
 export const ProfileDoc = defineDoc<ProfileState>({ kind: "glimmer.profile", version: 1, scope: "conversation", history: "rewindable", fork: "asOf", initial: () => ({ owner: 0, version: 0, active: null, pending: null }) });
 export const ProfileChanged = defineEntry<{ action: string; version: number; active: ProfileRevision; pending: ProfileRevision | null }>("glimmer.profile.changed");
@@ -33,10 +33,10 @@ export class ProfileHost {
 	#harness!: HarnessT;
 	#context: Context;
 	#locks = new Map<number, Promise<void>>();
-	private toolAccess?: { ready(): Promise<void>; tools: readonly ToolRegistration[] };
-	constructor(context: Context, toolAccess?: { ready(): Promise<void>; tools: readonly ToolRegistration[] }) { this.#context = context; this.toolAccess = toolAccess; }
+    private toolAccess?: { ready(tools?: readonly SandboxTool[]): Promise<void>; tools: readonly ToolRegistration[] };
+    constructor(context: Context, toolAccess?: { ready(tools?: readonly SandboxTool[]): Promise<void>; tools: readonly ToolRegistration[] }) { this.#context = context; this.toolAccess = toolAccess; }
 	async #tools(content: ProfileContent) {
-		if (profileTools(content).length) { if (!this.toolAccess) throw Error("Sandboxed tools unavailable."); await this.toolAccess.ready(); }
+        if (profileTools(content).length) { if (!this.toolAccess) throw Error("Sandboxed tools unavailable."); await this.toolAccess.ready(profileTools(content)); }
 	}
 	attach(harness: HarnessT) { this.#harness = harness; }
 	async #locked<T>(id: number, work: () => Promise<T>): Promise<T> {

@@ -114,7 +114,7 @@ $HOME/Projects/glimmer-emotions/scripts/with_serve_down.sh \
 The isolated daemon/serve use port 8191. Success requires `PI E2E OK`, true exit zero, and production serve restoration,
 not merely an HTTP response. The test asserts actual second-turn KV reuse, both readouts on every generated record,
 two complete turn records through the bridge and no host errors. Never run it through `tools/sp1_env.sh`.
-# Agent profiles (workbench slices A/B)
+# Agent profiles (workbench slices A–C)
 
 `profile` provides `ProfileHost`, `ProfileDoc` and `profileExtension`;
 `profile-model` is browser-safe validation/rendering. Install the profile extension
@@ -137,7 +137,7 @@ revision; forks inherit the applied profile and discard pending drafts. No files
 rewind is implied.
 
 `fileToolsExtension(broker)` registers only `read`, `write`, `edit`, `ls`, `find`
-and `grep`. Supply these same registrations and `ready()` to `ProfileHost`'s
+and `grep`, plus the explicit `mojo` build/run capability. Supply these same registrations and `ready(tools)` to `ProfileHost`'s
 optional tool-access argument. Native `configure` receives registrations and Pi
 stores their names. Enabling tools or starting a tool-enabled run requires the
 broker's isolation preflight; no broker means text-only operation still works.
@@ -145,7 +145,12 @@ The fixed tool implementations delegate to the supplied broker, not a Pi host
 ExecutionEnv. Glimmer Lab supplies the reviewed bwrap broker; **this adapter alone
 is not a sandbox**. Never supply an unsandboxed broker.
 
-Calls run sequentially; write/edit use Pi's `unsafe` recovery policy, and reads
+Mojo accepts only a `.mojo` workspace path: fixed build/run argv, no user flags,
+arguments or environment. The broker supplies the compiler and checks it separately;
+file-only profiles do not require a compiler. Glimmer Lab makes `/work` read-only
+during build/run and discards scratch. Tool output is not a correctness verdict.
+
+Calls run sequentially; write/edit/mojo use Pi's `unsafe` recovery policy, and reads
 use `safe`. Cancellation is passed through the invocation's abort signal. The
 broker must stop and join its complete service group before settling. Pending
 profile changes do not replace tools between model/tool rounds. Historical
