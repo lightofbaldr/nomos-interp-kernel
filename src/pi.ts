@@ -5,6 +5,8 @@
 import { Harness } from "@earendil-works/pi-durable";
 
 export {
+	AgentDoc,
+	configure,
 	createRegistry,
 	defineDoc,
 	defineEntry,
@@ -13,7 +15,10 @@ export {
 	Harness,
 	hook,
 	MemoryStorage,
+	LiveDoc,
+	InboxDoc,
 	ProviderDoc,
+	section,
 	watchEvents,
 } from "@earendil-works/pi-durable";
 export type {
@@ -28,6 +33,7 @@ export type {
 	SnapshotEvent,
 	Storage,
 	StorageWrite,
+	Tx,
 } from "@earendil-works/pi-durable";
 export { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 export { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";

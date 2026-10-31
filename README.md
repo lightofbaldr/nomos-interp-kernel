@@ -114,3 +114,24 @@ $HOME/Projects/glimmer-emotions/scripts/with_serve_down.sh \
 The isolated daemon/serve use port 8191. Success requires `PI E2E OK`, true exit zero, and production serve restoration,
 not merely an HTTP response. The test asserts actual second-turn KV reuse, both readouts on every generated record,
 two complete turn records through the bridge and no host errors. Never run it through `tools/sp1_env.sh`.
+# Text-only profiles (workbench slice A)
+
+`profile` provides `ProfileHost`, `ProfileDoc` and `profileExtension`;
+`profile-model` is browser-safe validation/rendering. Install the profile extension
+after the readout extension, attach both hosts, and route **all** managed submissions
+and edits through `ProfileHost`. Direct `Conversation.configure/submit` calls bypass
+the application admission lock and are not supported for managed profiles.
+
+Skills render inline before native Pi instructions. No tools are registered or
+enabled; no files, home directories or extensions are discovered. The default
+rendered-text budget is 6,000 characters, with an explicit larger-profile override
+and a 64 KiB hard rendered limit. The character/4 token figure is an estimate, not
+tokenization or a measurement of total context usage.
+
+Edits during a complete model/tool run remain pending until the next user submission.
+Activation atomically updates Pi's agent document, the rewindable profile and a
+non-model change entry. Each prepared request records the profile as-of its cutoff,
+with task/attempt and a readout request ID when present. Metadata never enters model
+context. Legacy turns without a record remain unrecorded. Restore makes a new
+revision; forks inherit the applied profile and discard pending drafts. No filesystem
+rewind is implied.
