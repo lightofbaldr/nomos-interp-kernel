@@ -88,5 +88,8 @@ export function validateContent(value: unknown): ProfileContent {
 	const p = value as ProfileContent, size = profileSize(p);
 	if (size.bytes > PROFILE_MAX_BYTES || bytes(JSON.stringify(p)) > 131072) throw Error("Profile exceeds the hard text/storage limit.");
 	if (size.characters > PROFILE_DEFAULT_CHARS && !p.allowLarge) throw Error("Profile exceeds 6,000 rendered characters. Explicitly allow a larger profile first.");
-	return structuredClone(p);
+	// Construct plain data, including when the caller is a reactive UI proxy. Stable field order also
+	// prevents equivalent client key ordering from changing the content digest.
+	return { instructions: p.instructions, skills: p.skills.map(s => ({ markdown: s.markdown, enabled: s.enabled })),
+		advisory: p.advisory.map(s => ({ name: s.name, text: s.text, enabled: s.enabled })), allowLarge: p.allowLarge };
 }

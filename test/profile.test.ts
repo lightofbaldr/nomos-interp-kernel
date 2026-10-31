@@ -19,6 +19,8 @@ test("profile model: sizes, restricted frontmatter and disabled/duplicate skills
 	assert.equal(parseSkill("---\nname: n\ndescription: >-\n  two\n  lines\n---\nbody").description, "two lines");
 	for (const value of ["bad", skill.markdown.replace("name:", "hooks:"), skill.markdown.replace("Count precisely", "&alias unsafe")]) assert.throws(() => parseSkill(value));
 	const p = { ...emptyContent("base"), skills: [skill] }; assert.equal(validateContent(p).skills.length, 1);
+	assert.deepEqual(validateContent(new Proxy(p, {})), p);
+	assert.equal(profileDigest(validateContent({ allowLarge: false, advisory: [], skills: [skill], instructions: "base" })), profileDigest(validateContent(p)));
 	assert.throws(() => validateContent({ ...p, skills: [skill, skill] }), /Duplicate/);
 	assert.throws(() => validateContent({ ...p, tools: ["bash"] }), /Unknown/);
 	assert.throws(() => validateContent(emptyContent("x".repeat(6000))), /6,000/);
