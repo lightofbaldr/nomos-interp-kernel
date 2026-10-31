@@ -54,9 +54,10 @@ async function scan(handle:FileHandle){
           if(!before.isFile()||before.nlink!==1||before.size>LIMIT.file)throw Error('Import requires bounded regular, non-linked files.');
           const data=await readBounded(child);total+=data.length;if(total>LIMIT.total)throw Error('Import exceeds 2 MiB.');
           if(identity(before)!==identity(await child.stat()))throw Error('Import file changed while reading.');
-          const disposition=kind(rel);
+          let disposition=kind(rel);
           const text=disposition.startsWith('omitted')?'':new TextDecoder('utf-8',{fatal:true}).decode(data);
           if(text.includes('\0'))throw Error('Imported text contains a NUL.');
+          if(data.length===0||!disposition.startsWith('omitted')&&!text.trim())disposition='omitted (empty)';
           files.push({path:rel,sha256:hash(data),bytes:data.length,text,identity:identity(before),disposition});
         }
       }finally{await child.close();}
@@ -75,7 +76,7 @@ export async function snapshotHarness(root:string,relative:string,afterRead?:()=
       if(JSON.stringify(opened.ids)!==JSON.stringify(again.ids)||JSON.stringify(files)!==JSON.stringify(await scan(again.handle)))throw Error('Import source changed. Preview refused.');
     }finally{await again.close();}
     const prompt=files.find(f=>f.path==='systemprompt.md');if(!prompt)throw Error('Harness needs systemprompt.md.');
-    const content=emptyContent(prompt.text);
+    const content=emptyContent(prompt.disposition==='omitted (empty)'?'':prompt.text);
     for(const f of files){
       if(f.disposition==='inline skill'){parseSkill(f.text);content.skills.push({markdown:f.text,enabled:true});}
       if(f.disposition==='advisory text')content.advisory.push({name:f.path,text:f.text,enabled:true});

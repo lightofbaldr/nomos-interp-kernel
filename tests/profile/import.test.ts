@@ -67,3 +67,13 @@ test('oversized preview needs explicit opt-in and malformed/duplicate skills ref
     await assert.rejects(snapshotHarness(f.root,'h'),/Duplicate/);
   }finally{await f.close();}
 });
+test('empty or whitespace-only advisory, skill and extension files are omitted, never empty prompt headings',async()=>{
+  const f=await fixture();try{
+    await writeFile(f.root+'/h/systemprompt.md',' \n');await writeFile(f.root+'/h/guardrails.md','');await writeFile(f.root+'/h/tool_descriptions/tool_guidance.md',' \n\t');
+    await writeFile(f.root+'/h/skills/careful/SKILL.md','  ');await writeFile(f.root+'/h/extensions/malicious.ts','');
+    const p=await createImporter([f.root]).preview('1',1,emptyContent(),0,'h');
+    for(const name of ['systemprompt.md','guardrails.md','tool_descriptions/tool_guidance.md','skills/careful/SKILL.md','extensions/malicious.ts'])assert.equal(p.files.find(f=>f.path===name)?.disposition,'omitted (empty)');
+    assert.equal(p.content.advisory.length,1);assert.equal(p.content.skills.length,0);assert.equal(p.extensions.length,0);
+    assert.doesNotMatch(p.after,/guardrails.md|tool_guidance.md|<instructions>/);
+  }finally{await f.close();}
+});
