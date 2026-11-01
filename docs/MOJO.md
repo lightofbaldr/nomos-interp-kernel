@@ -29,6 +29,14 @@ saved-login reader, subscription relay and their tests are removed. See the
 [auth decision](IMPROVER-AUTH-DECISION.md) for the archived `/proc` evidence and
 the sandbox document for the held B route and deferred real controls.
 
+**Additional login-tools route:** `HARNESS2_IMPROVER_MODE=login-tools` selects
+[host CC with only the scoped harness2 tools](CC-SESSION-IMPROVER.md). Leave
+`HARNESS2_MOJO_IMPROVER_AUTH=off`; simultaneous API-key selection refuses.
+It needs the existing live approval, not API-spend approval. Context is read-only,
+candidate edits use `workspace/harness`, and only Mojo probes execute in bwrap.
+The CLI itself is not OS-sandboxed. This route is an offline-tested method change
+with a separately opt-in, still-unrun subscription control.
+
 ## Local setup and offline checks
 
 Use Python 3.12, Pi 1.3.0, Node, Mojo 1.x, bubblewrap with user-namespace disabling,

@@ -64,6 +64,13 @@ Its offline tests and dry run need no model credentials. Live rollouts and paid
 calls remain held pending Adam's approval through Prime. The inherited benchmark
 launchers have not been retrofitted with this sandbox.
 
+A separate [CC-session tool policy](docs/CC-SESSION-IMPROVER.md) is available for
+review as `HARNESS2_IMPROVER_MODE=login-tools` (Mojo only). It uses the CLI's normal
+subscription login, disables built-in tools and exposes four bounded harness2
+MCP tools; only Mojo probes run in bwrap. **The CC process stays on the host.**
+Defaults and the API-key sandbox are unchanged; the real login control and any
+run remain held pending review/approval.
+
 ## Video overview
 
 https://github.com/user-attachments/assets/76b10548-b14b-4c8f-9aa5-a93662df4d56

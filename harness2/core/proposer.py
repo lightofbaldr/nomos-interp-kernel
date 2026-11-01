@@ -201,8 +201,11 @@ class Proposer:
         wall = int(timeout or self.spec.timeout)
         isolation = None
         snapshot = None
-        if self.spec.sandbox == "mojo-claude":
-            from ..substrate.improver import runtime_identity
+        if self.spec.sandbox in ("mojo-claude", "login-tools"):
+            if self.spec.sandbox == "login-tools":
+                from ..substrate.login_tools import runtime_identity
+            else:
+                from ..substrate.improver import runtime_identity
             from ..substrate.improver_files import read_tree
 
             if not self.audit_dir:
@@ -236,7 +239,8 @@ class Proposer:
 
             def channel(cwd, mission, system, wall):
                 return self._claude_cli(
-                    cwd, mission, system, wall, sandbox_identity=isolation["runtime"]
+                    cwd, mission, system, wall, sandbox_identity=isolation["runtime"],
+                    require_harness_write=bool(harvest),
                 )
 
         last = ""
@@ -273,6 +277,11 @@ class Proposer:
                     from ..substrate.improver_files import write_tree
 
                     write_tree(snapshot, tmp / "context")
+                    if self.spec.sandbox == "login-tools":
+                        (tmp / "workspace").mkdir(mode=0o700)
+                        # Immutable context evidence, separate writable candidate.
+                        write_tree({k.removeprefix("harness/"): v for k, v in snapshot.items()
+                                    if k.startswith("harness/")}, tmp / "workspace/harness")
                 elif context_dir and Path(context_dir).is_dir():
                     shutil.copytree(context_dir, tmp / "context", dirs_exist_ok=True)
                 with _SEM if _SEM is not None else contextlib.nullcontext():
@@ -299,7 +308,12 @@ class Proposer:
                     usage=dict(reply.usage),
                 )
                 if harvest:
-                    r.workspace = self._harvest(tmp, harvest, label, cache_key)
+                    target = harvest
+                    if self.spec.sandbox == "login-tools":
+                        if harvest != "context/harness":
+                            raise ValueError("login-tools supports only the candidate harvest")
+                        target = "workspace/harness"
+                    r.workspace = self._harvest(tmp, target, label, cache_key)
                     if r.workspace is None:
                         _drop_workspace(self._paths(label, cache_key))
                 outcome = "accepted"
@@ -369,7 +383,15 @@ class Proposer:
         wall: int,
         *,
         sandbox_identity: dict | None = None,
+        require_harness_write: bool = False,
     ) -> CliReply:
+        if self.spec.sandbox == "login-tools":
+            from ..substrate.login_tools import run_login_tools
+
+            return run_login_tools(
+                cwd, self.spec, mission, system, wall, expected_identity=sandbox_identity,
+                require_harness_write=require_harness_write,
+            )
         if self.spec.sandbox == "mojo-claude":
             from ..substrate.improver import run_isolated
 

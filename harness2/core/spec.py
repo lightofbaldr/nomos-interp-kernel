@@ -48,11 +48,11 @@ class ChannelSpec:
     def __post_init__(self) -> None:
         if self.kind not in CHANNELS:
             raise ValueError(f"unknown channel {self.kind!r}; expected one of {CHANNELS}")
-        if self.sandbox not in ("host", "mojo-claude"):
+        if self.sandbox not in ("host", "mojo-claude", "login-tools"):
             raise ValueError("unknown improver sandbox policy")
-        if self.sandbox == "mojo-claude" and self.kind != "claude_cli":
-            raise ValueError("Mojo process sandbox supports only claude_cli; no host fallback")
-        if (self.sandbox == "host" and self.auth_mode != "off") or (
+        if self.sandbox != "host" and self.kind != "claude_cli":
+            raise ValueError("restricted improver supports only claude_cli; no host fallback")
+        if (self.sandbox in ("host", "login-tools") and self.auth_mode != "off") or (
             self.sandbox == "mojo-claude" and self.auth_mode != "api-key"
         ):
             raise ValueError("isolated improver requires an explicit auth mode; host uses off")

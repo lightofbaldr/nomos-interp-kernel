@@ -109,6 +109,11 @@ class AttemptAudit:
             "transcript_scope": "bounded UTF-8-decoded stdout/stderr; not a completeness guarantee",
             "scratch": "work/ retained, mutable and untrusted; not followed or hash-bound",
         }
+        controls = self.path / "login-tools"
+        if controls.exists():
+            from .login_tools import verify_session
+
+            doc["tool_audit_sha256"] = verify_session(controls, accepted=outcome == "accepted")
         digest = _put(self.path / "finished.json", _json(doc))
         fd = os.open(self.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
@@ -145,4 +150,14 @@ def load_attempt(root, ref):
     for name, digest in doc["bindings"].items():
         if _sha(read_file(path / name, max_bytes=MAX_STREAM_BYTES)) != digest:
             raise ValueError("improver audit input or transcript changed")
+    started = json.loads(read_file(path / "started.json"))
+    login_tools = started.get("sandbox", {}).get("channel", {}).get("sandbox") == "login-tools"
+    if login_tools and doc.get("outcome") == "accepted" and not doc.get("tool_audit_sha256"):
+        raise ValueError("accepted login-tools attempt has no tool audit")
+    if "tool_audit_sha256" in doc:
+        from .login_tools import verify_session
+
+        actual = verify_session(path / "login-tools", accepted=doc.get("outcome") == "accepted")
+        if actual != doc["tool_audit_sha256"]:
+            raise ValueError("login-tools session changed")
     return doc

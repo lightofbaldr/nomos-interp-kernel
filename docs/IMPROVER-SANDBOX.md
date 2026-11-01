@@ -1,5 +1,10 @@
 # Mojo improver: whole-process sandbox
 
+This document describes the unchanged API-key route. The separately selected
+[login-tools mode](CC-SESSION-IMPROVER.md) keeps CC on the host and is **not** this
+whole-process boundary. Neither it nor this route reads or relays stored login
+credentials through a broker.
+
 2026-10-31, follow-up 5, after the items 1–4 review. **Review branch, no live
 authorization and no change to run 2.** No real credential or external model
 was used for this implementation. Legacy JobBench/LAB/WorkBuddy improver channels

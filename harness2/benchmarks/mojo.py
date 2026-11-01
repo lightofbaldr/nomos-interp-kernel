@@ -71,10 +71,18 @@ class MojoAdapter:
         auth_mode = os.environ.get("HARNESS2_MOJO_IMPROVER_AUTH", "off")
         if auth_mode not in ("off", "api-key"):
             raise ValueError("HARNESS2_MOJO_IMPROVER_AUTH must be off or api-key")
+        mode = os.environ.get("HARNESS2_IMPROVER_MODE", "off")
+        if mode not in ("off", "login-tools"):
+            raise ValueError("HARNESS2_IMPROVER_MODE must be off or login-tools")
+        if mode == "login-tools" and auth_mode != "off":
+            raise ValueError("login-tools and API-key sandbox selectors are mutually exclusive")
         channel = ChannelSpec(
             os.environ.get("HARNESS2_IMPROVER_CHANNEL", "claude_cli"),
             config.IMPROVER_MODEL,
-            sandbox="host" if auth_mode == "off" else "mojo-claude",
+            sandbox=(
+                "login-tools" if mode == "login-tools" else
+                "host" if auth_mode == "off" else "mojo-claude"
+            ),
             auth_mode=auth_mode,
         )
         self.spec = BenchSpec(
@@ -102,6 +110,8 @@ class MojoAdapter:
             "judge": "muse-wonder-1.0 (optional)",
             "sandbox": "bwrap-model-only-v1",
             "improver_sandbox": (
+                "host-cc-login-tools-v1"
+                if self.spec.channels["proposer"].sandbox == "login-tools" else
                 "trusted-host"
                 if self.spec.channels["proposer"].auth_mode == "off"
                 else "mojo-claude-api-key-v1"
