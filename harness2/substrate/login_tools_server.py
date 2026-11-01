@@ -28,6 +28,10 @@ MAX_PROBES = 16
 OUTPUT_LIMIT = 64 * 1024
 
 
+class StageAlreadyServed(FileExistsError):
+    """A stage's exclusive tool audit is never re-opened by a second server."""
+
+
 def encoded(obj):
     return (json.dumps(obj, ensure_ascii=True, allow_nan=False, sort_keys=True) + "\n").encode()
 
@@ -125,6 +129,11 @@ class Server:
                 0o600,
             )
             self.log = os.fdopen(fd, "wb")
+        except FileExistsError:
+            self.files.close()
+            raise StageAlreadyServed(
+                "tool audit exists: refusing a second server for this stage"
+            ) from None
         except BaseException:
             self.files.close()
             raise
@@ -252,18 +261,20 @@ class Server:
         if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
             raise ValueError("invalid JSON-RPC request")
         method = message.get("method")
+        if not isinstance(method, str) or not method:
+            raise ValueError("invalid request method")
         if "id" not in message:
-            if method in ("notifications/initialized", "notifications/cancelled"):
-                return None
-            raise ValueError("unexpected notification")
+            if method not in ("notifications/initialized", "notifications/cancelled"):
+                self.protocol_event("ignored_notification", method)
+            return None  # JSON-RPC notifications receive no response or capability.
         request_id = message["id"]
         if type(request_id) not in (str, int):
             raise ValueError("invalid request id")
         response = {"jsonrpc": "2.0", "id": request_id}
         params = message.get("params", {})
-        if not isinstance(params, dict):
-            raise ValueError("invalid request params")
         if method == "initialize" and not self.initialized:
+            if not isinstance(params, dict):
+                raise ValueError("invalid request params")
             self.initialized = True
             version = params.get("protocolVersion")
             return response | {
@@ -274,14 +285,30 @@ class Server:
                 }
             }
         if not self.initialized:
-            raise ValueError("initialize first")
+            self.protocol_event("protocol_error", method, code=-32002)
+            return response | {"error": {"code": -32002, "message": "server not initialized"}}
         if method == "ping":
             return response | {"result": {}}
         if method == "tools/list":
             return response | {"result": {"tools": tool_schemas()}}
         if method == "tools/call":
+            if not isinstance(params, dict):
+                raise ValueError("invalid request params")
             return response | {"result": self.call(params.get("name"), params.get("arguments", {}))}
+        self.protocol_event("protocol_error", method, code=-32601)
         return response | {"error": {"code": -32601, "message": "method not supported"}}
+
+    def protocol_event(self, event, method, **fields):
+        # Names only: never copy notification/probe parameters into the audit.
+        # Keep diagnostics bounded even for an unknown, very long method name.
+        self.append(
+            {
+                "event": event,
+                "method": method[:256],
+                "method_truncated": len(method) > 256,
+                **fields,
+            }
+        )
 
 
 def tool_schemas():
@@ -358,7 +385,11 @@ def main(config_path):
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    server = Server(
-        config["context"], config["workspace"], config["audit"], sandbox, nonce=config["nonce"]
-    )
+    try:
+        server = Server(
+            config["context"], config["workspace"], config["audit"], sandbox, nonce=config["nonce"]
+        )
+    except StageAlreadyServed as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(3) from None
     serve(server, sys.stdin.buffer, sys.stdout.buffer)

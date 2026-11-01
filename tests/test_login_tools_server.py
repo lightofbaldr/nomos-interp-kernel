@@ -83,12 +83,113 @@ class ToolServer(unittest.TestCase):
             json.loads(line) for line in (self.root / "audit/calls.jsonl").read_text().splitlines()
         ]
         self.assertEqual(
-            [v["event"] for v in records], ["open", "call", "result", "call", "result", "close"]
+            [v["event"] for v in records],
+            ["open", "call", "result", "protocol_error", "call", "result", "close"],
         )
         self.assertEqual(records[1]["path"], "context/source")
-        self.assertEqual(records[3]["path"], "workspace/out")
+        self.assertEqual(
+            records[3],
+            {
+                "event": "protocol_error",
+                "method": "resources/list",
+                "method_truncated": False,
+                "code": -32601,
+            },
+        )
+        self.assertEqual(records[4]["path"], "workspace/out")
         self.assertNotIn("candidate", (self.root / "audit/calls.jsonl").read_text())
         self.assertFalse(self.sandbox.run.called)
+
+    def test_pre_initialize_probe_then_full_handshake_stays_up(self):
+        requests = [
+            {"jsonrpc": "2.0", "id": "probe", "method": "client/version-probe", "params": {}},
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25"},
+            },
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        ]
+        out = io.BytesIO()
+        serve(self.server, io.BytesIO(b"".join(map(encoded, requests))), out)
+        replies = [json.loads(line) for line in out.getvalue().splitlines()]
+        # Four input messages, three responses: notifications must not get replies.
+        self.assertEqual([r["id"] for r in replies], ["probe", 1, 2])
+        self.assertEqual(replies[0]["error"]["code"], -32002)
+        self.assertEqual(replies[1]["result"]["protocolVersion"], "2025-11-25")
+        self.assertEqual([t["name"] for t in replies[2]["result"]["tools"]], list(TOOLS))
+        self.assertEqual(self.server.calls, 0)
+        self.assertFalse(self.sandbox.run.called)
+        records = [
+            json.loads(line) for line in (self.root / "audit/calls.jsonl").read_text().splitlines()
+        ]
+        self.assertEqual(
+            records[1],
+            {
+                "event": "protocol_error",
+                "method": "client/version-probe",
+                "method_truncated": False,
+                "code": -32002,
+            },
+        )
+
+    def test_unknown_notifications_are_ignored_and_audited_without_payloads(self):
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/client-probe",
+                "params": {"private": "not-in-audit"},
+            },
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+            {
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {
+                    "name": "write_file",
+                    "arguments": {
+                        "path": "workspace/notification-write",
+                        "content": "not-in-audit",
+                    },
+                },
+            },
+            {"jsonrpc": "2.0", "id": 2, "method": "client/unknown", "params": []},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/list"},
+        ]
+        out = io.BytesIO()
+        serve(self.server, io.BytesIO(b"".join(map(encoded, requests))), out)
+        replies = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual([r["id"] for r in replies], [1, 2, 3])
+        self.assertEqual(replies[1]["error"]["code"], -32601)
+        records = [
+            json.loads(line) for line in (self.root / "audit/calls.jsonl").read_text().splitlines()
+        ]
+        self.assertEqual(
+            [r["method"] for r in records if r["event"] == "ignored_notification"],
+            ["notifications/client-probe", "tools/call"],
+        )
+        self.assertNotIn("not-in-audit", json.dumps(records))
+        self.assertFalse((self.root / "workspace/notification-write").exists())
+        self.assertEqual(self.server.calls, 0)
+
+    def test_pre_initialize_tool_call_cannot_execute_even_with_admission(self):
+        request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "write_file",
+                "arguments": {"path": "workspace/pre-init", "content": "no"},
+            },
+        }
+        self.assertEqual(self.server.dispatch(request)["error"]["code"], -32002)
+        self.assertEqual(self.server.calls, 0)
+        self.assertFalse((self.root / "workspace/pre-init").exists())
+        self.server.dispatch({"jsonrpc": "2.0", "id": 2, "method": "initialize"})
+        (self.root / "audit/admission.json").unlink()
+        self.assertTrue(self.server.dispatch(request)["result"]["isError"])
+        self.assertFalse((self.root / "workspace/pre-init").exists())
 
     def test_unknown_tools_and_argument_injection_refused_and_logged(self):
         for name, args in (
@@ -151,7 +252,8 @@ class ToolServer(unittest.TestCase):
             [],
             {"jsonrpc": "1.0"},
             {"jsonrpc": "2.0", "id": True},
-            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            {"jsonrpc": "2.0", "method": 42},
+            {"jsonrpc": "2.0", "method": ""},
         ):
             with self.subTest(msg=msg), self.assertRaises(ValueError):
                 self.server.dispatch(msg)

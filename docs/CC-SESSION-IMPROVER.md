@@ -1,8 +1,10 @@
 # Claude Code login with harness2 tools only
 
-2026-10-31 implementation; **offline-tested, live control NOT RUN**. Review and
-Adam's run-3 method approval are still required. Nothing here authorizes use of
-:8091, an improver session, a merge or API spending.
+2026-10-31 implementation; **offline-tested, handshake repair awaiting a fresh
+live control**. Prime's first control at `83f5fda` failed closed during MCP
+initialization: empty inventory, no admission and zero tool calls. Its evidence
+is preserved. Review and Adam's run-3 method approval are still required.
+Nothing here authorizes use of :8091, an improver session, a merge or API spending.
 
 ## Selection and trust boundary
 
@@ -88,6 +90,17 @@ and has no socket listener. It is launched by absolute trusted paths using
 `env -i` and Python `-I -B`: an MCP `env` object alone would merge with inherited
 variables and is not sufficient. The server receives no login or API credential.
 
+Pre-initialize requests return `-32002` without granting a capability; serving
+continues so a client's version probe can precede the normal handshake. Unknown
+requests after initialization retain `-32601`. Unknown notifications are ignored
+and audited by method name only, with no parameters; long names are capped at
+256 characters and explicitly marked truncated. Notifications have no response,
+as required by [JSON-RPC](https://www.jsonrpc.org/specification#notification).
+Malformed JSON, framing and envelopes remain fatal. Every actual tool call still
+requires nonce-bound admission. A second server for the same stage exits 3 with
+`tool audit exists: refusing a second server for this stage` on stderr; it never
+reopens or alters the first server's audit.
+
 | Tool | Capability |
 | --- | --- |
 | `list_dir(path)` | One directory under `context/` or `workspace/`; no recursive host scan. |
@@ -129,6 +142,11 @@ admission receipt, per-stage reply flags and calls log are bound by
 Successful-cache readers require all of the successful admission/reply evidence
 and recheck these bindings. Terminal-stop reasons survive an incomplete tool
 teardown. Audit writes fail closed.
+
+Protocol errors and ignored-notification method names also enter `calls.jsonl`,
+so those diagnostics are retained without importing the CLI's per-cwd cache.
+Automatic harvesting of that external cache log is not implemented; the
+operator should preserve it separately when diagnosing client-level failures.
 
 The supervisor TERM-stops the host process group and allows MCP to unwind its
 probe before a bounded hard-stop. It requires a closed audit with every admitted
@@ -183,7 +201,7 @@ read-only `claude --help` and [official CLI reference](https://code.claude.com/d
 MCP framing and tool envelopes follow the official
 [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
 and [tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
-The real login control, actual CLI interoperability, and compiler smoke are
-intentionally deferred. Run 3 must name the new tool set, no-shell policy,
+A fresh real control of this handshake repair, including the compiler probe,
+remains pending with Prime. Run 3 must name the new tool set, no-shell policy,
 read-only evidence/writable candidate split and tool/probe budgets as a method
 change, not an unchanged replication of runs 1–2.

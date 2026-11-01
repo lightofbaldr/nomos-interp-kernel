@@ -427,6 +427,20 @@ class LoginClient(unittest.TestCase):
         self.assertEqual((self.work / "workspace/file").read_text(), "ok")
         self.assertNotIn("fake-inherited-key", done.stdout + done.stderr)
         self.assertEqual(client.read_calls(controls)[-1]["event"], "close")
+        original = (controls / "calls.jsonl").read_bytes()
+        second = subprocess.run(
+            [mcp["command"], *mcp["args"]],
+            input="",
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        self.assertEqual(second.returncode, 3)
+        self.assertEqual(second.stdout, "")
+        self.assertEqual(
+            second.stderr.strip(), "tool audit exists: refusing a second server for this stage"
+        )
+        self.assertEqual((controls / "calls.jsonl").read_bytes(), original)
 
     def test_real_fake_host_process_capture_timeout_and_output_cap(self):
         mission = self.root / "input.txt"
