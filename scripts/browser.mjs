@@ -8,6 +8,8 @@ try{
   const context=await h.browser.newContext({viewport:{width:1440,height:980}}),page=await context.newPage();h.observe(page);
   await page.route('**/api/nomos/health',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({configured:false,health:null,error:'No kernel endpoint is configured.'})}));
   await page.goto(h.base+'/preview?mode=demo',{waitUntil:'networkidle'});
+  const noDemoShortcuts=async scope=>{for(const name of ['Explore the demo',...scenarios.map(s=>s.title)])check(await scope.getByText(name,{exact:true}).count()===0,`Removed demo shortcut stays absent: ${name}`);};
+  await noDemoShortcuts(page.locator('.history-sidebar'));
   check(await page.getByText('Scripted chat and illustrative probe data. No model is running.',{exact:true}).isVisible(),'No inferred live state');
   check(await page.locator('.response-text').innerText()==scenarios[0].answer,'Initial scripted answer matches its fixture');
   check(await page.locator('.inspection-panel').isVisible(),'Read-only inspector initially visible on desktop');
@@ -38,8 +40,9 @@ try{
   check(await joy.getAttribute('aria-pressed')==='true'&&await calm.getAttribute('aria-pressed')==='true','Targets stay selected through replay, freeze and stop');
   await page.getByLabel('Inspect step',{exact:true}).focus();await page.getByLabel('Inspect step',{exact:true}).press('Home');check((await page.locator('.timeline-bottom .mono').innerText()).includes('42'),'Scrubbing selects the exact fixture position');
   const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'Export',exact:true}).click();const download=await downloadPromise;check(download.suggestedFilename()==='demo-privacy.json','Export retains trace source/run identity');
-  await page.locator('.history-sidebar').getByRole('button',{name:'Making uncertainty visible',exact:true}).click();await page.getByRole('button',{name:'Replay response',exact:true}).waitFor();check(await page.locator('.response-text').innerText()===scenarios[1].answer,'Scenario changes both prompt and response');
+  await page.getByLabel('Message Muse',{exact:true}).fill('A new local preview');await page.getByLabel('Message Muse',{exact:true}).press('Enter');await page.getByRole('button',{name:'Replay response',exact:true}).waitFor();await noDemoShortcuts(page.locator('.history-sidebar'));check(await page.locator('.history-sidebar .sidebar-group').count()===0,'The initial fixture is not inserted into conversation history');
   await page.locator('.history-sidebar').getByRole('button',{name:'New conversation',exact:true}).click();check(await page.getByRole('heading',{name:/Space to think/}).isVisible(),'New conversation displays welcome');
+  check(await page.locator('.welcome-prompts button').count()===0,'Removed demo scenarios have no welcome-screen launch actions');
   check(await joy.getAttribute('aria-pressed')==='true'&&await calm.getAttribute('aria-pressed')==='true','New conversation does not silently turn off selected targets');
   check(await compassion.getAttribute('aria-pressed')==='true','Compassion stays selected across replay and a new conversation');
   await page.getByLabel('Message Muse',{exact:true}).fill('Testing a local message');await page.getByLabel('Message Muse',{exact:true}).press('Enter');await page.getByRole('button',{name:'Replay response',exact:true}).waitFor();check((await page.locator('.response-text').innerText()).includes('It has not been sent to Muse or any model.'),'Submission callback is honest and local');check(await page.getByLabel('Message Muse',{exact:true}).inputValue()==='','Successful submission clears composer');
@@ -62,6 +65,7 @@ try{
   check(await dock.getByRole('button',{pressed:true}).count()===7,'All seven targets can be selected independently');
   await page.getByRole('button',{name:'About interpretability readouts',exact:true}).click();dialog=page.getByRole('dialog');check((await dialog.innerText()).includes('Not a safety classifier.'),'Research boundary visible');await page.keyboard.press('Escape');await dialog.waitFor({state:'hidden'});check(await page.getByRole('dialog').count()===0,'Escape closes keyboard-managed dialog');
   await page.reload({waitUntil:'networkidle'});check(await dock.getByRole('button',{name:/ steering preview$/,pressed:false}).count()===7,'Reload starts all targets off rather than auto-arming saved intervention intent');
+  await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Open conversations',exact:true}).click();await noDemoShortcuts(page.getByRole('dialog'));check(await page.getByRole('dialog').getByRole('button',{name:'New conversation',exact:true}).isVisible(),'Mobile conversation navigation remains available');await page.keyboard.press('Escape');
   check(h.errors.length===0,JSON.stringify(h.errors));check(h.external.length===0,'No remote browsing requests');check(!h.requests.some(url=>/registry|\/v1\/chat|telemetry|models\.dev/.test(url)),'No implicit model/registry/telemetry calls');
   await writeFile(root+`preview/checks/${live?'live':'browser'}.json`,JSON.stringify({checkedAt:new Date().toISOString(),base:h.base,entry:h.entry,checks,errors:h.errors,external:h.external},null,2));
   console.log(`${live?'MUSE LIVE PASSED':'MUSE BROWSER PASSED'}: ${checks.length} observed checks.`);
