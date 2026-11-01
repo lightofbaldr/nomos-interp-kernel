@@ -96,6 +96,7 @@ from lib.kvstore.store import N_STATS, SessionStore
 from lib.kv_session import (
     build_layout, export_range, import_range, kv_truncate, kv_is_linear_quantized,
     store_status, session_store, release_kvstore_handle, kv_reset_session, kv_drafter_len, kv_drafter_cap, drafter_id_of,
+    kv_steered_prefix,
 )
 
 
@@ -3786,9 +3787,11 @@ def nomos_session_prepare(handle: Int64, ids_ptr: Int64, n: Int32, spec: Int32) 
     DFlash loop. Other returns:
     - 0, engine untouched, when the store is off or already DISABLED for this process (the caller's nomos_prefill
       starts afresh);
-    - 0, KV reset, while steering is armed (the store is bypassed) and after an internal error: a fresh prefill is
-      always correct. An error with no store to blame (it could not be created, e.g. another process holds its
-      directory) also DISABLES the store for the rest of the process, logged once;
+    - while steering is armed, the store is bypassed: the live KV computed under the steering armed now is continued
+      when its tokens are still tracked (kv_steered_prefix), else the KV is reset and 0 returned;
+    - 0, KV reset, after an internal error: a fresh prefill is always correct. An error with no store to blame (it could
+      not be created, e.g. another process holds its directory) also DISABLES the store for the rest of the process,
+      logged once;
     - -1 bad arg (null handle or ids, n <= 0);
     - -10 / -11 / -12 the store is refused (see nomos_session_status), engine untouched."""
     if handle == 0 or ids_ptr == 0 or n <= Int32(0):
@@ -3800,13 +3803,19 @@ def nomos_session_prepare(handle: Int64, ids_ptr: Int64, n: Int32, spec: Int32) 
     if engine_ptr[0].kvstore_disabled:
         return Int32(0)
     if engine_ptr[0].steer_active:
-        # Steered KV is not described by its tokens (ledger R17; a variant_hash in the cache key is v1.1):
-        # bypass the store for this turn and start from a clean KV.
+        # Steered KV is not described by its tokens alone (ledger R17; a variant_hash in the cache key is v1.1), so
+        # the store stays bypassed. The live KV computed under the steering armed now is continued (kv_steered_prefix).
         try:
-            kv_reset_session(engine_ptr[0])
-        except:
-            engine_ptr[0].reset_kv_cache()
-        return Int32(0)
+            var steered_ids = List[Int]()
+            _read_int32_array_into(ids_ptr, Int(n), steered_ids)
+            return Int32(kv_steered_prefix(engine_ptr[0], steered_ids, spec != Int32(0)))
+        except e:
+            print("[kvstore] ERROR in a steered prepare; falling back to a fresh prefill:", e)
+            try:
+                kv_reset_session(engine_ptr[0])
+            except:
+                engine_ptr[0].reset_kv_cache()
+            return Int32(0)
     try:
         var ids = List[Int]()
         _read_int32_array_into(ids_ptr, Int(n), ids)

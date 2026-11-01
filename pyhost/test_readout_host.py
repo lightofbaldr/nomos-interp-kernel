@@ -354,6 +354,37 @@ class ConfigAndSteer(unittest.TestCase):
         self.assertEqual(cm.exception.code, readout.BAD_STEER)
         self.assertEqual(self.k.calls("set_steer"), [])
 
+    def arms(self):
+        return [c[0] for c in self.k.log if c[0] in ("clear_steer", "set_steer", "set_steer_from")]
+
+    def test_rearming_the_steering_already_armed_leaves_the_kernel_alone(self):
+        """The serve sends the steer with every request. Re-arming identical steering would mark the live KV untracked
+        (ledger R17) and force a cold prefill on every call of a steered conversation, so it is a no-op."""
+        self.lm.steer_set(2, self.dirs, "joyful", 0.5, 0)
+        self.lm.steer_set(2, self.dirs, "joyful", 0.5, 0)
+        self.assertEqual(self.arms(), ["clear_steer", "set_steer", "set_steer_from"])
+
+    def test_any_change_of_steering_rearms(self):
+        self.lm.steer_set(2, self.dirs, "joyful", 0.5, 0)
+        for change in ((2, "joyful", 0.6, 0), (2, "calm", 0.6, 0), (2, "calm", 0.6, 7), (3, "calm", 0.6, 7)):
+            layer, name, s, pos = change
+            before = len(self.k.calls("set_steer"))
+            self.lm.steer_set(layer, self.dirs, name, s, pos)
+            self.assertEqual(len(self.k.calls("set_steer")), before + 1, change)
+
+    def test_clearing_forgets_the_armed_steering(self):
+        self.lm.steer_set(2, self.dirs, "joyful", 0.5, 0)
+        self.lm.steer_clear()
+        self.lm.steer_set(2, self.dirs, "joyful", 0.5, 0)
+        self.assertEqual(len(self.k.calls("set_steer")), 2)
+
+    def test_a_refused_set_is_not_remembered_as_armed(self):
+        with mock.patch.object(self.k, "nomos_set_steer", lambda h, layer, vec: -1):
+            with self.assertRaises(readout.ReadoutError):
+                self.lm.steer_set(2, self.dirs, "joyful", 0.5, 0)
+        self.lm.steer_set(2, self.dirs, "joyful", 0.5, 0)
+        self.assertEqual(len(self.k.calls("set_steer")), 1)
+
     def test_a_kernel_without_readouts_refuses_every_readout_call(self):
         self.lm._readout_ok = False
         for call in (lambda: self.lm.readout_config([0], self.dirs, [], "", 0), self.lm.readout_off,

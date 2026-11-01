@@ -20,6 +20,7 @@ from lib.kvstore.layout import (
 )
 from lib.kvstore.hashing import fnv1a64_u64, hex16, parse_hex16
 from lib.kvstore.key import CacheKey, weights_id_of
+from lib.kvstore.index import lcp
 from lib.kvstore.store import SessionStore, StoreConfig
 
 comptime _H2D = 1
@@ -195,6 +196,35 @@ def kv_reset_session(mut eng: GemmaEngine) raises:
     eng.reset_kv_cache()
     if eng.dflash_ptr != 0:
         _drafter(eng)[unsafe_offset=0].reset()
+
+
+def kv_steered_prefix(mut eng: GemmaEngine, ids: List[Int], spec: Bool) raises -> Int:
+    """For a steered turn: keep the longest prefix of ids whose KV the engine holds under the steering armed now and
+    return its length c (0 <= c <= len(ids) - 1); with nothing worth keeping, reset the KV and return 0.
+
+    Steered KV is not described by its tokens alone (ledger R17), so a steered turn never touches the store: nothing is
+    restored from it and nothing is committed to it. The LIVE KV is described by its tokens plus the armed steering:
+    arming, re-pointing and clearing steering all mark it untracked (nomos_set_steer, nomos_set_steer_from,
+    nomos_clear_steer), so live KV whose tokens are still tracked was computed under exactly the steering armed now. A
+    later call of the same steered conversation continues it, as an unsteered call continues the store's live session.
+    Plain KV is never continued under steering, and steered KV is never continued without it.
+
+    Only with a start position (steer_from_pos >= 0): then position i is steered iff i >= the start on every path
+    (prefill, continuation, decode, DFlash verify), so continued KV equals a fresh steered prefill up to numerics. The
+    legacy decode-only rule (-1) steers generated tokens but never a prompt, so a fresh prefill of a conversation would
+    not match KV it generated; it starts clean, as before."""
+    var n = len(ids)
+    var kv = eng.cache_len()
+    if n > 1 and kv > 0 and eng.steer_from_pos >= 0 and not eng.live_desync and len(eng.live_tokens) == kv:
+        var p = lcp(ids, eng.live_tokens, min(n - 1, kv))
+        if spec:
+            p = min(p, kv_drafter_len(eng))
+        if p >= max(Int(_env_float("NOMOS_KVSTORE_MIN_REUSE", 16.0)), 1):
+            if p < kv:
+                kv_truncate(eng, p)
+            return p
+    kv_reset_session(eng)
+    return 0
 
 
 def kv_drafter_len(eng: GemmaEngine) -> Int:

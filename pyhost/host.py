@@ -197,6 +197,8 @@ class _GenMixin:
 class KernelLM(_GenMixin):
     """In-process backend: loads the .so + model in THIS process via ctypes FFI."""
 
+    _steer_armed = None   # see __init__; a class default for instances built with __new__ (tests, GPU tools)
+
     def __init__(self, vocab_size: int | None = None) -> None:
         self.lib = H.load_lib()
         self.lib.nomos_model_id.argtypes = []
@@ -279,6 +281,9 @@ class KernelLM(_GenMixin):
                 getattr(self.lib, name).argtypes = args
                 getattr(self.lib, name).restype = ctypes.c_int32
         self._ro = None     # the active readout configuration: (key, readout.Layout), or None
+        # The steering the kernel holds: (layer, directions, name, strength, from_pos), or None. Only steer_set and
+        # steer_clear arm or disarm it (a fresh engine starts disarmed), so this stays exact.
+        self._steer_armed = None
         self.h = H.init_engine(self.lib)
         st = self.session_status()
         if st < 0:
@@ -610,15 +615,21 @@ class KernelLM(_GenMixin):
 
     def steer_set(self, layer, directions, name, strength, from_pos) -> None:
         """OP_STEER_SET: steer `layer` by s x layer_sizes[layer] x the direction, from absolute position from_pos, on every
-        path (plan B). A negative from_pos is refused (ruling P2-R8): DFlash verify refuses steering without one (-4)."""
+        path (plan B). A negative from_pos is refused (ruling P2-R8): DFlash verify refuses steering without one (-4).
+        Steering identical to what the kernel already holds is left armed: re-arming would mark the live KV untracked
+        (ledger R17), so every call of a steered conversation would re-prefill its whole context."""
         self._need_readout()
         if int(from_pos) < 0:
             raise readout.ReadoutError(readout.BAD_STEER, f"steering start {from_pos} must be >= 0")
+        key = (int(layer), str(directions), str(name), float(strength), int(from_pos))
+        if key == self._steer_armed:
+            return
         vec = readout.AssetRegistry().steer_vector(directions, int(layer), name, strength)
         width = _configured_hidden_size()
         if width is None or vec.shape[0] != width:
             raise readout.ReadoutError(readout.REFUSED,
                                        f"the steering vector is {vec.shape[0]} wide; the model's hidden size is {width}")
+        self._steer_armed = None
         self.lib.nomos_clear_steer(self.h)
         rc = self.lib.nomos_set_steer(self.h, int(layer), vec.ctypes.data)
         if rc == 0:
@@ -626,10 +637,12 @@ class KernelLM(_GenMixin):
         if rc != 0:
             self.lib.nomos_clear_steer(self.h)
             raise readout.ReadoutError(readout.REFUSED, f"the kernel refused the steering (rc={rc})")
+        self._steer_armed = key
 
     def steer_clear(self) -> None:
         """OP_STEER_CLEAR."""
         self._need_readout()
+        self._steer_armed = None
         self.lib.nomos_clear_steer(self.h)
 
     def readout_records(self, pos0, tokens, source) -> tuple[int, bytes]:
