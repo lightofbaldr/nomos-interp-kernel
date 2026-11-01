@@ -180,12 +180,20 @@ print('ISOLATION VERIFIED')
         ):
 
             def request(path, data):
-                with closing(UnixConnection(self.root / "model.sock")) as conn:
-                    body = json.dumps(data)
-                    conn.request("POST", path, body, {"Content-Type": "application/json"})
-                    r = conn.getresponse()
-                    r.read()
-                    return r.status
+                # A header-only refusal can legitimately close before a second
+                # body send. Send this small status fixture in one write, as in
+                # test_improver_broker; keep the production refusal unchanged.
+                body = json.dumps(data).encode()
+                head = (f"POST {path} HTTP/1.0\r\nContent-Length: {len(body)}\r\n"
+                        "Content-Type: application/json\r\n\r\n").encode()
+                with socket.socket(socket.AF_UNIX) as conn:
+                    conn.settimeout(3)
+                    conn.connect(str(self.root / "model.sock"))
+                    conn.sendall(head + body)
+                    response = http.client.HTTPResponse(conn)
+                    response.begin()
+                    response.read()
+                    return response.status
 
             body = {"model": MODEL, "messages": [], "max_tokens": 32}
             for path, data in (
