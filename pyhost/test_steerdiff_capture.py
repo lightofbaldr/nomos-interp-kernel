@@ -4,8 +4,10 @@ skipped where those records are absent. Run: pixi run --no-install python3 pyhos
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -344,6 +346,24 @@ class Export(unittest.TestCase):
         self.assertTrue(ids <= set(got["vocab"]), sorted(ids - set(got["vocab"])))
         self.assertEqual(got["vocab"]["14"], "<14>")
         self.assertEqual(got["text"]["steered"]["answer"], "<5><5><6><5><5><5><5><5>")
+
+
+class LauncherEnv(unittest.TestCase):
+    """The device the capture re-executes on. The launcher's env printout never names one, so it comes from the caller:
+    on Gold, GPU0 is the desktop's and a capture must run where it was pointed (CUDA_VISIBLE_DEVICES=2)."""
+
+    def _env(self, caller):
+        printout = subprocess.CompletedProcess([], 0, stdout="NOMOS_MODEL=muse\nWEIGHTS=/w\n", stderr="")
+        with mock.patch.object(C.subprocess, "run", return_value=printout), mock.patch.dict(os.environ, clear=False):
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+            os.environ.update(caller)
+            return C._launcher_env()
+
+    def test_the_callers_device_is_kept(self):
+        self.assertEqual(self._env({"CUDA_VISIBLE_DEVICES": "2"})["CUDA_VISIBLE_DEVICES"], "2")
+
+    def test_without_one_it_is_device_0(self):
+        self.assertEqual(self._env({})["CUDA_VISIBLE_DEVICES"], "0")
 
 
 

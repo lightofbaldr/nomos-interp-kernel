@@ -282,8 +282,11 @@ def _launcher_env() -> dict:
     out = subprocess.run([os.path.join(ROOT, "pyhost", "serve_nomos.sh"), "--model", "muse", "env"],
                          capture_output=True, text=True, check=True).stdout
     env = dict(re.findall(r"^([A-Z][A-Z0-9_]*)=(.*)$", out, re.M))
+    # The launcher's printout names no device, so the caller's wins: on a multi-GPU host (Gold) device 0 is someone
+    # else's. Device 0 is the laptop's only GPU.
     env.update(SO_PATH=os.path.join(ROOT, "libnomos_kernel-muse.so"), NOMOS_KVSTORE="0",
-               CUBLAS_WORKSPACE_CONFIG=":4096:8", CUDA_VISIBLE_DEVICES="0", STEERDIFF_ROUTE="1")
+               CUBLAS_WORKSPACE_CONFIG=":4096:8", CUDA_VISIBLE_DEVICES=os.environ.get("CUDA_VISIBLE_DEVICES", "0"),
+               STEERDIFF_ROUTE="1")
     return env
 
 
