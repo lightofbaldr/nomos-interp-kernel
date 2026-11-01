@@ -10,6 +10,8 @@ import {ReadoutHost,readoutExtension,type ReadoutConfig,type Steer} from 'glimme
 import {NOMOS_MODEL,NOMOS_PROVIDER,nomosProvider} from 'glimmer-agent/provider';
 import {openBridge,type Bridge,type BridgeMessage} from 'glimmer-agent/bridge';
 import type {Assets} from '../pi/model.ts';
+import {GenerationHost} from './generation.ts';
+import {REPLY_CAP,CHAT_TIMEOUT_MS} from '../pi/generation.ts';
 
 export function checkedBase(value:string){
   const url=new URL(value);
@@ -19,16 +21,19 @@ export function checkedBase(value:string){
 export async function createRuntime(baseUrl:string, database:string|Storage,files?:FileBroker & {status():ToolAvailability;close():Promise<void>}){
   const fileExtension=files?fileToolsExtension(files):null;
   const base=checkedBase(baseUrl), host=new ReadoutHost(ctx), profiles=new ProfileHost(ctx,files?{ready:tools=>files.ready(tools),tools:fileExtension!.tools!}:undefined), models=createModels(), registry=createRegistry();
-  models.setProvider(nomosProvider({baseUrl:base+'/v1',requests:host.requests,maxTokens:2048}));
+  const generation=new GenerationHost(ctx);
+  models.setProvider(generation.provider(nomosProvider({baseUrl:base+'/v1',requests:host.requests,maxTokens:REPLY_CAP})));
   registry.install(readoutExtension(host));
   registry.install(profileExtension(profiles));
+  registry.install(generation.extension());
   if(fileExtension)registry.install(fileExtension);
   if(typeof database==='string')await mkdir(path.dirname(database),{recursive:true,mode:0o700});
   const storage=typeof database==='string'?await openNodeSqliteStorage(database):database;
   const harness=await Harness.open(storage,
-    {models,registry,settings:{retry:{enabled:false},compaction:{enabled:false},stream:{maxRetries:0,timeoutMs:300000}}},ctx);
+    {models,registry,settings:{retry:{enabled:false},compaction:{enabled:false},stream:{maxRetries:0,timeoutMs:CHAT_TIMEOUT_MS}}},ctx);
   host.attach(harness);
   profiles.attach(harness);
+  generation.attach(harness);
   let active:number|null=null,closing=false;
   const bridges=new Set<Bridge>();
   async function conversation(id:string){
@@ -56,7 +61,7 @@ export async function createRuntime(baseUrl:string, database:string|Storage,file
       if((await api.list()).length>=100)throw Error('Local conversation limit reached.');
       const chat=await harness.createConversation({ownership:{kind:'ownerless'},agent:{model:{provider:NOMOS_PROVIDER,modelId:NOMOS_MODEL},tools:[],
         instructions:'You are a helpful AI assistant.\nReasoning strength: high.'}},ctx);
-      await profiles.get(chat);return String(chat.id);
+      await profiles.get(chat);await generation.settings(chat);return String(chat.id);
     },
     async submit(id:string,text:string){
       if(typeof text!=='string'||!text.trim()||text.length>4000)throw Error('Send 1–4,000 characters.');
@@ -73,6 +78,24 @@ export async function createRuntime(baseUrl:string, database:string|Storage,file
       }catch(e){active=null;throw e;}
     },
     async abort(id:string){const chat=await conversation(id);await chat.abort(ctx);await host.settled(chat.id);},
+    async generation(id:string){return generation.settings(await conversation(id));},
+    async setGeneration(id:string,version:number,sampling:boolean){
+      if(closing||active!==null)throw Error('Wait for generation to settle before changing decoding.');
+      return generation.save(await conversation(id),version,sampling);
+    },
+    async retry(id:string,target:number){
+      if(closing||active!==null)throw Error('The kernel already has a conversation generating. Wait or stop that conversation.');
+      active=Number(id);
+      try{
+        const work=await harness.inspect(ctx);
+        if(work.tasks.length||work.submissions.length)throw Error('Saved work is still pending. Wait for it to settle.');
+        const chat=await conversation(id),profile=await profiles.get(chat);
+        if(profile.active?.content.tools?.length){if(!files)throw Error('Sandboxed tools unavailable.');await files.ready(profile.active.content.tools);}
+        const task=await generation.retry(chat,target);
+        void chat.waitForIdle(ctx).catch(e=>host.report(chat.id,null,e)).finally(()=>{active=null;});
+        return {accepted:true,task};
+      }catch(e){active=null;throw e;}
+    },
     async profile(id:string){return profiles.get(await conversation(id));},
     async saveProfile(id:string,version:number,content:unknown,origin?:ProfileOrigin){return profiles.save(await conversation(id),version,content,origin);},
     async restoreProfile(id:string,version:number,entry:number){
@@ -87,10 +110,10 @@ export async function createRuntime(baseUrl:string, database:string|Storage,file
     async readout(id:string,config:ReadoutConfig,assets:Assets){validateReadout(config,assets);const c=await conversation(id);await host.setReadout(c,config);return host.settings(c.id);},
     async steer(id:string,steer:Steer|null,assets:Assets){validateSteer(steer,assets);const c=await conversation(id);await host.setSteer(c,steer);return host.settings(c.id);},
     async bridge(id:string,send:(m:BridgeMessage)=>Promise<void>){
-      const c=await conversation(id);const bridge=await openBridge(harness,host,c.id,ctx,send);bridges.add(bridge);
+      const c=await conversation(id);await generation.settings(c);const bridge=await openBridge(harness,host,c.id,ctx,send);bridges.add(bridge);
       return {snapshot:bridge.snapshot,stop:async()=>{bridges.delete(bridge);await bridge.stop();}};
     },
-    async close(){closing=true;if(active!==null)await (await conversation(String(active))).abort(ctx);await files?.close();for(const b of bridges)await b.stop();await host.close();await harness.close(ctx);}
+    async close(){closing=true;if(active!==null)await (await conversation(String(active))).abort(ctx);await files?.close();for(const b of bridges)await b.stop();await host.close();generation.close();await harness.close(ctx);}
   };return api;
 }
 export type Runtime=Awaited<ReturnType<typeof createRuntime>>;

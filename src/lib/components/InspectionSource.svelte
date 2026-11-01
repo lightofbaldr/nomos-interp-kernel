@@ -3,6 +3,7 @@
   import {goto} from '$app/navigation';
   import type {LiveState} from '$lib/live';
   import type {TurnView} from '$lib/pi/model';
+  import {generationFor,generationLabel} from '$lib/pi/generation';
   let {live,turn}:{live:LiveState;turn:TurnView|undefined}=$props();
   function select(request:string){const u=new URL(page.url);u.searchParams.set('turn',request);void goto(u.pathname+u.search,{noScroll:true,keepFocus:true});}
 </script>
@@ -16,4 +17,5 @@
     {#each live.pi?.turns??[] as t}<option value={t.request}>{t.turn} · {t.status.replaceAll('_',' ')}</option>{/each}
   </select></label>
   <span class="source-status">{live.pi?.connected?'Saved Pi records':live.conversation?'Connecting to saved records…':'No conversation selected'}</span>
+  {#if turn}<span data-testid="inspection-decoding">{generationLabel(generationFor(live.pi?.entries??[],turn.task,turn.request))}</span>{/if}
 </div>

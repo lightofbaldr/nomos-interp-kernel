@@ -20,13 +20,17 @@ export async function POST({request,url}:RequestEvent){
   if(!sameOrigin(request,url))return json({error:'Same-origin loopback access required.'},{status:403,...options});
   try{
     const body=await jsonBody(request);
-    if(Object.keys(body).some(k=>!['action','conversation','text','readout','steer','ids'].includes(k)))throw Error('Unknown control field.');
+    const fields:Record<string,string[]>={labels:['ids'],create:[],submit:['text'],retry:['target'],generation:['version','sampling'],abort:[],readout:['readout'],steer:['steer']};
+    if(typeof body.action!=='string'||!Object.hasOwn(fields,body.action))throw Error('Unknown control action.');
+    if(Object.keys(body).some(k=>!['action','conversation',...fields[body.action as string]].includes(k)))throw Error('Unknown control field.');
     if(body.action==='labels')return json(await tokenLabels(body.ids),options);
     const runtime=await service();
     if(body.action==='create')return json({conversation:await runtime.create()},options);
     if(typeof body.conversation!=='string')throw Error('Conversation required.');
     const id=body.conversation;
     if(body.action==='submit')return json(await runtime.submit(id,body.text as string),options);
+    if(body.action==='retry')return json(await runtime.retry(id,body.target as number),options);
+    if(body.action==='generation')return json(await runtime.setGeneration(id,body.version as number,body.sampling as boolean),options);
     if(body.action==='abort'){await runtime.abort(id);return json({aborted:true},options);}
     if(body.action==='readout')return json(await runtime.readout(id,body.readout as ReadoutConfig,(await capabilities()).assets),options);
     if(body.action==='steer')return json(await runtime.steer(id,body.steer as Steer|null,(await capabilities()).assets),options);

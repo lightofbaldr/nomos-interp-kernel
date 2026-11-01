@@ -1,6 +1,6 @@
 <script lang="ts">
   import {onMount} from 'svelte';
-  import {Collapsible} from 'bits-ui';
+  import {Collapsible,Switch} from 'bits-ui';
   import * as Message from '@nomos/svelte-ai-elements/message';
   import * as PromptInput from '@nomos/svelte-ai-elements/prompt-input';
   import * as Reasoning from '@nomos/svelte-ai-elements/reasoning';
@@ -16,17 +16,22 @@
   import ProfileDetails from './ProfileDetails.svelte';
   import FileToolCalls from './FileToolCalls.svelte';
   import type {ProfileUsed} from 'glimmer-agent/profile-model';
+  import {cappedReasoningOnly,generationSettings,generationFor,generationLabel,retryTarget,wasRetried,type GenerationUsed} from '$lib/pi/generation';
 
   let {onState,compact=false,startNew=false,requestedConversation=''}:{onState:(state:LiveState)=>void;compact?:boolean;startNew?:boolean;requestedConversation?:string}=$props();
   let view=$state.raw<LiveState>(emptyLiveState()),pi=$state.raw(emptyPi()),text=$state(''),error=$state('');
   let sessions=$state<{id:string;busy:boolean;title?:string}[]>([]),conversation=$state(''),opening=$state(false);
   let metaAvailable=$state(false);
+  let controlPending=$state(false);
   let requestedSeen='';
   let scroll:HTMLDivElement,textarea:HTMLTextAreaElement|null=$state(null);
   let alive=false,revision=0,controller:AbortController|undefined,follow=true,frame=0,labelTimer:ReturnType<typeof setTimeout>|undefined;
   let labelFlight=false,labelFailed=false;const labels:Record<string,string|null>={};
   let rules=defaultRules(),labelVersion=0,alertKey='',alertRows:unknown[]=[],alerts:AlertResult|undefined;
   const messages=$derived(messagesOf(pi));
+  const decoding=$derived(generationSettings(pi.entries));
+  const retryId=$derived(retryTarget(pi.entries));
+  const partialDecoding=$derived(pi.entries.findLast(e=>e.kind==='glimmer.generation.used')?.data as GenerationUsed|undefined);
   function setAlertRules(next:AlertRules){validRules(next);rules=structuredClone(next);update();}
   function update(next:Partial<LiveState>={}){if(!alive)return;
     const key=`${conversation}:${labelVersion}:${JSON.stringify(rules)}`,rows=pi.turns.map(t=>t.records);
@@ -89,8 +94,23 @@
   }
   export function reset(){void create();}
   async function submit(message:{text:string}){
-    if(!pi.connected||pi.busy||!message.text.trim())return;
-    error='';try{await api({action:'submit',conversation,text:message.text});text='';}catch(e){error=e instanceof Error?e.message:'Submit failed.';}
+    if(!pi.connected||pi.busy||controlPending||!message.text.trim())return;
+    const id=conversation;controlPending=true;
+    error='';try{await api({action:'submit',conversation:id,text:message.text});if(conversation===id)text='';}catch(e){if(conversation===id)error=e instanceof Error?e.message:'Submit failed.';}finally{controlPending=false;}
+  }
+  async function sampling(value:boolean){
+    if(!decoding||controlPending||pi.busy)return;
+    const id=conversation;controlPending=true;error='';
+    try{await api({action:'generation',conversation:id,version:decoding.version,sampling:value});}
+    catch(e){if(conversation===id)error=e instanceof Error?e.message:'Could not save decoding.';}
+    finally{controlPending=false;}
+  }
+  async function retry(target:number){
+    if(controlPending||pi.busy||!pi.connected)return;
+    const id=conversation;controlPending=true;error='';
+    try{await api({action:'retry',conversation:id,target});}
+    catch(e){if(conversation===id)error=e instanceof Error?e.message:'Retry failed.';}
+    finally{controlPending=false;}
   }
   async function stop(){try{await api({action:'abort',conversation});}catch(e){error=String(e);}}
   async function reconnect(){error='';try{await refresh();if(conversation)attach(conversation);}catch(e){error=String(e);}}
@@ -120,6 +140,8 @@
         {@const sourceEntry=pi.entries.find(e=>String(e.id)===entry.id.split(':')[0])}
         {@const measuredTurn=sourceEntry?.byTaskId?pi.turns.find(t=>t.task===sourceEntry.byTaskId&&t.status==='complete'):undefined}
         {@const used=sourceEntry?.byTaskId?pi.entries.filter(e=>e.kind==='glimmer.profile.used').map(e=>e.data as ProfileUsed).findLast(p=>p.task===sourceEntry.byTaskId):undefined}
+        {@const decodingUsed=entry.streaming?partialDecoding:generationFor(pi.entries,sourceEntry?.byTaskId)}
+        {@const retried=sourceEntry?wasRetried(pi.entries,sourceEntry.id):false}
         {#if entry.message.role==='user'}<Message.Root from="user" class="user-message live-user"><Message.Content class="message-copy"><div class="live-plain">{answer}</div></Message.Content></Message.Root>
         {:else}<article class="assistant-message live-assistant" aria-label="Live assistant response">
           <div class="assistant-identity"><span class="muse-mark"><CircleNotch aria-hidden="true" size={25}/></span><strong>Muse</strong><span class="assistant-source">Live · Pi / Nomos</span></div>
@@ -129,8 +151,10 @@
           </Reasoning.Root>{/if}
           <Message.Root from="assistant" class="assistant-body"><Message.Content class="message-copy"><div class="response-text live-plain" aria-busy={entry.streaming}>{answer}</div></Message.Content></Message.Root>
           <FileToolCalls message={entry.message} entries={pi.entries} streaming={entry.streaming}/>
-          {#if !answer&&!(entry.message.role==='assistant'&&entry.message.content.some(b=>b.type==='toolCall'))}<p class="live-reply-status">{entry.streaming?'Waiting for answer text…':'No answer text received. Reasoning is preserved above.'}</p>{/if}
+          {#if !answer&&!(entry.message.role==='assistant'&&entry.message.content.some(b=>b.type==='toolCall'))}<p class="live-reply-status">{entry.streaming?'Waiting for answer text…':retried?'Stopped at the reply limit, retried.':cappedReasoningOnly(entry.message)?'Stopped at the reply limit; no answer text. Reasoning is preserved above.':'No answer text received. Reasoning is preserved above.'}</p>{/if}
           <div class="live-turn-footer">{entry.streaming?'Generating':entry.message.role==='assistant'?`Generation: ${entry.message.stopReason}`:''}</div>
+          <div class="decoding-attribution" data-testid="turn-decoding">{generationLabel(decodingUsed)}</div>
+          {#if !entry.streaming&&sourceEntry&&sourceEntry.id===retryId}<div class="retry-panel"><button class="text-button" onclick={()=>retry(sourceEntry.id)} disabled={controlPending||pi.busy||!pi.connected||!view.health?.ready}><ArrowClockwise size={14} aria-hidden="true"/>Retry</button><p>Reuses the same question with the saved controls. Greedy may repeat the same result; sampling is optional below.</p></div>{/if}
           {#if measuredTurn&&!entry.streaming&&compact}<a class="inspect-link" href={`/workspace?conversation=${conversation}&turn=${encodeURIComponent(measuredTurn.request)}`}>Inspect this turn’s workspace →</a>{/if}
           <details class:turn-details={compact} open={!compact}><summary class:sr-only={!compact}>Turn details &amp; second opinion</summary>
           {#if !entry.streaming}{#if used}<ProfileDetails profile={used.profile} label={`Profile r${used.profile.revision} · inline skills · ${used.profile.content.tools?.length??0} tools`}/>{:else}<small>Profile unrecorded for this historical turn.</small>{/if}{/if}
@@ -144,9 +168,14 @@
 </div>
 <section class="composer-section" aria-label="Message composer">
   <div class="replay-toolbar"><span class="replay-meta">{pi.busy?'Glimmer is generating':pi.connected?'Durable Pi session':'Bridge disconnected'}</span><button class="text-button" onclick={reconnect} aria-label="Reconnect Pi bridge"><ArrowClockwise size={13} aria-hidden="true"/>Reconnect</button></div>
+  <div class="decoding-control">
+    {#key `${conversation}:${decoding?.version}:${controlPending}`}<Switch.Root id="glimmer-sampling" class="sampling-switch" checked={decoding?.sampling??false} onCheckedChange={sampling} disabled={!pi.connected||!decoding||pi.busy||controlPending} aria-describedby="sampling-cost"><Switch.Thumb class="sampling-thumb"/></Switch.Root>{/key}
+    <label for="glimmer-sampling">Glimmer's sampling <span>{decoding?.sampling?'On':'Off · greedy'}</span></label>
+    <p id="sampling-cost">Slower: disables speculative decoding. Earlier Gold measurements: about 17 tokens/s sampled vs 40 greedy, without readouts. Actual speed varies; sampling can still repeat.</p>
+  </div>
   <PromptInput.Root class="muse-composer" onSubmit={submit} clearOnSubmit={false} maxFiles={0} maxFileSize={0}>
     <PromptInput.Body><label class="sr-only" for="live-message-input">Message Muse</label><PromptInput.Textarea id="live-message-input" bind:ref={textarea} bind:value={text} placeholder="Message Muse…" maxlength={4000} disabled={!pi.connected||!view.health?.ready} aria-describedby="live-composer-helper"/></PromptInput.Body>
-    <PromptInput.Toolbar class="composer-toolbar"><div class="composer-tools"><span>Muse Glimmer</span><span class="composer-thinking">Pi · reasoning on</span></div><PromptInput.Submit class="send-button" status={pi.busy?'streaming':'ready'} onStop={stop} disabled={!pi.busy&&(!pi.connected||!view.health?.ready||!text.trim())} aria-label={pi.busy?'Stop generating':'Send message'}>{#if pi.busy}<Square size={15} weight="fill" aria-hidden="true"/>{:else}<ArrowUp size={20} weight="bold" aria-hidden="true"/>{/if}</PromptInput.Submit></PromptInput.Toolbar>
+    <PromptInput.Toolbar class="composer-toolbar"><div class="composer-tools"><span>Muse Glimmer</span><span class="composer-thinking">Pi · reasoning on · 6,144-token reply limit</span></div><PromptInput.Submit class="send-button" status={pi.busy?'streaming':'ready'} onStop={stop} disabled={!pi.busy&&(controlPending||!pi.connected||!view.health?.ready||!text.trim())} aria-label={pi.busy?'Stop generating':'Send message'}>{#if pi.busy}<Square size={15} weight="fill" aria-hidden="true"/>{:else}<ArrowUp size={20} weight="bold" aria-hidden="true"/>{/if}</PromptInput.Submit></PromptInput.Toolbar>
   </PromptInput.Root>
   {#each [...new Set([error,view.error,...pi.errors])].filter(Boolean) as message}<p class="error-message" role="alert"><Info size={16} aria-hidden="true"/>{message}</p>{/each}
   <p class="composer-helper" id="live-composer-helper">Saved on this server. Switching chats or closing the page does not stop generation. Stop is explicit.</p>
@@ -154,4 +183,7 @@
 <style>
   .pi-session-bar{display:flex;align-items:center;gap:12px;padding:8px 24px;border-bottom:1px solid var(--color-rule);font-size:11px;color:var(--color-muted);flex-wrap:wrap}
   .pi-session-bar label{display:flex;align-items:center;gap:8px}.pi-session-bar select{max-width:180px;background:var(--color-paper-2);color:var(--color-ink);border:1px solid var(--color-rule);padding:7px;border-radius:6px}.pi-session-bar>span{margin-left:auto}
+  .decoding-control{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px 10px;margin:4px 0 12px;font-size:12px}.decoding-control label{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}.decoding-control label span{color:var(--color-muted);font:10px var(--font-mono)}.decoding-control p{grid-column:2;margin:0;max-width:85ch;font-size:11px;line-height:1.5;color:var(--color-muted)}
+  .decoding-control :global(.sampling-switch){display:flex;align-items:center;flex:none;width:34px;height:20px;padding:2px;background:var(--color-rule);border:1px solid var(--color-faint);border-radius:12px}.decoding-control :global(.sampling-switch[data-state=checked]){background:var(--color-accent)}.decoding-control :global(.sampling-switch:disabled){opacity:.55}.decoding-control :global(.sampling-thumb){display:block;width:14px;height:14px;border-radius:50%;background:var(--color-paper);transform:translateX(0)}.decoding-control :global(.sampling-thumb[data-state=checked]){transform:translateX(13px)}
+  .decoding-attribution{font:10px/1.7 var(--font-mono);color:var(--color-muted);margin:4px 0 9px}.retry-panel{display:flex;gap:14px;align-items:center;margin:10px 0}.retry-panel button{display:flex;gap:6px;align-items:center;flex:none;min-height:36px}.retry-panel p{font-size:11px;line-height:1.6;color:var(--color-muted);max-width:65ch}
 </style>

@@ -21,11 +21,12 @@ export async function fakeKernel(){
   const tokenizer=JSON.stringify({model:{type:'BPE',vocab:{...Object.fromEntries(Array.from({length:30},(_,i)=>[`Ġword${i}`,503+i])),'Ġcannot':501,'Ġinvent':502}},decoder:{type:'ByteLevel'},added_tokens:[]});
   const tokenizerPath=path.join(root,'tokenizer.json');await writeFile(tokenizerPath,tokenizer);
   const requests:any[]=[];let fault='',hold=false,cacheRequests=0;
+  let reply={thinking:'Let me think carefully. ',answer:'Hello from Pi.',finish:'stop'};
   const server=http.createServer(async(req,res)=>{
     if(req.url==='/health'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ready:true,model:'fake',engine:'fake',spec:true,readout:{supported:true,assets:assets.map(a=>a.id)}}));return;}
     if(req.url==='/v1/kvstore/stats'){cacheRequests++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({prepares:7,prompt_tokens:100,reused_tokens:75,restores_ram:4,restores_nvme:1,forks:2,ram_bytes:1024,nvme_bytes:2048,ram_evictions:0,nvme_evictions:0}));return;}
     let raw='';for await(const b of req)raw+=b;
-    const body=JSON.parse(raw);requests.push(body);const n=body.nomos,r=n?.readout;
+    const body=JSON.parse(raw);requests.push(body);const n=body.nomos,r=n?.readout,response={...reply};
     const id=`chatcmpl-${requests.length}`,header={v:'nomos.readout/1',conversation:n?.conversation??null,turn:n?.turn??null,response_id:id,
       settings:r?{...r,emotion:{...r.emotion,names},workspace:r.workspace??null}:null,steer:n?.steer?{...n.steer,from_pos:2}:null};
     const records=Array.from({length:43},(_,pos)=>({pos,token:pos===42?503:504,source:pos<3?'prompt':'generated',channel:pos<3?null:pos<41?'reasoning':'answer',
@@ -34,17 +35,17 @@ export async function fakeKernel(){
       missing:pos<3?(r?.workspace?['channel_prompt_v1','workspace_prompt_v1']:['channel_prompt_v1']):[]}));
     res.writeHead(200,{'Content-Type':'text/event-stream'});
     const send=(delta:unknown,finish:string|null=null,nomos?:unknown)=>res.write(`data: ${JSON.stringify({id,object:'chat.completion.chunk',created:1,model:'nomos-muse-glimmer-30b',choices:[{index:0,delta,finish_reason:finish}],...(nomos?{nomos}:{})})}\n\n`);
-    send({role:'assistant'});send({reasoning_content:'Let me think carefully. '});
+    send({role:'assistant'});send({reasoning_content:response.thinking});
     for(let i=0;i<records.length;i++){
       if(res.destroyed)return;
-      send(i===42?{content:'Hello from Pi.'}:{},null,r?{...(i===0?{header}:{}),readout:[records[i]]}:undefined);
+      send(i===42?{content:response.answer}:{},null,r?{...(i===0?{header}:{}),readout:[records[i]]}:undefined);
       await pause(3);
     }
     if(hold)return;
     const summary={header,ranges:{reused:[0,0],prompt:r?[0,3]:[0,0],generated:r?[3,43]:[0,0]},counts:{records:r?43:0,emotion_valid:r?43:0,workspace_valid:r?.workspace?40:0},missing:{kv_reused:0,natural_stop:1,settle_trimmed:0,...(!r?{readout_off:1}:{})}};
-    send({},'stop',fault==='summary'?undefined:n?{summary}:undefined);res.end('data: [DONE]\n\n');
+    send({},response.finish,fault==='summary'?undefined:n?{summary}:undefined);res.end('data: [DONE]\n\n');
   });
   await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${(server.address() as any).port}`;
   return {root,base,requests,registry,tokenizerPath,tokenizerPin:hash(tokenizer),assets:{supported:true,error:null,directions:[{id:assets[0].id,names,layers:[20,24,29]}],lenses:[{id:assets[1].id,layers:[36,40,44,48]}],tokenizer:hash(tokenizer)},
-    cacheRequests:()=>cacheRequests,fault:(v:string)=>{fault=v;},hold:(v:boolean)=>{hold=v;},async close(){server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}};
+    cacheRequests:()=>cacheRequests,fault:(v:string)=>{fault=v;},hold:(v:boolean)=>{hold=v;},reply:(v:Partial<typeof reply>)=>{reply={...reply,...v};},async close(){server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}};
 }

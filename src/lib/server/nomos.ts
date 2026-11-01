@@ -3,6 +3,7 @@ import {json} from '@sveltejs/kit';
 import type {RequestEvent} from '@sveltejs/kit';
 import {readStats,type ChatMessage} from '$lib/live';
 import {sameOrigin} from './origin';
+import {generationParameters,CHAT_TIMEOUT_MS} from '../pi/generation.ts';
 
 export function configured(){return Boolean(env.NOMOS_API_BASE_URL);}
 function endpoint(path:string){
@@ -36,9 +37,9 @@ async function boundedBody(request:Request){
   const reader=request.body.getReader();let text='',size=0;const decoder=new TextDecoder();
   try{while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>262144)throw Error('Conversation exceeds the request limit. Start a new conversation.');text+=decoder.decode(part.value,{stream:true});}text+=decoder.decode();return JSON.parse(text);}finally{await reader.cancel().catch(()=>{});}
 }
-function messagesFrom(value:unknown):ChatMessage[]{
-  const v=value as {messages?:unknown};
-  if(!v||Object.keys(v).some(k=>k!=='messages')||!Array.isArray(v.messages)||v.messages.length<2||v.messages.length>64)throw Error('Send a conversation of 2–64 messages.');
+function messagesFrom(value:unknown){
+  const v=value as {messages?:unknown;sampling?:unknown};
+  if(!v||Object.keys(v).some(k=>!['messages','sampling'].includes(k))||!Array.isArray(v.messages)||v.messages.length<2||v.messages.length>64)throw Error('Send a conversation of 2–64 messages.');
   const messages=v.messages as ChatMessage[];
   let chars=0;
   for(const [i,m] of messages.entries()){
@@ -49,17 +50,17 @@ function messagesFrom(value:unknown):ChatMessage[]{
   }
   if(chars>64000)throw Error('Conversation exceeds the interface context limit. Start a new conversation.');
   if(messages.at(-1)?.role!=='user'||!messages.at(-1)?.content.trim())throw Error('A new user message is required.');
-  return messages;
+  return {messages,parameters:generationParameters(v.sampling===undefined?false:v.sampling as boolean)};
 }
 export async function chat({request,url}:RequestEvent){
   if(!sameOrigin(request,url))return json({error:'Cross-origin chat requests are refused.'},{status:403,...options});
   if(!request.headers.get('content-type')?.startsWith('application/json'))return json({error:'JSON required.'},{status:415,...options});
-  let messages;try{messages=messagesFrom(await boundedBody(request));}catch(e){return json({error:e instanceof Error?e.message:'Invalid request.'},{status:400,...options});}
+  let body;try{body=messagesFrom(await boundedBody(request));}catch(e){return json({error:e instanceof Error?e.message:'Invalid request.'},{status:400,...options});}
   const controller=new AbortController();const abort=()=>controller.abort();request.signal.addEventListener('abort',abort,{once:true});
-  const timeout=setTimeout(abort,300000);
+  const timeout=setTimeout(abort,CHAT_TIMEOUT_MS);
   const cleanup=()=>{clearTimeout(timeout);request.signal.removeEventListener('abort',abort);};
   try{
-    const upstream=await fetch(endpoint('/v1/chat/completions'),{method:'POST',redirect:'error',signal:controller.signal,headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body:JSON.stringify({messages,stream:true,temperature:0,top_p:1,top_k:0,max_tokens:2048,enable_thinking:true})});
+    const upstream=await fetch(endpoint('/v1/chat/completions'),{method:'POST',redirect:'error',signal:controller.signal,headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body:JSON.stringify({...body.parameters,messages:body.messages,stream:true,enable_thinking:true})});
     if(!upstream.ok||!upstream.body||!upstream.headers.get('content-type')?.includes('text/event-stream')){
       await upstream.body?.cancel();cleanup();return json({error:upstream.status===413?'The conversation is too long for the kernel. Start a new conversation.':`Kernel request failed (${upstream.status}). No completed reply was received.`},{status:upstream.status===413?413:502,...options});
     }
@@ -67,6 +68,8 @@ export async function chat({request,url}:RequestEvent){
     return new Response(new ReadableStream({
       async pull(out){try{const part=await reader.read();if(part.done){cleanup();out.close();}else out.enqueue(part.value);}catch(e){cleanup();out.error(e);}},
       async cancel(){controller.abort();cleanup();await reader.cancel().catch(()=>{});}
-    }),{headers:{'Content-Type':'text/event-stream','Cache-Control':'no-store','X-Accel-Buffering':'no'}});
+    }),{headers:{'Content-Type':'text/event-stream','Cache-Control':'no-store','X-Accel-Buffering':'no',
+      'X-Glimmer-Decoding':body.parameters.temperature===0?'greedy':'sampled','X-Glimmer-Reply-Cap':String(body.parameters.max_tokens),
+      'X-Glimmer-Generation':JSON.stringify(body.parameters)}});
   }catch{cleanup();return json({error:'The kernel request could not complete. Check the connection and try again.'},{status:502,...options});}
 }

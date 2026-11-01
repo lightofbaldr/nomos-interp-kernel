@@ -4,6 +4,7 @@
   import InspectionSource from '$lib/components/InspectionSource.svelte';
   import {turnCounts,directionMeans,directionSeries,steeringText,trajectory,workspaceCoverage,type Channel} from '$lib/inspection/model';
   import {promptForTurn} from '$lib/workspace/model';
+  import {generationFor,generationLabel} from '$lib/pi/generation';
   import '$lib/inspection/pages.css';
   const context=labContext(),live=$derived(context.live),turns=$derived(live.pi?.turns??[]);
   const requested=$derived(page.url.searchParams.get('turn'));
@@ -53,7 +54,7 @@
     <section class="panel"><header><h2>Direction means</h2><span>L{layer} · {channel} · largest absolute means first</span></header><p class="muted">All captured directions, averaged over defined rows only. Alignment with a direction is not a feeling or a calibrated probability.</p>
       <div class="table-scroll"><table><thead><tr><th>Direction</th><th>Raw mean</th><th>Defined</th><th>Missing</th></tr></thead><tbody>{#each means as m}<tr><td>{m.name}</td><td class="number">{mean(m.mean)}</td><td class="number">{m.defined}</td><td class="number">{m.missing}</td></tr>{/each}</tbody></table></div>
     </section>
-    <section class="panel"><header><h2>This conversation</h2><span>{turns.length} recorded model turns · not pooled across settings</span></header><div class="table-scroll"><table><thead><tr><th>Turn</th><th>State</th><th>Reasoning rows</th><th>Answer rows</th><th>Recorded steering</th></tr></thead><tbody>{#each turns as t}{@const c=turnCounts(t)}<tr><td><a href={`?conversation=${live.conversation}&turn=${encodeURIComponent(t.request)}`}>{t.turn}</a></td><td>{t.status.replaceAll('_',' ')}</td><td class="number">{num(c.reasoning)}</td><td class="number">{num(c.answer)}</td><td>{steeringText(t)}</td></tr>{/each}</tbody></table></div></section>
+    <section class="panel"><header><h2>This conversation</h2><span>{turns.length} recorded model turns · not pooled across settings</span></header><div class="table-scroll"><table><thead><tr><th>Turn</th><th>State</th><th>Reasoning rows</th><th>Answer rows</th><th>Recorded steering</th><th>Recorded decoding</th></tr></thead><tbody>{#each turns as t}{@const c=turnCounts(t)}<tr><td><a href={`?conversation=${live.conversation}&turn=${encodeURIComponent(t.request)}`}>{t.turn}</a></td><td>{t.status.replaceAll('_',' ')}</td><td class="number">{num(c.reasoning)}</td><td class="number">{num(c.answer)}</td><td>{steeringText(t)}</td><td>{generationLabel(generationFor(live.pi?.entries??[],t.task,t.request))}</td></tr>{/each}</tbody></table></div></section>
     <p class="page-note">No causal steering effect, confidence score or lie rate is estimated here. Alert counts replay the current rules over saved reasoning rows; they are not verdicts. Their baseline is the running mean of earlier defined reasoning rows in this conversation, including this turn, after a 32-row warm-up; answers never update it.</p>
   {:else}<div class="empty"><h2>{requested?'Turn not found':'No turn to measure yet'}</h2><p>Choose a conversation with saved readouts, or send a message with emotion capture enabled. These numbers do not require workspace capture.</p><a href="/">Back to chat →</a></div>{/if}
 </div>

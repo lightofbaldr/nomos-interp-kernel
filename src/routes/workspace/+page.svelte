@@ -5,6 +5,7 @@
   import {ArrowLeft,ArrowRight,MagnifyingGlass,Stack,Info,ArrowUpRight} from 'phosphor-svelte';
   import {labContext} from '$lib/workspace/context';
   import {candidates,fromLive,promptForTurn,selectedPosition,validateWorkspaceTurn,type WorkspaceTurn} from '$lib/workspace/model';
+  import {generationFor,generationLabel} from '$lib/pi/generation';
   const lab=labContext();
   let recorded=$state.raw<WorkspaceTurn|null>(null),loading=$state(false),error=$state('');
   let pos=$state<number|null>(null),channel=$state('answer'),wordsOnly=$state(true),search=$state('');
@@ -41,6 +42,7 @@
   <div class="workspace-source"><label>Source <select aria-label="Workspace source" value={recordingId||'live'} onchange={e=>source(e.currentTarget.value)}><option value="sietti-base">Sietti paper · unsteered</option><option value="sietti-afraid">Sietti paper · afraid +0.5</option><option value="live" disabled={!lab.live.conversation}>Current conversation</option></select></label>
     {#if !recordingId}<label>Turn <select aria-label="Workspace turn" value={liveTurn?.request??''} onchange={e=>goto(`/workspace?conversation=${lab.live.conversation}&turn=${encodeURIComponent(e.currentTarget.value)}`)}>{#each liveTurns as t}<option value={t.request}>Turn {t.turn+1} · {t.status}</option>{/each}</select></label>{/if}
     {#if turn}<span>{turn.steering}</span><span class="source-layers">{turn.layers.length} lens depths · top {turn.k??'—'} each</span>{/if}
+    {#if turn}<span data-testid="workspace-decoding">{recordingId?'Decoding not recorded in this view':generationLabel(generationFor(lab.live.pi?.entries??[],liveTurn?.task,liveTurn?.request))}</span>{/if}
   </div>
   {#if loading}<div class="workspace-empty" role="status"><Stack size={32}/><h2>Opening the recorded turn</h2><p>Checking the capture and tokenizer identities.</p></div>
   {:else if error}<div class="workspace-empty" role="alert"><Info size={28}/><h2>Recording unavailable</h2><p>{error}</p><a href="/">Back to chat →</a></div>
