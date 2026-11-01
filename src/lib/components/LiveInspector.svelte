@@ -2,6 +2,7 @@
   import {Tabs} from 'bits-ui';
   import type {LiveState} from '$lib/live';
   import {emptyPi,selectedRow,projection} from '$lib/pi/model';
+  import {emotionDirections} from '$lib/pi/assets';
   import AlertControls from './AlertControls.svelte';
   import AgentProfile from './AgentProfile.svelte';
   import {untrack} from 'svelte';
@@ -11,7 +12,7 @@
   const pi=$derived(live.pi??emptyPi()),chosen=$derived(selectedRow(pi,live.selection));
   const turn=$derived(chosen?.turn??pi.turns.at(-1)),rows=$derived(turn?.records??[]);
   const index=$derived(chosen?rows.findIndex(r=>r.pos===chosen.record.pos):-1);
-  const d=$derived(live.assets?.directions[0]),lens=$derived(live.assets?.lenses[0]);
+  const d=$derived(emotionDirections(live.assets)),lens=$derived(live.assets?.lenses[0]);
   const w=$derived(chosen?.turn.header?.settings?.workspace);
   const wLayer=$derived(w?.layers.includes(workspaceLayer)?workspaceLayer:w?.layers[0]);
   const top=$derived(wLayer===undefined?null:chosen?.record.workspace?.top[w?.layers.indexOf(wLayer)??-1]??null);

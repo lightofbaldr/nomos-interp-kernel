@@ -19,7 +19,7 @@
   const title=$derived(live.conversations?.find(c=>c.id===live.conversation)?.title??'New conversation');
   setContext(LAB_CONTEXT,{get live(){return live;}});
   const link=(p:string)=>`${p}${live.conversation?`?conversation=${live.conversation}`:''}`;
-  const links=[{href:'/',name:'Chat',icon:ChatCircle},{href:'/workspace',name:'Global Workspace',icon:Graph},{href:'/workbench',name:'Harness workbench',icon:SlidersHorizontal}];
+  const links=[{href:'/',name:'Chat',icon:ChatCircle},{href:'/workspace',name:'Global Workspace',icon:Graph},{href:'/statistics',name:'Statistics',icon:ChartLine},{href:'/interpreter',name:'Interpreter',icon:Eye},{href:'/system',name:'System',icon:HardDrives},{href:'/workbench',name:'Harness workbench',icon:SlidersHorizontal}];
   function update(state:LiveState){
     live={...state,openConversation:async id=>{await state.openConversation?.(id);await goto(`${path}?conversation=${encodeURIComponent(id)}`);}};
     history=state.conversations??history;
@@ -31,14 +31,13 @@
     await goto('/');if(create){await create();if(live.conversation)await goto(`/?conversation=${live.conversation}`,{replaceState:true});}navigation=false;
   }
   onMount(()=>{mounted=true;void fetch('/api/pi?history=1').then(r=>r.json()).then(d=>{if(d.conversations)history=d.conversations;else historyError=d.error??'History unavailable.';}).catch(()=>historyError='History unavailable.');});
-  $effect(()=>{if(mounted&&(isChat||requested||path==='/workbench'))activate=true;});
+  $effect(()=>{if(mounted&&(isChat||requested||['/workbench','/statistics','/interpreter'].includes(path)))activate=true;});
 </script>
 
 {#snippet sidebar()}
   <a class="lab-brand" href="/" aria-label="Glimmer Lab home"><CircleNotch size={29}/><span>glimmer<span>LAB</span></span></a>
   <button class="lab-new" onclick={newChat}><Plus size={17}/>New conversation</button>
   <nav aria-label="Lab pages">{#each links as l}<a href={link(l.href)} aria-current={path===l.href?'page':undefined} onclick={()=>navigation=false}><l.icon size={19}/>{l.name}</a>{/each}</nav>
-  <div class="next-pages" aria-label="Next checkpoint pages"><span><ChartLine size={18}/>Statistics</span><span><Eye size={18}/>Interpreter</span><span><HardDrives size={18}/>System</span><small>Next checkpoint · not built yet</small></div>
   <div class="lab-history"><h2>Conversations <span>{history.length||''}</span></h2>
     {#if historyError}<p role="status">{historyError}</p>{/if}
     {#each history as c}<a class:chosen={c.id===live.conversation} href={`/?conversation=${c.id}`} title={c.title??`Conversation ${c.id}`} onclick={()=>navigation=false}><ChatCircle size={15}/><span>{c.title??`Conversation ${c.id}`}</span>{#if c.busy}<i aria-label="Generating"></i>{/if}</a>{/each}
@@ -51,7 +50,7 @@
 <div class="video-shell">
   <aside class="lab-sidebar" aria-label="Conversations and navigation">{@render sidebar()}</aside>
   <div class="lab-body">
-    <div class="lab-topline"><button class="icon-button lab-menu" onclick={()=>navigation=true} aria-label="Open navigation"><SidebarSimple size={22}/></button><span>Glimmer Lab <span class="lab-slash">/</span> {isChat?'Chat':path==='/workspace'?'Global Workspace':'Harness workbench'}</span><span class="lab-top-meta">Weights unchanged. A closer look inside.</span></div>
+    <div class="lab-topline"><button class="icon-button lab-menu" onclick={()=>navigation=true} aria-label="Open navigation"><SidebarSimple size={22}/></button><span>Glimmer Lab <span class="lab-slash">/</span> {links.find(l=>l.href===path)?.name??'Workspace'}</span><span class="lab-top-meta">Weights unchanged. A closer look inside.</span></div>
     {#if isChat}<header class="lab-page-heading chat-heading"><div><span class="lab-eyebrow">CONVERSATION</span><h1>{title}</h1><p>Talk to Glimmer. Inspect the signals behind any saved turn.</p></div><button class="lab-button" onclick={()=>controls=true}><SlidersHorizontal size={17}/>Steering &amp; readouts</button></header>{/if}
     <main id="lab-content" class="lab-content" tabindex="-1">
       <div class="lab-chat chat-main" hidden={!isChat}>

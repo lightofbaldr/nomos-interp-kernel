@@ -1,12 +1,13 @@
 <script lang="ts">
   import type {LiveState} from '$lib/live';
   import {defaultRules} from '$lib/pi/alerts';
+  import {emotionDirections} from '$lib/pi/assets';
   import AlertTrail from './AlertTrail.svelte';
   let {live}:{live:LiveState}=$props();
   let enabled=$state(false),name=$state('afraid'),layer=$state(29),threshold=$state(5),side=$state<'above'|'below'>('above');
   let watch=$state(true),watchLayer=$state(44),prefixes=$state(defaultRules().workspace.prefixes.join('\n')),error=$state('');
   function apply(){error='';try{live.setAlertRules?.({emotion:{enabled,name,layer,threshold,side},workspace:{enabled:watch,layer:watchLayer,prefixes:prefixes.split('\n').filter(s=>s.trim())}});}catch(e){error=String(e);}}
-  const names=$derived(live.assets?.directions[0]?.names??[]);
+  const names=$derived(emotionDirections(live.assets)?.names??[]);
 </script>
 <div class="alert-controls">
   <h3>Readout rules, not verdicts</h3>

@@ -13,6 +13,8 @@ let pending:Promise<Runtime>|undefined;
 let vocabulary:ReturnType<typeof loadLabels>|undefined;
 let annotationService:Promise<ReturnType<typeof createAnnotator>>|undefined;
 let stopping=false;
+// Does not open a new harness just to report System status.
+export async function piBusy(){return pending?(await pending).busy():false;}
 installShutdown(async()=>{stopping=true;if(pending)await (await pending).close();});
 const metaKey=()=>readMetaKey(env.GLIMMER_META_ENV_FILE||path.join(os.homedir(),'.env'));
 export async function metaAvailability(){return {available:Boolean(await metaKey()),model:META_MODEL};}

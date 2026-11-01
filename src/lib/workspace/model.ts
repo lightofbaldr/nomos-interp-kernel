@@ -30,8 +30,12 @@ export function fromLive(turn:TurnView,labels:WorkspaceTurn['labels'],prompt:str
 /** Resolve this request's prompt from its durable boundary, not the first/latest conversation message. */
 export function promptForTurn(pi:PiView,turn:TurnView):string {
   const boundary=pi.entries.find(e=>['glimmer.readout.turn','glimmer.readout.batch'].includes(e.kind)&&(e.data as {request?:string})?.request===turn.request);
-  if(!boundary)return ''; // Streaming before its first persisted batch: not known yet.
-  const prompts=pi.entries.filter(e=>e.id<boundary.id).sort((a,b)=>a.id-b.id)
+  // Live readout messages carry their durable entry ID but do not necessarily
+  // also arrive as pi.entry_appended. Keep that real boundary rather than
+  // inventing an entry or borrowing the latest conversation prompt.
+  const boundaryId=boundary?.id??turn.entryId;
+  if(boundaryId===undefined)return ''; // Before the first persisted batch.
+  const prompts=pi.entries.filter(e=>e.id<boundaryId).sort((a,b)=>a.id-b.id)
     .flatMap(e=>(e.model??[]).filter(m=>m.role==='user'));
   return prompts.length?textOf(prompts[prompts.length-1]):'';
 }

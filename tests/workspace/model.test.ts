@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {candidates,filterReason,fromLive,promptForTurn,selectedPosition,validateWorkspaceTurn,type WorkspaceTurn} from '../../src/lib/workspace/model.ts';
-import {emptyPi,type TurnView} from '../../src/lib/pi/model.ts';
+import {emptyPi,reducePi,type TurnView} from '../../src/lib/pi/model.ts';
 export function fixture():WorkspaceTurn {
   return {id:'example',title:'Fixture',source:'recorded',prompt:'Fixture prompt',layers:[36,40,44,48],k:4,steering:'Steering off',provenance:{label:'Synthetic unit fixture'},labels:{1:' paper',2:' cannot',3:'ing',4:'<|eot|>'},
     records:[{pos:5,token:1,source:'prompt',channel:null,emotion:null,workspace:null,missing:['workspace_prompt_v1']},
@@ -44,4 +44,9 @@ test('a selected turn uses its own prior prompt, not the first or the latest pro
 test('a missing live header is unknown, never steering off',()=>{
   const t={request:'a',turn:0,status:'streaming',header:null,records:[]} as unknown as TurnView;
   const rendered=fromLive(t,{},'');assert.equal(rendered.steering,'Steering not recorded');assert.deepEqual(rendered.layers,[]);
+});
+test('live bridge entry IDs resolve prompts before a snapshot, never the future prompt',()=>{
+  const pi=emptyPi();pi.entries=[{id:1,kind:'pi.input',model:[{role:'user',content:'Earlier prompt'}]},{id:5,kind:'pi.input',model:[{role:'user',content:'Future prompt'}]}] as any;
+  const live=reducePi(pi,{type:'readout.turn',entryId:3,turn:{request:'r',turn:0,task:2,status:'complete',header:null,records:[],error:null,summary:null}} as any);
+  assert.equal(promptForTurn(live,live.turns[0]),'Earlier prompt');assert.equal(live.entries.length,2,'No invented Pi entries');
 });

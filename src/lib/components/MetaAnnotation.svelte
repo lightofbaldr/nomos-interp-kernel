@@ -3,13 +3,13 @@
   import {CaretDown} from 'phosphor-svelte';
   import type {AlertRules} from '$lib/pi/alerts';
   import type {Annotation} from '$lib/pi/annotation';
-  let {conversation,request,turn,rules,available,saved}:{conversation:string;request:string;turn:number;rules:AlertRules;available:boolean;saved?:Annotation}=$props();
+  let {conversation,request,turn,rules,available,saved,showPayload=true,onAnnotation}:{conversation:string;request:string;turn:number;rules:AlertRules;available:boolean;saved?:Annotation;showPayload?:boolean;onAnnotation?:(value:Annotation)=>void}=$props();
   let sending=$state(false),error=$state(''),received=$state<Annotation|undefined>();
   const annotation=$derived(saved?.status==='complete'||saved?.status==='failed'?saved:received??saved);
   async function ask(){
     if(sending||annotation||!available)return;sending=true;error='';
     try{const response=await fetch('/api/pi/annotate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation,request,rules,consent:true})});
-      const data=await response.json();if(!response.ok)throw Error(data.error??'Annotation unavailable.');received=data.annotation;
+      const data=await response.json();if(!response.ok)throw Error(data.error??'Annotation unavailable.');received=data.annotation;onAnnotation?.(data.annotation);
     }catch(e){error=e instanceof Error?e.message:'Annotation unavailable.';}finally{sending=false;}
   }
 </script>
@@ -22,9 +22,9 @@
     {:else}<p role="status">Request pending or interrupted. It will not be sent again automatically.</p>{/if}
     {#if annotation.diagnostic}<p class="meta-identity">Rejected by: {annotation.diagnostic.rule}{annotation.diagnostic.word_count!==null?` · ${annotation.diagnostic.word_count} words`:''}{annotation.diagnostic.character_count!==null?` · ${annotation.diagnostic.character_count} characters`:''}{annotation.diagnostic.finish_reason?` · finish ${annotation.diagnostic.finish_reason}`:''}{annotation.diagnostic.phrase_id!==null?` · phrase rule ${annotation.diagnostic.phrase_id}`:''}. Rejected prose is not retained.</p>{/if}
     <p class="meta-identity">{annotation.model} · {annotation.finished_at??annotation.started_at}</p>
-    <Collapsible.Root><Collapsible.Trigger class="meta-payload-trigger">{annotation.status==='complete'?'View the exact payload sent':'View the prepared payload'}<CaretDown size={14}/></Collapsible.Trigger><Collapsible.Content>
+    {#if showPayload}<Collapsible.Root><Collapsible.Trigger class="meta-payload-trigger">{annotation.status==='complete'?'View the exact payload sent':'View the prepared payload'}<CaretDown size={14}/></Collapsible.Trigger><Collapsible.Content>
       <p class="meta-hash">SHA-256 {annotation.payload_sha256}</p><pre>{annotation.payload_json}</pre>
-    </Collapsible.Content></Collapsible.Root>
+    </Collapsible.Content></Collapsible.Root>{/if}
   {:else}
     <p class="meta-consent">Sends this turn's text and a summary of its readouts to Meta's API.</p>
     <p class="meta-detail">Reasoning is shortened when needed. Includes the recorded steering, prior-mean coverage and your current watch-list. Nothing is sent until you click.</p>

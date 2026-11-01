@@ -47,3 +47,8 @@ The video checkpoint adds private local capture/tokenizer defaults and file hash
 in `src/lib/server/recorded-workspace.ts` and `docs/VIDEO-WORKSPACE.md`. Those paths
 use `homedir()` but still identify private local data. Review the question/catalog
 metadata, runtime payloads and screenshots separately. No capture bytes are in Git.
+
+The inspection-pages ledger (`docs/inspection-pages/GATES.md`) records private
+verification paths, the local UI PID and backend port. System snapshots and
+screenshots include the UI hostname, platform and resource readings; they remain
+under ignored `evidence/` and `preview/checks/` and require a separate export review.

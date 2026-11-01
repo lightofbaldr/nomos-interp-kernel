@@ -7,6 +7,7 @@
   import {CircleNotch,ArrowUp,Square,Brain,CaretDown,Info,ArrowClockwise} from 'phosphor-svelte';
   import {emptyLiveState,type LiveState} from '$lib/live';
   import {emptyPi,reducePi,messagesOf,textOf,type Assets} from '$lib/pi/model';
+  import {emotionDirections} from '$lib/pi/assets';
   import {readBridge} from '$lib/pi/stream';
   import {defaultRules,evaluateAlerts,validRules,type AlertRules,type AlertResult} from '$lib/pi/alerts';
   import AlertTrail from './AlertTrail.svelte';
@@ -35,7 +36,7 @@
     const firstUser=pi.entries.flatMap(e=>e.model??[]).find(m=>m.role==='user');
     const title=firstUser?textOf(firstUser).trim().replace(/\s+/g,' ').slice(0,90):'';
     const conversations=sessions.map(c=>c.id===conversation?{...c,...(title?{title}:{}),...(pi.connected?{busy:pi.busy}:{})}:c);
-    view={...view,...next,pi,busy:pi.busy,conversation,labels:{...labels},command,alertRules:rules,alerts,setAlertRules,conversations,newConversation:create,openConversation:async id=>{await refresh();attach(id);},
+    view={...view,...next,pi,busy:pi.busy,conversation,labels:{...labels},command,alertRules:rules,alerts,setAlertRules,conversations,metaAvailable,newConversation:create,openConversation:async id=>{await refresh();attach(id);},
       select:(selection)=>update({selection}),selectLayer:(emotionLayer)=>update({emotionLayer})};onState(view);}
   function latest(){if(!follow)return;cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{if(scroll)scroll.scrollTop=scroll.scrollHeight;});}
   async function api(body:Record<string,unknown>){
@@ -78,8 +79,9 @@
     if(opening)return;opening=true;error='';
     try{const data=await api({action:'create'});if(!alive)return;
       const id=data.conversation as string,a=view.assets as Assets|undefined;
-      if(a?.supported&&a.directions[0]){
-        const d=a.directions[0],layers=[20,24,29].filter(l=>d.layers.includes(l));
+      const d=emotionDirections(a);
+      if(a?.supported&&d){
+        const layers=[20,24,29].filter(l=>d.layers.includes(l));
         if(layers.length)await api({action:'readout',conversation:id,readout:{enabled:true,emotion:{directions:d.id,layers},workspace:null}});
       }
       await refresh();attach(id);text='';follow=true;

@@ -10,7 +10,7 @@ export type Assets = {
   lenses:{id:string; layers:number[]}[];
   tokenizer:string|null;
 };
-export type TurnView = {request:string; turn:number; task:number|null; header:ReadoutHeader|null; records:ReadoutRecord[];
+export type TurnView = {request:string; turn:number; task:number|null; entryId?:number; header:ReadoutHeader|null; records:ReadoutRecord[];
   status:'streaming'|ReadoutTurnRecord['status']; error:string|null; summary:ReadoutTurnRecord['summary']};
 export type PiView = {entries:EntryRecord[]; partial:AssistantMessage|null; busy:boolean; settings:SettingsMessage|null;
   turns:TurnView[]; errors:string[]; connected:boolean};
@@ -20,10 +20,10 @@ export const emptyPi = ():PiView=>({entries:[],partial:null,busy:false,settings:
 function putEntry(state:PiView, entry:EntryRecord) {
   state.entries=[...state.entries.filter(e=>e.id!==entry.id),entry].sort((a,b)=>a.id-b.id);
 }
-function batch(state:PiView, b:ReadoutBatch) {
+function batch(state:PiView, b:ReadoutBatch,entryId?:number) {
   let t=state.turns.find(t=>t.request===b.request);
   if(t && t.status!=='streaming')return; // a terminal record already owns the complete list
-  if(!t){t={request:b.request,turn:b.turn,task:null,header:b.header,records:[],status:'streaming',error:null,summary:null};state.turns.push(t);}
+  if(!t){t={request:b.request,turn:b.turn,task:null,entryId,header:b.header,records:[],status:'streaming',error:null,summary:null};state.turns.push(t);}
   const positions=new Map(t.records.map(r=>[r.pos,r]));
   for(const r of b.records){
     const prior=positions.get(r.pos);
@@ -32,13 +32,13 @@ function batch(state:PiView, b:ReadoutBatch) {
   }
   t.records=[...positions.values()].sort((a,b)=>a.pos-b.pos);
 }
-function terminal(state:PiView,t:ReadoutTurnRecord){
-  state.turns=[...state.turns.filter(v=>v.request!==t.request),{request:t.request,turn:t.turn,task:t.task,header:t.header,
+function terminal(state:PiView,t:ReadoutTurnRecord,entryId?:number){
+  state.turns=[...state.turns.filter(v=>v.request!==t.request),{request:t.request,turn:t.turn,task:t.task,entryId,header:t.header,
     records:t.records,status:t.status,error:t.error,summary:t.summary}].sort((a,b)=>a.turn-b.turn);
 }
 function entryReadout(state:PiView,e:EntryRecord){
-  if(e.kind==='glimmer.readout.batch')batch(state,e.data as ReadoutBatch);
-  if(e.kind==='glimmer.readout.turn')terminal(state,e.data as ReadoutTurnRecord);
+  if(e.kind==='glimmer.readout.batch')batch(state,e.data as ReadoutBatch,e.id);
+  if(e.kind==='glimmer.readout.turn')terminal(state,e.data as ReadoutTurnRecord,e.id);
 }
 function pi(state:PiView,e:AgentEvent){
   if(e.type==='snapshot'){
@@ -76,8 +76,8 @@ export function reducePi(previous:PiView,wire:Wire):PiView {
   }else if(wire.type==='pi')pi(state,wire.event);
   else if(wire.type==='settings'){
     if(!state.settings || wire.version>state.settings.version)state.settings=wire;
-  }else if(wire.type==='readout.batch')batch(state,wire.batch);
-  else if(wire.type==='readout.turn')terminal(state,wire.turn);
+  }else if(wire.type==='readout.batch')batch(state,wire.batch,wire.entryId);
+  else if(wire.type==='readout.turn')terminal(state,wire.turn,wire.entryId);
   else if(wire.type==='readout.error')state.errors.push(wire.error);
   else throw Error('Unknown bridge message.');
   state.errors=state.errors.slice(-20);

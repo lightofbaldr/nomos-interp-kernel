@@ -37,6 +37,7 @@ export async function createRuntime(baseUrl:string, database:string|Storage,file
     if(!chat)throw Error('Conversation not found.');return chat;
   }
   const api={host,harness,
+    busy(){return active!==null;},
     toolStatus(){return files?.status()??{available:false,reason:'No sandbox broker configured.',policy:'glimmer.files/bwrap-1'};},
     async checkTools(tools:readonly SandboxTool[]=[]){if(!files)throw Error('No sandbox broker configured.');await files.ready(tools);return files.status();},
     async list(){
