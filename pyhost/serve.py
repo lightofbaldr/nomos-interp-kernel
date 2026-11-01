@@ -513,6 +513,9 @@ def _nomos_400(msg: str) -> HTTPException:
     return HTTPException(status_code=400, detail=f"nomos: {msg}")
 
 
+STEER_STARTS = {"response", "start"}     # where steering starts: the last prompt token (default) or the first token
+
+
 def _fields(obj, keys: set, what: str) -> dict:
     if not isinstance(obj, dict) or set(obj) != keys:
         raise _nomos_400(f"{what} must be an object with exactly {sorted(keys)}")
@@ -592,7 +595,11 @@ def _resolve_nomos(eng, nomos, n_prompt: int) -> "NomosPlan | None":
     steer = None
     s = nomos.get("steer")
     if s is not None:
-        s = _fields(s, {"layer", "directions", "direction", "strength"}, "steer")
+        keys = {"layer", "directions", "direction", "strength"}
+        s = _fields(s, keys | ({"from"} if isinstance(s, dict) and "from" in s else set()), "steer")
+        frm = s.get("from", "response")
+        if not isinstance(frm, str) or frm not in STEER_STARTS:
+            raise _nomos_400(f"steer.from must be one of {sorted(STEER_STARTS)}")
         dset = _asset(reg, s["directions"], "directions", "steer.directions")
         if not _int(s["layer"]) or s["layer"] not in dset["layers"]:
             raise _nomos_400(f"steer.layer {s['layer']!r} is not a layer of the direction set")
@@ -603,8 +610,11 @@ def _resolve_nomos(eng, nomos, n_prompt: int) -> "NomosPlan | None":
                 or not -readout.MAX_STRENGTH <= st <= readout.MAX_STRENGTH):
             raise _nomos_400(f"steer.strength must be a finite number in [-{readout.MAX_STRENGTH}, {readout.MAX_STRENGTH}] "
                              "(ruling P2-R7)")
+        # ruling P2-R8: by default steering starts at the last prompt token (the response). "start" steers the whole
+        # context from the first token; the kernel bypasses the KV store while steering is armed, so each call
+        # re-reads the growing conversation steered.
         steer = {"layer": s["layer"], "directions": s["directions"], "direction": s["direction"],
-                 "strength": float(st), "from_pos": n_prompt - 1}         # ruling P2-R8: the last prompt token
+                 "strength": float(st), "from_pos": 0 if frm == "start" else n_prompt - 1}
     header = {"v": readout.V, "conversation": conversation, "turn": turn, "response_id": None,
               "settings": settings, "steer": steer}
     return NomosPlan(ro, steer, fresh, layout, header)

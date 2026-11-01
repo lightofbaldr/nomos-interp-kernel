@@ -236,6 +236,26 @@ class NomosServe(unittest.TestCase):
             eng, {"steer": {"layer": 24, "directions": DIRS, "direction": "calm", "strength": -0.7}}, 10)
         self.assertEqual((plan.steer["strength"], plan.steer["from_pos"]), (-0.7, 9))
 
+    def test_steer_from_start_steers_the_whole_context(self):
+        """`from: "start"` steers every position from the first token, so a growing conversation is re-read steered on
+        each call (the kernel bypasses the KV store while steering is armed); `from: "response"` is the default."""
+        eng = fake_engine(self.tok, FakeLM(self.tok))
+        st = {"layer": 24, "directions": DIRS, "direction": "calm", "strength": 0.5}
+        for frm, pos in (("start", 0), ("response", 9)):
+            plan = self.serve._resolve_nomos(eng, {"steer": {**st, "from": frm}}, 10)
+            self.assertEqual(plan.steer["from_pos"], pos, frm)
+            self.assertEqual(plan.header["steer"]["from_pos"], pos, frm)
+        self.assertEqual(self.serve._resolve_nomos(eng, {"steer": st}, 10).steer["from_pos"], 9)
+
+    def test_an_unknown_steer_start_is_a_400(self):
+        from fastapi import HTTPException
+        eng = fake_engine(self.tok, FakeLM(self.tok))
+        st = {"layer": 24, "directions": DIRS, "direction": "calm", "strength": 0.5}
+        for frm in ("prompt", "", None, 0, True, ["start"]):
+            with self.assertRaises(HTTPException, msg=repr(frm)) as cm:
+                self.serve._resolve_nomos(eng, {"steer": {**st, "from": frm}}, 10)
+            self.assertEqual(cm.exception.status_code, 400, repr(frm))
+
     def test_a_plain_request_streams_without_any_nomos_field(self):
         lm = FakeLM(self.tok)
         _, payloads = self.stream(fake_engine(self.tok, lm), self.req())
