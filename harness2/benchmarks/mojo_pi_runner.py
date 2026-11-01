@@ -11,7 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from ..core import tree as HT
-from ..substrate.model_broker import MODEL, ModelBroker
+from ..substrate.model_broker import MODEL, ModelBroker, validate_steer
 from ..substrate.pi import (
     PI_SURFACE,
     PiSubstrate,
@@ -86,6 +86,31 @@ def sampling_from_env() -> str:
     return name
 
 
+def steer_from_env():
+    """The host's steer for every model call of a rollout (the serve's `nomos.steer`), or None. The broker adds it."""
+    raw = os.environ.get("HARNESS2_MOJO_STEER")
+    if not raw:
+        return None
+    try:
+        return validate_steer(json.loads(raw))
+    except ValueError as exc:
+        raise ValueError(f"HARNESS2_MOJO_STEER: {exc}") from None
+
+
+def opener_from_env():
+    """(text, sha256) of the opener placed before the task in the same user message, or None. The file must hash to
+    HARNESS2_MOJO_OPENER_SHA256, so the text a rollout used is the text that was registered."""
+    path = os.environ.get("HARNESS2_MOJO_OPENER_FILE")
+    if not path:
+        return None
+    pinned = os.environ.get("HARNESS2_MOJO_OPENER_SHA256", "")
+    raw = Path(path).read_bytes()
+    got = hashlib.sha256(raw).hexdigest()
+    if got != pinned:
+        raise ValueError(f"HARNESS2_MOJO_OPENER_SHA256: {path} hashes to {got}, not {pinned or 'an unset pin'}")
+    return raw.decode("utf-8"), got
+
+
 def prepare_agent(work: Path, sampling: str = "greedy"):
     agent = work / ".agent"
     agent.mkdir()
@@ -149,6 +174,11 @@ class Runner:
         }
         if sampling != "greedy":
             identity["sampling"] = {"preset": sampling, **SAMPLING_PRESETS[sampling]}
+        steer, opener = steer_from_env(), opener_from_env()
+        if steer is not None:
+            identity["steer"] = steer
+        if opener is not None:
+            identity["opener_sha256"] = opener[1]
         if run_dir.exists():
             done = run_dir / "complete.json"
             if not done.is_file():
@@ -184,7 +214,7 @@ class Runner:
             (),
         )
         args = PiSubstrate().pi_argv(
-            task.instructions,
+            task.instructions if opener is None else opener[0] + "\n\n" + task.instructions,
             inside,
             "nomos/" + MODEL,
             thinking="high",
@@ -201,7 +231,7 @@ class Runner:
         )
         with tempfile.TemporaryDirectory(prefix="h2-model-") as private:
             socket = Path(private) / "model.sock"
-            with self.broker(socket, max_calls=32) as broker:
+            with self.broker(socket, max_calls=32, **({} if steer is None else {"steer": steer})) as broker:
                 result = self.sandbox.run(
                     work, args, timeout=timeout, broker=socket, output_limit=16 * 1024 * 1024
                 )
