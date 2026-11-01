@@ -76,8 +76,12 @@ review branch; they are not the live-Pi acceptance commands.
   Imported traces remain self-reported.
   Recorded steering bundles are external, immutable local data; the default
   catalog is under `~/nomos_data/steering-diff/catalog-sampled-20261029`, not the scratch repo.
-- No tools, attachments, automatic retries or automatic compaction are enabled
-  in the initial local Pi host. Model text is escaped plain text.
+- Greedy decoding is explicit and remains the default. Each conversation can
+  opt into slower sampling; each reply records its own decoding and 6,144-token
+  limit. A capped reasoning-only reply offers an explicit Retry without adding
+  another copy of the question. See [decoding and Retry](docs/LIVE-PI.md#decoding-and-an-explicit-retry).
+- No tools or attachments are enabled in the initial session. Automatic retries
+  and automatic compaction stay off. Model text is escaped plain text.
 
 ## Checks
 

@@ -4,6 +4,7 @@ import {rm} from 'node:fs/promises';
 import {MemoryStorage,BACKGROUND_CONTEXT as ctx} from 'glimmer-agent/pi';
 import {createRuntime} from '../../src/lib/server/pi-runtime.ts';
 import {fakeKernel,until} from '../live/fixture.ts';
+import {cappedReasoningOnly,retryTarget,wasRetried} from '../../src/lib/pi/generation.ts';
 const settled=(r:any)=>until(async()=>!r.busy());
 async function entries(r:any,id:string){const c=await r.harness.conversation(Number(id),ctx);return (await c.entries({order:'ascending'},500,undefined,ctx)).items;}
 
@@ -56,5 +57,34 @@ test('answered length stops, ordinary answers, stale targets and busy attempts r
     f.hold(true);await r.submit(id,'later');await until(()=>f.requests.length===4);
     await assert.rejects(r.retry(id,old.id),/generat|busy|wait/i);await r.abort(id);await settled(r);
     const n=f.requests.length;await assert.rejects(r.retry(id,old.id),/last|eligible/i);assert.equal(f.requests.length,n);
+  }finally{await r.close();await f.close();await rm(f.root,{recursive:true,force:true});}
+});
+test('tool calls, empty reasoning, errors, resets and foreign targets cannot authorize a retry',async()=>{
+  const f=await fakeKernel(),r=await createRuntime(f.base,new MemoryStorage());
+  try{
+    const id=await r.create(),other=await r.create();f.reply({answer:'',finish:'length'});await r.submit(id,'capped');await settled(r);
+    const old=(await entries(r,id)).findLast((e:any)=>e.kind==='pi.assistant'),m=old.model[0];
+    assert.equal(retryTarget(await entries(r,id)),old.id);
+    const c=await r.harness.conversation(Number(id) as any,ctx);assert.ok(c);
+    for(const content of [[],[{type:'thinking',thinking:'   '}],[...m.content,{type:'toolCall',id:'fake',name:'never-run',arguments:{}}]]){
+      const changed={...m,content};assert.equal(cappedReasoningOnly(changed),false);
+      await c.submit({type:'write',entry:{kind:'test.capped',model:[changed]}},ctx);
+      const last=(await entries(r,id)).findLast((e:any)=>e.model?.length),n=f.requests.length;
+      await assert.rejects(r.retry(id,last.id),/eligible/);assert.equal(f.requests.length,n);
+    }
+    for(const stopReason of ['stop','error','aborted','toolUse'])assert.equal(cappedReasoningOnly({...m,stopReason}),false);
+    await assert.rejects(r.retry(other,old.id),/last/);
+    await c.reset(undefined,ctx);await assert.rejects(r.retry(id,old.id),/last/);
+    assert.equal(wasRetried(await entries(r,id),old.id),false);assert.equal(f.requests.length,1);
+  }finally{await r.close();await f.close();await rm(f.root,{recursive:true,force:true});}
+});
+test('a previously omitted reply cannot be revived by Retry',async()=>{
+  const f=await fakeKernel(),r=await createRuntime(f.base,new MemoryStorage());
+  try{
+    const id=await r.create();f.reply({answer:'',finish:'length'});await r.submit(id,'capped');await settled(r);
+    const c=await r.harness.conversation(Number(id) as any,ctx);assert.ok(c);
+    const old=(await entries(r,id)).findLast((e:any)=>e.kind==='pi.assistant');
+    await c.submit({type:'write',entry:{kind:'test.omitted',edits:[{target:old.id,action:'omit'}]}},ctx);
+    await assert.rejects(r.retry(id,old.id),/already edited/);assert.equal(f.requests.length,1);
   }finally{await r.close();await f.close();await rm(f.root,{recursive:true,force:true});}
 });

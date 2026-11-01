@@ -49,7 +49,7 @@ export class GenerationHost {
       mode:saved?.sampling?'sampled':'greedy',parameters:generationParameters(saved?.sampling??false)};
     const c=await this.#harness.conversation(api.conversationId,context);if(!c)throw Error('Conversation unavailable.');
     await c.commit(async tx=>{
-      const state=await tx.doc(RequestDoc,c.id),key=JSON.stringify([used.task,used.attempt,used.cutoff]);
+      const state=await tx.doc(RequestDoc,c.id),key=JSON.stringify(used);
       if(state.key===key)return;
       state.key=key;await tx.appendEntry(Used,c.id,{data:used});
     },context);
@@ -90,6 +90,7 @@ export class GenerationHost {
         for(const e of page.items){
           if(head&&e.id<head.head)break search;
           if(e.kind==='glimmer.retry'&&(e.data as {target?:number})?.target===target)throw Error('This attempt was already retried.');
+          if(e.edits?.some(edit=>edit.target===target))throw Error('The last reply was already edited out of model context.');
           if(e.model?.length){last=e;break search;}
         }
         if(!page.next)break;page=await tx.scanEntries({conversationId:c.id,order:'descending'},64,page.next);

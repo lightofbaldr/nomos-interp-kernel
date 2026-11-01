@@ -14,3 +14,6 @@
 .legacy-return{position:fixed;right:12px;bottom:8px;z-index:20;font-size:10px;background:var(--color-paper-2);border:1px solid var(--color-rule);padding:5px;border-radius:5px}
 @media(max-width:1000px){.video-shell{grid-template-columns:184px minmax(0,1fr)}.lab-sidebar{padding-inline:10px}.chat-heading h1{max-width:42vw}.lab-top-meta{display:none}}
 @media(max-width:720px){.video-shell{grid-template-columns:minmax(0,1fr)}.lab-sidebar{display:none}.lab-menu{display:flex}.lab-topline{padding:0 16px}.chat-heading{padding:20px;align-items:flex-start;flex-wrap:wrap}.chat-heading h1{max-width:85vw;font-size:21px}.lab-controls-dialog{inset:16px}.lab-live-strip{padding-inline:16px}}
+/* The fixed-height shell must not squeeze replies away below the decoding
+   controls. On phones the existing lab-content scroller also holds the footer. */
+@media(max-width:720px){.video-shell .lab-chat .conversation-stage{min-height:300px;flex-shrink:0}}

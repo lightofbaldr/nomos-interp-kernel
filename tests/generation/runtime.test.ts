@@ -2,8 +2,11 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {rm} from 'node:fs/promises';
 import {MemoryStorage,BACKGROUND_CONTEXT as ctx} from 'glimmer-agent/pi';
+import {normalizeContext} from '@earendil-works/pi-ai';
 import {createRuntime} from '../../src/lib/server/pi-runtime.ts';
 import {fakeKernel,until} from '../live/fixture.ts';
+import {GenerationHost} from '../../src/lib/server/generation.ts';
+import {generationFor,generationLabel,generationSettings,generationParameters} from '../../src/lib/pi/generation.ts';
 
 const params=(r:any)=>({temperature:r.temperature,top_p:r.top_p,top_k:r.top_k,max_tokens:r.max_tokens});
 const greedy={temperature:0,top_p:1,top_k:0,max_tokens:6144};
@@ -47,5 +50,26 @@ test('held turns cannot change their decoding; captured turns bind the same requ
     const used=e.findLast(e=>e.kind==='glimmer.generation.used')!.data as any;
     assert.equal(used.request,turn.request);assert.equal(used.task,turn.task);assert.deepEqual(used.parameters,greedy);
     assert.deepEqual(params(f.requests[1]),greedy);
+  }finally{await r.close();await f.close();await rm(f.root,{recursive:true,force:true});}
+});
+test('old records remain unlabelled; invalid controls and an unregistered provider call fail closed',()=>{
+  assert.equal(generationSettings([]),null);assert.equal(generationFor([],1),null);
+  assert.match(generationLabel(null),/not recorded/);
+  for(const value of [0,1,'true',null,{},undefined])assert.throws(()=>generationParameters(value as any),/boolean/);
+  let calls=0;const g=new GenerationHost(ctx),provider=g.provider({streamSimple(){calls++;},stream(){calls++;}} as any);
+  assert.throws(()=>provider.streamSimple({} as any,normalizeContext({messages:[]})),/matching/);assert.equal(calls,0);
+  const used=(id:number,request:string,mode:string)=>({id,kind:'glimmer.generation.used',data:{task:42,request,mode}});
+  const e=[used(1,'first','greedy'),used(3,'second','sampled')] as any;
+  assert.equal(generationFor(e,42,'first')?.mode,'greedy');assert.equal(generationFor(e,42,undefined,2)?.mode,'greedy');assert.equal(generationFor(e,42,'absent'),null);
+});
+test('fork restores the decoding setting at its fork point, not the parent latest setting',async()=>{
+  const f=await fakeKernel(),r=await createRuntime(f.base,new MemoryStorage());
+  try{
+    const id=await r.create(),s=await r.generation(id);await r.setGeneration(id,s.version,true);
+    const c=await r.harness.conversation(Number(id) as any,ctx);
+    const at=(await c!.entries({order:'descending'},10,undefined,ctx)).items.find(e=>e.kind==='glimmer.generation.changed')!.id;
+    const s2=await r.generation(id);await r.setGeneration(id,s2.version,false);
+    const child=await r.forkProfile(id,at);assert.equal((await r.generation(child)).sampling,true);assert.equal((await r.generation(id)).sampling,false);
+    await r.submit(child,'fork');await settled(r);assert.deepEqual(params(f.requests[0]),sampled);
   }finally{await r.close();await f.close();await rm(f.root,{recursive:true,force:true});}
 });

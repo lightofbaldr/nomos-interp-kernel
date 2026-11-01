@@ -61,9 +61,54 @@ can still work and the relevant controls/labels say unavailable.
   alignment, not probabilities or evidence of feelings. Demo mode stays separate.
 
 The initial session enables emotions at L20/24/29 when advertised; workspace is
-off until explicitly enabled. Tools, retries and automatic compaction are disabled
-in this initial local chat host. The session cap is 100 and each submitted message
-is limited to 4,000 characters. The model output cap is 2,048 tokens.
+off until explicitly enabled. Tools start disabled; the harness workbench can
+enable the reviewed sandboxed tools. Automatic retries and compaction remain
+disabled. The session cap is 100 and each submitted message is limited to 4,000
+characters. The model reply cap is 6,144 generated tokens, including reasoning.
+
+## Decoding and an explicit Retry
+
+Greedy is the default, sent explicitly as `temperature: 0, top_p: 1, top_k: 0`.
+The per-conversation **Glimmer's sampling** switch is off initially. Switching it
+on saves `temperature: 1, top_p: 0.95, top_k: 64` for subsequent requests. This is
+slower on the current serve because it disables speculative decoding. Earlier
+Gold measurements without readouts were about 17 tokens/s sampled versus 40
+greedy; these are not a speed promise for the current turn. Sampling can still
+repeat. Nothing changes the serve or adds a loop detector.
+
+Each Pi request snapshots the setting at its context cutoff, writes a non-model
+`glimmer.generation.used` entry, and sends those exact parameters plus
+`max_tokens: 6144`. The record identifies task, attempt, cutoff and, when capture
+is active, the readout request. Chat, Workspace, Statistics and Interpreter show
+the recorded decoding, never today's toggle for an old turn. Older turns and
+recordings without this metadata stay explicitly unrecorded. Settings survive
+restart, and a fork restores the value at its fork point. Concurrent or stale
+setting changes refuse while a run is active. None of this metadata enters
+Glimmer's context.
+
+The last assistant reply offers **Retry** only when its stop reason is `length`,
+it contains nonempty reasoning, and it contains neither answer text nor a tool
+call. A click atomically starts a new Pi generation task and appends a
+`glimmer.retry` audit entry that omits the old attempt from **model context**, not
+history. The existing user question remains exactly once. The old attempt stays
+visible as “Stopped at the reply limit, retried.” There is no automatic retry or
+automatic switch to sampling; greedy may produce the same result again.
+
+Retry uses the saved decoding/readout/steering controls and the active profile.
+A profile already marked pending still applies only on the next ordinary user
+submission, as before. A busy, answered, stale, already edited/retried, reset or
+foreign target is refused. Admission uses native Pi 1.3.0 task/doc APIs and the
+same global one-run restriction as ordinary Submit. Stop, disconnect and reload
+retain their existing semantics.
+
+The stateless `/api/nomos/chat` route enforces the same two fixed parameter sets
+and cap; its optional `sampling` field must be a boolean. It does not accept
+arbitrary sampler parameters. `X-Glimmer-Generation` records the exact parameters
+in the response, alongside `X-Glimmer-Decoding` and `X-Glimmer-Reply-Cap`; this route
+does not persist a conversation. Both paths have a bounded ten-minute request
+timeout (formerly five), to avoid cutting a sampled 6,144-token reply short at
+the former timeout. That is a time limit, not a guarantee that every reply will
+reach the token cap. Automatic retries remain off.
 
 ## Observational alerts
 
@@ -129,6 +174,13 @@ kernel and the recorded Python-producer contract fixtures. `node
 scripts/live-browser.mjs` checks desktop/mobile against that fake through the real
 gateway. `node scripts/live-regression.mjs` runs the existing demo, recorded,
 loopback and accessibility-oriented browser checks.
+
+`npm run test:generation` covers decoding, durable attribution and replacing
+Retry through real Pi with a fake kernel. After building, `npm run
+test:generation-ui` checks the switch, reload/session switching, history and
+inspection labels, replacing Retry and both direct-route parameter choices in
+an isolated browser/server. It makes no model or paid call. Both are included
+in `node scripts/runtime-regression.mjs`.
 
 `scripts/live-e2e.mjs` is the explicit, real-GPU client check: it checks for existing
 connections, uses the **already running serve**, and never starts/stops it. Do not

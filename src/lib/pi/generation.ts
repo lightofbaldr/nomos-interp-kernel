@@ -14,9 +14,9 @@ export function generationSettings(entries:readonly EntryRecord[]):GenerationSet
   const e=entries.findLast(e=>e.kind==='glimmer.generation.changed'),s=e?.data as GenerationSettings|undefined;
   return s&&Number.isSafeInteger(s.version)&&typeof s.sampling==='boolean'?s:null;
 }
-export function generationFor(entries:readonly EntryRecord[],task:number|undefined|null,request?:string):GenerationUsed|null {
+export function generationFor(entries:readonly EntryRecord[],task:number|undefined|null,request?:string,beforeEntry?:number):GenerationUsed|null {
   if(task==null)return null;
-  return entries.findLast(e=>e.kind==='glimmer.generation.used'&&(e.data as GenerationUsed)?.task===task&&(!request||(e.data as GenerationUsed).request===request))?.data as GenerationUsed??null;
+  return entries.findLast(e=>e.kind==='glimmer.generation.used'&&(e.data as GenerationUsed)?.task===task&&(!request||(e.data as GenerationUsed).request===request)&&(beforeEntry===undefined||e.id<beforeEntry))?.data as GenerationUsed??null;
 }
 export function generationLabel(used:GenerationUsed|null|undefined):string {
   return used?`${used.mode==='sampled'?"Glimmer's sampling":'Greedy'} · T ${used.parameters.temperature} / p ${used.parameters.top_p} / k ${used.parameters.top_k} · ${used.parameters.max_tokens.toLocaleString('en-US')}-token limit`:'Decoding not recorded for this turn';

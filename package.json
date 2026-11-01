@@ -17,6 +17,8 @@
     "test:file-sandbox": "node scripts/filetool-tests.mjs sandbox",
     "test:file-ui": "node scripts/filetool-browser.mjs",
     "test:profiles": "node scripts/profile-tests.mjs runtime",
+    "test:generation": "node --test --test-reporter=tap tests/generation/*.test.ts",
+    "test:generation-ui": "node scripts/generation-browser.mjs",
     "test:profile-import": "node scripts/profile-tests.mjs import",
     "test:profile-ui": "node scripts/profile-browser.mjs",
     "dev": "vite dev --host 127.0.0.1 --port 5226 --strictPort",

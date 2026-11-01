@@ -140,7 +140,7 @@
         {@const sourceEntry=pi.entries.find(e=>String(e.id)===entry.id.split(':')[0])}
         {@const measuredTurn=sourceEntry?.byTaskId?pi.turns.find(t=>t.task===sourceEntry.byTaskId&&t.status==='complete'):undefined}
         {@const used=sourceEntry?.byTaskId?pi.entries.filter(e=>e.kind==='glimmer.profile.used').map(e=>e.data as ProfileUsed).findLast(p=>p.task===sourceEntry.byTaskId):undefined}
-        {@const decodingUsed=entry.streaming?partialDecoding:generationFor(pi.entries,sourceEntry?.byTaskId)}
+        {@const decodingUsed=entry.streaming?partialDecoding:generationFor(pi.entries,sourceEntry?.byTaskId,undefined,sourceEntry?.id)}
         {@const retried=sourceEntry?wasRetried(pi.entries,sourceEntry.id):false}
         {#if entry.message.role==='user'}<Message.Root from="user" class="user-message live-user"><Message.Content class="message-copy"><div class="live-plain">{answer}</div></Message.Content></Message.Root>
         {:else}<article class="assistant-message live-assistant" aria-label="Live assistant response">
@@ -169,7 +169,7 @@
 <section class="composer-section" aria-label="Message composer">
   <div class="replay-toolbar"><span class="replay-meta">{pi.busy?'Glimmer is generating':pi.connected?'Durable Pi session':'Bridge disconnected'}</span><button class="text-button" onclick={reconnect} aria-label="Reconnect Pi bridge"><ArrowClockwise size={13} aria-hidden="true"/>Reconnect</button></div>
   <div class="decoding-control">
-    {#key `${conversation}:${decoding?.version}:${controlPending}`}<Switch.Root id="glimmer-sampling" class="sampling-switch" checked={decoding?.sampling??false} onCheckedChange={sampling} disabled={!pi.connected||!decoding||pi.busy||controlPending} aria-describedby="sampling-cost"><Switch.Thumb class="sampling-thumb"/></Switch.Root>{/key}
+    {#key `${conversation}:${decoding?.version}:${controlPending}`}<Switch.Root id="glimmer-sampling" class="sampling-switch" checked={decoding?.sampling??false} onCheckedChange={sampling} disabled={!pi.connected||!decoding||pi.busy||controlPending} aria-label="Glimmer's sampling" aria-describedby="sampling-cost"><Switch.Thumb class="sampling-thumb"/></Switch.Root>{/key}
     <label for="glimmer-sampling">Glimmer's sampling <span>{decoding?.sampling?'On':'Off · greedy'}</span></label>
     <p id="sampling-cost">Slower: disables speculative decoding. Earlier Gold measurements: about 17 tokens/s sampled vs 40 greedy, without readouts. Actual speed varies; sampling can still repeat.</p>
   </div>
