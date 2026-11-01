@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import socket
 import socketserver
 import threading
@@ -17,6 +18,28 @@ from pathlib import Path
 
 MODEL = "nomos-muse-glimmer-30b"
 MAX_BODY = 1_048_576
+STEER_KEYS = {"layer", "directions", "direction", "strength"}
+STEER_STARTS = {"response", "start"}  # the serve's steer.from: the last prompt token (its default) or the first token
+MAX_STRENGTH = 2.0  # the serve's readout.MAX_STRENGTH
+
+
+def validate_steer(steer) -> dict:
+    """The serve's `nomos.steer` fields, checked before any rollout starts. The host sets steering; the agent never can."""
+    if not isinstance(steer, dict) or set(steer) - {"from"} != STEER_KEYS:
+        raise ValueError(f"steer must have exactly the fields {sorted(STEER_KEYS)}, and optionally 'from'")
+    if "from" in steer and (not isinstance(steer["from"], str) or steer["from"] not in STEER_STARTS):
+        raise ValueError(f"steer.from must be one of {sorted(STEER_STARTS)}")
+    layer, directions, direction, strength = (steer[k] for k in ("layer", "directions", "direction", "strength"))
+    if type(layer) is not int or not 0 <= layer <= 255:
+        raise ValueError("steer.layer must be an integer layer")
+    if not isinstance(directions, str) or len(directions) != 64 or set(directions) - set("0123456789abcdef"):
+        raise ValueError("steer.directions must be a direction-set asset id (64 hex characters)")
+    if not isinstance(direction, str) or not 1 <= len(direction) <= 64:
+        raise ValueError("steer.direction must name a direction of the set")
+    if (type(strength) not in (int, float) or not math.isfinite(strength)
+            or not -MAX_STRENGTH <= strength <= MAX_STRENGTH):
+        raise ValueError(f"steer.strength must be a finite number in [-{MAX_STRENGTH}, {MAX_STRENGTH}]")
+    return dict(steer)
 
 
 def error_detail(status, code="upstream_http", max_calls=32):
@@ -67,9 +90,10 @@ class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
 
 class ModelBroker:
-    def __init__(self, path: Path, *, max_calls=32, _connection=None):
+    def __init__(self, path: Path, *, max_calls=32, steer=None, _connection=None):
         if type(max_calls) is not int or not 1 <= max_calls <= 128:
             raise ValueError("model call cap must be 1..128")
+        self.steer = None if steer is None else validate_steer(steer)
         self.calls = 0
         self.last_failure = None
         self.lock = threading.Lock()
@@ -135,6 +159,8 @@ class ModelBroker:
                             return self.reject(400)
                 except (ValueError, OSError):
                     return self.reject(400)
+                if owner.steer is not None:
+                    body = json.dumps(req | {"nomos": {"steer": owner.steer}}).encode()
                 with owner.lock:
                     if owner.closed:
                         return self.reject(429, "broker_closed")

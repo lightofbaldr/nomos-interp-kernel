@@ -13,7 +13,7 @@ from pathlib import Path
 
 from ..core import tree as HT
 from ..core.spec import RecordedRolloutFailure
-from ..substrate.model_broker import MODEL, ModelBroker
+from ..substrate.model_broker import MODEL, ModelBroker, validate_steer
 from ..substrate.pi import (
     PI_SURFACE,
     PiSubstrate,
@@ -187,7 +187,48 @@ def harness_tree(path: Path):
     return tree
 
 
-def prepare_agent(work: Path):
+# Glimmer's sampling for a rollout. "greedy" is runs 1-2's temperature 0 and records the same identity
+# fields they did; "vendor" is Glimmer's own defaults, for repeated sampled held-out evaluation, and adds a
+# "sampling" field. The serve decodes speculatively only at temperature 0, so sampled rollouts are slower.
+SAMPLING_PRESETS = {
+    "greedy": {"temperature": 0},
+    "vendor": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
+}
+
+
+def sampling_from_env() -> str:
+    name = os.environ.get("HARNESS2_MOJO_SAMPLING", "greedy")
+    if name not in SAMPLING_PRESETS:
+        raise ValueError(f"HARNESS2_MOJO_SAMPLING must be one of {sorted(SAMPLING_PRESETS)}, not {name!r}")
+    return name
+
+
+def steer_from_env():
+    """The host's steer for every model call of a rollout (the serve's `nomos.steer`), or None. The broker adds it."""
+    raw = os.environ.get("HARNESS2_MOJO_STEER")
+    if not raw:
+        return None
+    try:
+        return validate_steer(json.loads(raw))
+    except ValueError as exc:
+        raise ValueError(f"HARNESS2_MOJO_STEER: {exc}") from None
+
+
+def opener_from_env():
+    """(text, sha256) of the opener placed before the task in the same user message, or None. The file must hash to
+    HARNESS2_MOJO_OPENER_SHA256, so the text a rollout used is the text that was registered."""
+    path = os.environ.get("HARNESS2_MOJO_OPENER_FILE")
+    if not path:
+        return None
+    pinned = os.environ.get("HARNESS2_MOJO_OPENER_SHA256", "")
+    raw = Path(path).read_bytes()
+    got = hashlib.sha256(raw).hexdigest()
+    if got != pinned:
+        raise ValueError(f"HARNESS2_MOJO_OPENER_SHA256: {path} hashes to {got}, not {pinned or 'an unset pin'}")
+    return raw.decode("utf-8"), got
+
+
+def prepare_agent(work: Path, sampling: str = "greedy"):
     agent = work / ".agent"
     agent.mkdir()
     write_json(
@@ -219,7 +260,7 @@ def prepare_agent(work: Path):
                             "input": ["text"],
                             "contextWindow": CONTEXT_WINDOW,
                             "maxTokens": OUTPUT_TOKENS,
-                            "samplingParams": {"temperature": 0},
+                            "samplingParams": dict(SAMPLING_PRESETS[sampling]),
                             "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                         }
                     ],
@@ -237,11 +278,12 @@ class Runner:
         if not self.approved:
             raise RuntimeError("live Pi rollouts are held; obtain Adam's approval through Prime")
         tree = harness_tree(harness)
+        sampling = sampling_from_env()
         identity = {
             "task": task.sha256,
             "harness": hashlib.sha256(json.dumps(tree, sort_keys=True).encode()).hexdigest(),
             "model": MODEL,
-            "temperature": 0,
+            "temperature": SAMPLING_PRESETS[sampling]["temperature"],
             "thinking": "high",
             "sandbox": "bwrap-model-only-v1",
             "runtime": self.sandbox.identity(),
@@ -252,6 +294,13 @@ class Runner:
                 "output_tokens": OUTPUT_TOKENS,
             },
         }
+        if sampling != "greedy":
+            identity["sampling"] = {"preset": sampling, **SAMPLING_PRESETS[sampling]}
+        steer, opener = steer_from_env(), opener_from_env()
+        if steer is not None:
+            identity["steer"] = steer
+        if opener is not None:
+            identity["opener_sha256"] = opener[1]
         if run_dir.exists():
             if (run_dir / "failed.json").is_file():
                 saved = load_failed(run_dir)
@@ -277,7 +326,7 @@ class Runner:
                 "env_description": "Isolated CPU workspace; no web access.",
             },
         )
-        prepare_agent(work)
+        prepare_agent(work, sampling)
         inside = Path("/work")
         rendered = RenderedHarness(
             inside,
@@ -292,7 +341,7 @@ class Runner:
             (),
         )
         args = PiSubstrate().pi_argv(
-            task.instructions,
+            task.instructions if opener is None else opener[0] + "\n\n" + task.instructions,
             inside,
             "nomos/" + MODEL,
             thinking="high",
@@ -315,7 +364,7 @@ class Runner:
         )
         with tempfile.TemporaryDirectory(prefix="h2-model-") as private:
             socket = Path(private) / "model.sock"
-            with self.broker(socket, max_calls=MODEL_CALL_LIMIT) as broker:
+            with self.broker(socket, max_calls=MODEL_CALL_LIMIT, **({} if steer is None else {"steer": steer})) as broker:
                 result = self.sandbox.run(
                     work, args, timeout=timeout, broker=socket, output_limit=16 * 1024 * 1024
                 )
