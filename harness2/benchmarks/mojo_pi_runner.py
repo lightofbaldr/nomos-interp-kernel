@@ -70,7 +70,23 @@ def harness_tree(path: Path):
     return tree
 
 
-def prepare_agent(work: Path):
+# Glimmer's sampling for a rollout. "greedy" is runs 1-2's temperature 0 and records the same identity
+# fields they did; "vendor" is Glimmer's own defaults, for repeated sampled held-out evaluation, and adds a
+# "sampling" field. The serve decodes speculatively only at temperature 0, so sampled rollouts are slower.
+SAMPLING_PRESETS = {
+    "greedy": {"temperature": 0},
+    "vendor": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
+}
+
+
+def sampling_from_env() -> str:
+    name = os.environ.get("HARNESS2_MOJO_SAMPLING", "greedy")
+    if name not in SAMPLING_PRESETS:
+        raise ValueError(f"HARNESS2_MOJO_SAMPLING must be one of {sorted(SAMPLING_PRESETS)}, not {name!r}")
+    return name
+
+
+def prepare_agent(work: Path, sampling: str = "greedy"):
     agent = work / ".agent"
     agent.mkdir()
     write_json(
@@ -102,7 +118,7 @@ def prepare_agent(work: Path):
                             "input": ["text"],
                             "contextWindow": 32768,
                             "maxTokens": 8192,
-                            "samplingParams": {"temperature": 0},
+                            "samplingParams": dict(SAMPLING_PRESETS[sampling]),
                             "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                         }
                     ],
@@ -120,16 +136,19 @@ class Runner:
         if not self.approved:
             raise RuntimeError("live Pi rollouts are held; obtain Adam's approval through Prime")
         tree = harness_tree(harness)
+        sampling = sampling_from_env()
         identity = {
             "task": task.sha256,
             "harness": hashlib.sha256(json.dumps(tree, sort_keys=True).encode()).hexdigest(),
             "model": MODEL,
-            "temperature": 0,
+            "temperature": SAMPLING_PRESETS[sampling]["temperature"],
             "thinking": "high",
             "sandbox": "bwrap-model-only-v1",
             "runtime": self.sandbox.identity(),
             "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         }
+        if sampling != "greedy":
+            identity["sampling"] = {"preset": sampling, **SAMPLING_PRESETS[sampling]}
         if run_dir.exists():
             done = run_dir / "complete.json"
             if not done.is_file():
@@ -150,7 +169,7 @@ class Runner:
                 "env_description": "Isolated CPU workspace; no web access.",
             },
         )
-        prepare_agent(work)
+        prepare_agent(work, sampling)
         inside = Path("/work")
         rendered = RenderedHarness(
             inside,
