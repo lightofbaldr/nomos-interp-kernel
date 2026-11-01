@@ -616,6 +616,8 @@ class KernelLM(_GenMixin):
     def steer_set(self, layer, directions, name, strength, from_pos) -> None:
         """OP_STEER_SET: steer `layer` by s x layer_sizes[layer] x the direction, from absolute position from_pos, on every
         path (plan B). A negative from_pos is refused (ruling P2-R8): DFlash verify refuses steering without one (-4).
+        KernelLM must be the only thing that changes this engine's steering: a raw nomos_* steering call on self.h would
+        leave _steer_armed describing steering the kernel no longer holds (Codex review of 3cb0986, N1).
         Steering identical to what the kernel already holds is left armed: re-arming would mark the live KV untracked
         (ledger R17), so every call of a steered conversation would re-prefill its whole context."""
         self._need_readout()

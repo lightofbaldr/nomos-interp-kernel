@@ -611,8 +611,9 @@ def _resolve_nomos(eng, nomos, n_prompt: int) -> "NomosPlan | None":
             raise _nomos_400(f"steer.strength must be a finite number in [-{readout.MAX_STRENGTH}, {readout.MAX_STRENGTH}] "
                              "(ruling P2-R7)")
         # ruling P2-R8: by default steering starts at the last prompt token (the response). "start" steers the whole
-        # context from the first token; the kernel bypasses the KV store while steering is armed, so each call
-        # re-reads the growing conversation steered.
+        # context from the first token. The KV store is bypassed while steering is armed; a later call under the same
+        # steering continues the live KV computed under it (kv_steered_prefix), so the conversation stays steered
+        # throughout without re-prefilling it. The response start moves every call, so it never continues.
         steer = {"layer": s["layer"], "directions": s["directions"], "direction": s["direction"],
                  "strength": float(st), "from_pos": 0 if frm == "start" else n_prompt - 1}
     header = {"v": readout.V, "conversation": conversation, "turn": turn, "response_id": None,

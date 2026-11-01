@@ -55,7 +55,8 @@ class SteeredSessionTest(unittest.TestCase):
         self.k.reset()
 
     def arm(self, vec, from_pos=0):
-        """What the serve does for every steered request: clear, set the vector, set where it starts."""
+        """Arm steering through the raw kernel calls: clear, set the vector, set where it starts. (The serve's host
+        makes these calls only when the steering changes; KernelLM.steer_set leaves identical steering armed.)"""
         self.assertEqual(self.k.lib.nomos_clear_steer(self.k.h), 0)
         self.assertEqual(self.k.lib.nomos_set_steer(self.k.h, LAYER, vec.ctypes.data), 0)
         if from_pos is not None:
