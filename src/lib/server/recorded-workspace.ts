@@ -1,10 +1,9 @@
-import {open,realpath} from 'node:fs/promises';
-import {constants} from 'node:fs';
-import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {loadLabels} from './pi-assets.ts';
 import {validateWorkspaceTurn,type WorkspaceTurn} from '../workspace/model.ts';
+import {pinnedBytes} from './pinned-recording.ts';
+import {step2Source} from './workspace-step2.ts';
 
 // Metadata only. Capture bytes remain outside the repository and build output.
 export const recordings=[
@@ -15,14 +14,9 @@ const root=path.join(homedir(),'nomos_data/steering-diff/run-20261027T090425-ws-
 const tokenizer=path.join(homedir(),'nomos_data/muse-glimmer-tokenizer/tokenizer.json');
 const tokenizerPin='c9dbee66967b58f31a7c27f723c3760da3526ccd0427578e8905b0abb0031c4d';
 export async function recording(id:string):Promise<WorkspaceTurn>{
+  if(id.startsWith('step2-'))return step2Source.recording(id);
   const item=recordings.find(r=>r.id===id);if(!item)throw Error('Unknown recording.');
-  const filename=path.join(root,item.file);
-  if(await realpath(filename)!==filename)throw Error('Symlinked recording refused.');
-  const f=await open(filename,constants.O_RDONLY|constants.O_NOFOLLOW);
-  let bytes:Buffer;
-  try{const stat=await f.stat();if(!stat.isFile()||stat.size>16_000_000)throw Error('Invalid recording size.');bytes=await f.readFile();}
-  finally{await f.close();}
-  if(createHash('sha256').update(bytes).digest('hex')!==item.sha256)throw Error('Recording identity changed.');
+  const bytes=await pinnedBytes(root,item.file,item.sha256,16_000_000);
   const d=JSON.parse(bytes.toString()),header=d.summary?.header;
   if(d.identity?.tokenizer_sha256!==tokenizerPin||!header)throw Error('Recording tokenizer/header mismatch.');
   const vocab=await loadLabels(tokenizer,tokenizerPin),ids=new Set<number>();

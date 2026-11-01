@@ -16,7 +16,9 @@ only in checked, resource-limited Linux sandboxes. No shell tool is exposed.
 The [video workspace checkpoint](docs/VIDEO-WORKSPACE.md) separates minimal chat,
 saved conversation history, the token-by-token Global Workspace and the harness
 workbench. The recorded workspace opens without a model request. Statistics,
-Interpreter and System are explicitly marked as the next checkpoint, not built pages.
+Interpreter and System are available as separate pages.
+The [Step 2 recording guide](docs/WORKSPACE-STEP2.md) covers the 48 system-prompt
+examples, their classifier annotations, and the separate registered/post-hoc windows.
 
 ## Run
 
@@ -93,6 +95,9 @@ node scripts/live-regression.mjs  # demo, recorded, transport and loopback check
 node scripts/workspace-tests.mjs  # exact positions, ranks, unknowns and durable titles
 node scripts/workspace-browser.mjs # new shell/history/workbench, fake kernel only
 node scripts/workspace-browser.mjs --recorded # requires the pinned local captures
+node scripts/step2-tests.mjs      # synthetic pinned-input and marker controls
+node scripts/step2-assets.mjs     # reconcile all 48 external recordings, read-only
+node scripts/step2-browser.mjs    # saved-data browser; build first, no model call
 npm run test:kernel                # explicit GPU client test against existing :8091
 ```
 

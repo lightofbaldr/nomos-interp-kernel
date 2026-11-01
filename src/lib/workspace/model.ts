@@ -1,10 +1,12 @@
 import type {ReadoutRecord} from 'glimmer-agent/contract';
 import {textOf,type TurnView,type PiView} from '../pi/model.ts';
+import {answerWindows,type Step2Info} from './step2.ts';
 
 export type WorkspaceTurn = {
   id:string; title:string; prompt:string; source:'recorded'|'live'; layers:number[]; k:number|null;
   records:ReadoutRecord[]; labels:Record<string,string|null>; steering:string;
   provenance:{label:string; sha256?:string; tokenizer?:string; schedule?:string};
+  step2?:Step2Info;
 };
 export type Candidate = {id:number;score:number;rank:number;label:string|null;hiddenReason:string|null};
 
@@ -65,6 +67,11 @@ export function validateWorkspaceTurn(raw:unknown):WorkspaceTurn {
         for(const p of top){if(!Array.isArray(p)||p.length!==2||!Number.isSafeInteger(p[0])||p[0]<0||!Number.isFinite(p[1])||p[1]>previous)fail();previous=p[1];}
       }
     }
+  }
+  if(t.step2){
+    const m=t.step2.marker,w=answerWindows(t.records,t.step2);
+    if(m.postHoc!==true||m.notDecisionTime!==true||!Number.isSafeInteger(m.answerTokenIndex)||m.answerTokenIndex<0
+      ||!Number.isSafeInteger(m.charOffset)||m.charOffset<0||m.answerTokens!==w.answerCount||w.taskStart===null)fail();
   }
   return t;
 }

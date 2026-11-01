@@ -52,3 +52,11 @@ The inspection-pages ledger (`docs/inspection-pages/GATES.md`) records private
 verification paths, the local UI PID and backend port. System snapshots and
 screenshots include the UI hostname, platform and resource readings; they remain
 under ignored `evidence/` and `preview/checks/` and require a separate export review.
+
+The Step 2 viewer adds private study paths and pins in
+`src/lib/server/workspace-step2.ts`, plus provenance in
+`docs/WORKSPACE-STEP2.md` and `scripts/step2-assets.mjs`. Review the questions,
+setup texts, labels, marker anchors and evidence JSON in runtime responses and
+screenshots before export. These are external capture data, not committed assets.
+The private capture root is `~/nomos_data/sysprompt-study-20261101`; the tokenizer
+is `~/nomos_data/muse-glimmer-tokenizer`. Neither requires a public default.
