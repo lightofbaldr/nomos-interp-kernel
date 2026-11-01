@@ -202,6 +202,12 @@ def capture(lm, prompt_ids, layout, header, arm_fn, channel_of, stop_ids, max_ne
             "summary": turn.summary(saw_stop)}
 
 
+def recorded_dir(sc: dict) -> str | None:
+    """The directory of the recorded episode a sampled scenario was built from; None for a new scenario."""
+    path = (sc.get("source") or {}).get("path")
+    return os.path.dirname(path) if path else None
+
+
 def reproduce(path: str, k: int, seed: int, tokens) -> dict:
     """Whether a sampled base run handed out exactly the recorded episode's tokens (the same prompt, seed and sampler)."""
     if not os.path.exists(path):
@@ -432,7 +438,9 @@ def main(argv=None) -> int:
             if args.samples:            # sampled free runs: the examples' seeds, sampler and cap, sample-major
                 if sc["modes"] != ["free"] or not sc.get("source"):
                     raise SystemExit(f"{pkey}: sampled runs need a free scenario built from a recorded episode")
-                item, rec_dir, repro = sc["source"]["item"], os.path.dirname(sc["source"]["path"]), []
+                item, rec_dir, repro = sc["source"]["item"], recorded_dir(sc), []
+                if rec_dir is None:
+                    print(f"[steerdiff] {pkey}: a new scenario, no recorded episode to reproduce", flush=True)
                 by_name = {a["name"]: a for a in arms}
                 for k, name in sample_schedule([a["name"] for a in arms], args.first_sample, args.samples):
                     arm, seed = by_name[name], steerdiff_sampler.seed_for("lies", item, k)
@@ -442,12 +450,13 @@ def main(argv=None) -> int:
                                   extend_to=args.cap_extended, extra={"sample": k, "seed": seed})
                     if k == args.first_sample:      # G1 and G2 read the first sample
                         free[arm["name"]] = cap
-                    if arm["name"] == "base":
+                    if arm["name"] == "base" and rec_dir is not None:
                         r = reproduce(os.path.join(rec_dir, f"{item}-{k}.json"), k, seed, cap["tokens"])
                         repro.append(r)
                         print(f"[steerdiff] {pkey} base s{k}: reproduces the recorded episode: "
                               f"{r['identical']} (first difference {r['first_difference']})", flush=True)
-                all_repro[pkey] = repro
+                if rec_dir is not None:
+                    all_repro[pkey] = repro
             else:
                 for mode in sc["modes"]:
                     for arm in arms:

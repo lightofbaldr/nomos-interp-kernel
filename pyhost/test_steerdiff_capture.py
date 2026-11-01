@@ -366,6 +366,18 @@ class LauncherEnv(unittest.TestCase):
         self.assertEqual(self._env({})["CUDA_VISIBLE_DEVICES"], "0")
 
 
+class RecordedEpisode(unittest.TestCase):
+    """Sampled runs reproduce a recorded episode when the scenario came from one; a new scenario (a prompt never run
+    before, such as the system-prompt study's step 2) has none to reproduce and still samples."""
+
+    def test_a_scenario_built_from_a_recording_names_its_directory(self):
+        sc = {"source": {"item": "x", "path": "/rec/run-1/x-0.json"}}
+        self.assertEqual(C.recorded_dir(sc), "/rec/run-1")
+
+    def test_a_new_scenario_has_no_recording(self):
+        self.assertIsNone(C.recorded_dir({"source": {"item": "x", "setup": "default"}}))
+
+
 
 class Scenarios(unittest.TestCase):
     """Lie scenarios (Adam 10-26: joy, calm, sadness, fear, anger, steered and counter-steered, on the known lies)."""
