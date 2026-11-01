@@ -22,7 +22,7 @@ let h;
 try{
   h=await harness(false,{NOMOS_API_BASE_URL:base,GLIMMER_SESSION_DB:path.join(evidence,'ui.sqlite'),NOMOS_TOKENIZER_JSON:tokenizer,NOMOS_TOKENIZER_SHA256:tokenPin});
   const page=await h.browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(180000);h.observe(page);
-  await page.goto(h.base);await page.getByText('Pi connected',{exact:true}).waitFor();
+  await page.goto(h.base+'/preview');await page.getByText('Pi connected',{exact:true}).waitFor();
   await page.getByRole('tab',{name:'Controls',exact:true}).click();await page.getByLabel('Workspace top-16',{exact:true}).check();
   await page.getByRole('button',{name:'Apply readout settings',exact:true}).click();
   await page.getByLabel('Signed steering strength').fill('-0.1');await page.getByRole('button',{name:'Apply steering',exact:true}).click();

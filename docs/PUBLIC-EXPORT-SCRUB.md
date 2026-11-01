@@ -42,3 +42,8 @@ runtime data/screenshots rather than treating paths as portable deployment data.
 Inventory again at export time with a tracked-file search for `/home/adam`,
 `192.168.`, `design-kits`, private hostnames and local data paths. Also check the
 vendored package license/notice files. This checklist is not publication approval.
+
+The video checkpoint adds private local capture/tokenizer defaults and file hashes
+in `src/lib/server/recorded-workspace.ts` and `docs/VIDEO-WORKSPACE.md`. Those paths
+use `homedir()` but still identify private local data. Review the question/catalog
+metadata, runtime payloads and screenshots separately. No capture bytes are in Git.

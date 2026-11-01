@@ -33,7 +33,7 @@ try{
   const page=await h.browser.newPage({viewport:{width:1440,height:1100}});page.setDefaultTimeout(300000);h.observe(page);
   for(const [index,c]of cases.entries()){
     // A new page also resets the page-local watch rules to their documented defaults.
-    await page.goto(h.base);await page.getByText('Pi connected',{exact:true}).waitFor();
+    await page.goto(h.base+'/preview');await page.getByText('Pi connected',{exact:true}).waitFor();
     if(index){const old=await page.getByLabel('Pi conversation').inputValue();await page.getByRole('button',{name:'New session',exact:true}).click();await page.waitForFunction(old=>document.querySelector('[aria-label="Pi conversation"]').value!==old,old);await page.reload();await page.getByText('Pi connected',{exact:true}).waitFor();}
     const conversation=await page.getByLabel('Pi conversation').inputValue();
     await page.getByRole('tab',{name:'Controls',exact:true}).click();await page.getByLabel('Emotion capture layer').selectOption('29');

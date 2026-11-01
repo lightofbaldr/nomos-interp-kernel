@@ -8,7 +8,7 @@ const check=(value,label)=>{assert.ok(value,label);checks.push(label);};
 async function settled(page){await page.getByRole('button',{name:'Send message',exact:true}).waitFor();await page.waitForFunction(()=>!document.querySelector('.live-assistant[data-status=streaming]'));}
 async function send(page,text){await page.getByLabel('Message Muse',{exact:true}).fill(text);await page.getByRole('button',{name:'Send message',exact:true}).click();}
 try{
-  const page=await h.browser.newPage({viewport:{width:1440,height:980},reducedMotion:'reduce'});h.observe(page);await page.goto(h.base,{waitUntil:'networkidle'});await page.getByRole('button',{name:'Live kernel',exact:true}).waitFor();
+  const page=await h.browser.newPage({viewport:{width:1440,height:980},reducedMotion:'reduce'});h.observe(page);await page.goto(h.base+'/preview',{waitUntil:'networkidle'});await page.getByRole('button',{name:'Live kernel',exact:true}).waitFor();
   check(await page.locator('.live-assistant').count()===0,'Live starts with a blank conversation, never fixtures');
   check(await page.getByText('Not measured',{exact:true}).isVisible()&&await page.locator('.map-concept').count()===0,'Connected chat is not measured workspace/emotion data');
   await page.waitForFunction(()=>document.querySelector('.kv-counters')?.textContent.includes('1.00 MiB'));

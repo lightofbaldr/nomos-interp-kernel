@@ -5,7 +5,7 @@ const f=await fakeKernel();let h;
 try{
   h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/controls.sqlite',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin});
   const page=await h.browser.newPage();h.observe(page);page.setDefaultTimeout(10000);
-  await page.goto(h.base);await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Controls',exact:true}).click();
+  await page.goto(h.base+'/preview');await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Controls',exact:true}).click();
   const session=page.getByLabel('Pi conversation'),a=await session.inputValue(),strength=page.getByLabel('Signed steering strength'),workspace=page.getByLabel('Workspace top-16',{exact:true});
   await page.getByLabel('Emotion capture layer').selectOption('20');await workspace.check();await page.getByLabel('Workspace capture layer').selectOption('36');await page.getByRole('button',{name:'Apply readout settings',exact:true}).click();
   await page.getByLabel('Steering direction').selectOption('joyful');await strength.fill('-0.5');await page.getByRole('button',{name:'Apply steering',exact:true}).click();

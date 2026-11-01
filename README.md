@@ -13,6 +13,11 @@ instructions, inline skills, a text-only Harness² import and recorded profile
 attribution. Optional file tools and a fixed-argument Mojo build/run tool run
 only in checked, resource-limited Linux sandboxes. No shell tool is exposed.
 
+The [video workspace checkpoint](docs/VIDEO-WORKSPACE.md) separates minimal chat,
+saved conversation history, the token-by-token Global Workspace and the harness
+workbench. The recorded workspace opens without a model request. Statistics,
+Interpreter and System are explicitly marked as the next checkpoint, not built pages.
+
 ## Run
 
 The supported runtime is **Node 24.22.1 with bundled Undici 7.30.1**, plus npm.
@@ -66,7 +71,9 @@ review branch; they are not the live-Pi acceptance commands.
   not proof of knowledge, consciousness, truthfulness or safety.
 - Alerts are page-local rules over measured reasoning positions. Their statistics,
   warm-up, gap behavior and token-prefix matching are documented in the UI/guide.
-- `/?mode=demo` remains explicitly scripted. Imported traces remain self-reported.
+- `/preview?mode=demo` retains the explicitly scripted legacy preview, outside the
+  real conversation history. `/preview` retains the earlier all-in-one workbench.
+  Imported traces remain self-reported.
   Recorded steering bundles are external, immutable local data; the default
   catalog is under `~/nomos_data/steering-diff/catalog-sampled-20261029`, not the scratch repo.
 - No tools, attachments, automatic retries or automatic compaction are enabled
@@ -79,6 +86,9 @@ npm run verify
 node --test --test-reporter=tap tests/live/*.test.ts
 npm run test:chat                  # real browser + gateway + Pi, fake kernel
 node scripts/live-regression.mjs  # demo, recorded, transport and loopback checks
+node scripts/workspace-tests.mjs  # exact positions, ranks, unknowns and durable titles
+node scripts/workspace-browser.mjs # new shell/history/workbench, fake kernel only
+node scripts/workspace-browser.mjs --recorded # requires the pinned local captures
 npm run test:kernel                # explicit GPU client test against existing :8091
 ```
 

@@ -69,7 +69,7 @@ try{
     ...(f?{NOMOS_READOUT_REGISTRY:f.registry}:{})});
   if(live){const bound=execFileSync('ss',['-Hltpn',`sport = :${new URL(h.base).port}`],{encoding:'utf8'});serverPid=Number(bound.match(/pid=(\d+),/)?.[1]);assert.ok(serverPid);}
   page=await h.browser.newPage({viewport:{width:1500,height:1100}});h.observe(page);page.setDefaultTimeout(30000);
-  await page.goto(h.base);await page.getByText('Pi connected',{exact:true}).waitFor();
+  await page.goto(h.base+'/preview');await page.getByText('Pi connected',{exact:true}).waitFor();
   const capabilities=await page.evaluate(async()=>(await(await fetch('/api/pi')).json()));
   assert.equal(capabilities.annotator.available,false,'Paid annotator must be unavailable for this run');
   id=await page.getByLabel('Pi conversation').inputValue();

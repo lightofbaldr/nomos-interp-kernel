@@ -16,10 +16,11 @@
   import FileToolCalls from './FileToolCalls.svelte';
   import type {ProfileUsed} from 'glimmer-agent/profile-model';
 
-  let {onState}:{onState:(state:LiveState)=>void}=$props();
+  let {onState,compact=false,startNew=false,requestedConversation=''}:{onState:(state:LiveState)=>void;compact?:boolean;startNew?:boolean;requestedConversation?:string}=$props();
   let view=$state.raw<LiveState>(emptyLiveState()),pi=$state.raw(emptyPi()),text=$state(''),error=$state('');
-  let sessions=$state<{id:string;busy:boolean}[]>([]),conversation=$state(''),opening=$state(false);
+  let sessions=$state<{id:string;busy:boolean;title?:string}[]>([]),conversation=$state(''),opening=$state(false);
   let metaAvailable=$state(false);
+  let requestedSeen='';
   let scroll:HTMLDivElement,textarea:HTMLTextAreaElement|null=$state(null);
   let alive=false,revision=0,controller:AbortController|undefined,follow=true,frame=0,labelTimer:ReturnType<typeof setTimeout>|undefined;
   let labelFlight=false,labelFailed=false;const labels:Record<string,string|null>={};
@@ -29,7 +30,12 @@
   function update(next:Partial<LiveState>={}){if(!alive)return;
     const key=`${conversation}:${labelVersion}:${JSON.stringify(rules)}`,rows=pi.turns.map(t=>t.records);
     if(key!==alertKey||rows.length!==alertRows.length||rows.some((r,i)=>r!==alertRows[i])){alerts=evaluateAlerts(pi,rules,labels);alertKey=key;alertRows=rows;}
-    view={...view,...next,pi,busy:pi.busy,conversation,labels:{...labels},command,alertRules:rules,alerts,setAlertRules,openConversation:async id=>{await refresh();attach(id);},
+    // A durable input can arrive after submit's acknowledgement. Derive its title
+    // from that entry; don't race a list fetch or poll the kernel during a turn.
+    const firstUser=pi.entries.flatMap(e=>e.model??[]).find(m=>m.role==='user');
+    const title=firstUser?textOf(firstUser).trim().replace(/\s+/g,' ').slice(0,90):'';
+    const conversations=sessions.map(c=>c.id===conversation?{...c,...(title?{title}:{}),...(pi.connected?{busy:pi.busy}:{})}:c);
+    view={...view,...next,pi,busy:pi.busy,conversation,labels:{...labels},command,alertRules:rules,alerts,setAlertRules,conversations,newConversation:create,openConversation:async id=>{await refresh();attach(id);},
       select:(selection)=>update({selection}),selectLayer:(emotionLayer)=>update({emotionLayer})};onState(view);}
   function latest(){if(!follow)return;cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{if(scroll)scroll.scrollTop=scroll.scrollHeight;});}
   async function api(body:Record<string,unknown>){
@@ -87,18 +93,21 @@
   async function stop(){try{await api({action:'abort',conversation});}catch(e){error=String(e);}}
   async function reconnect(){error='';try{await refresh();if(conversation)attach(conversation);}catch(e){error=String(e);}}
   onMount(()=>{
-    alive=true;void (async()=>{try{await refresh();if(!alive||!view.health?.ready)return;
-      const saved=localStorage.getItem('glimmer.pi.conversation');
-      if(saved&&sessions.some(s=>s.id===saved))attach(saved);else if(sessions[0])attach(sessions[0].id);else await create();
+    alive=true;void (async()=>{try{await refresh();if(!alive)return;
+      const saved=requestedConversation||localStorage.getItem('glimmer.pi.conversation');
+      requestedSeen=requestedConversation;
+      if(startNew&&view.health?.ready)await create();
+      else if(saved&&sessions.some(s=>s.id===saved))attach(saved);else if(sessions[0])attach(sessions[0].id);else if(view.health?.ready)await create();
     }catch(e){error=e instanceof Error?e.message:'Connection failed.';}})();
     return()=>{alive=false;revision++;controller?.abort();clearTimeout(labelTimer);cancelAnimationFrame(frame);};
   });
+  $effect(()=>{if(!requestedConversation){requestedSeen='';return;}if(alive&&requestedConversation!==requestedSeen&&sessions.some(s=>s.id===requestedConversation)){requestedSeen=requestedConversation;if(requestedConversation!==conversation)attach(requestedConversation);}});
 </script>
 
-<div class="pi-session-bar">
+{#if !compact}<div class="pi-session-bar">
   <label>Conversation <select aria-label="Pi conversation" value={conversation} onchange={e=>attach(e.currentTarget.value)} disabled={opening}>{#each sessions as s}<option value={s.id}>Session {s.id}{s.busy?' · generating':''}</option>{/each}</select></label>
   <button class="text-button" onclick={create} disabled={opening}>New session</button><span>{pi.connected?'Pi connected':'Disconnected'}</span>
-</div>
+</div>{/if}
 <div class="conversation-stage">
   <img class="chat-mascot" src="/img/muse-mascot.webp" alt="" aria-hidden="true" width="1129" height="1393" decoding="async"/>
   <div class="conversation-scroll" id="conversation" tabindex="-1" bind:this={scroll} onscroll={()=>follow=scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop<80}>
@@ -120,11 +129,14 @@
           <FileToolCalls message={entry.message} entries={pi.entries} streaming={entry.streaming}/>
           {#if !answer&&!(entry.message.role==='assistant'&&entry.message.content.some(b=>b.type==='toolCall'))}<p class="live-reply-status">{entry.streaming?'Waiting for answer text…':'No answer text received. Reasoning is preserved above.'}</p>{/if}
           <div class="live-turn-footer">{entry.streaming?'Generating':entry.message.role==='assistant'?`Generation: ${entry.message.stopReason}`:''}</div>
+          {#if measuredTurn&&!entry.streaming&&compact}<a class="inspect-link" href={`/workspace?conversation=${conversation}&turn=${encodeURIComponent(measuredTurn.request)}`}>Inspect this turn’s workspace →</a>{/if}
+          <details class:turn-details={compact} open={!compact}><summary class:sr-only={!compact}>Turn details &amp; second opinion</summary>
           {#if !entry.streaming}{#if used}<ProfileDetails profile={used.profile} label={`Profile r${used.profile.revision} · inline skills · ${used.profile.content.tools?.length??0} tools`}/>{:else}<small>Profile unrecorded for this historical turn.</small>{/if}{/if}
           {#if measuredTurn&&!entry.streaming}<MetaAnnotation {conversation} request={measuredTurn.request} turn={measuredTurn.turn} rules={view.alertRules??defaultRules()} available={metaAvailable} saved={annotationFor(pi.entries,measuredTurn.request)}/>{/if}
+          </details>
         </article>{/if}
       {/each}
-      <AlertTrail live={view}/>
+      {#if !compact}<AlertTrail live={view}/>{/if}
     </div>
   </div>
 </div>

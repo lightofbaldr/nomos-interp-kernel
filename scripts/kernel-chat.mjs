@@ -3,7 +3,7 @@ import {writeFile} from 'node:fs/promises';
 import {harness,root} from './harness.mjs';
 const h=await harness(true);
 try{
-  const page=await h.browser.newPage({viewport:{width:1440,height:980},reducedMotion:'reduce'});h.observe(page);await page.goto(h.base,{waitUntil:'networkidle'});await page.getByRole('button',{name:'Live kernel',exact:true}).waitFor();
+  const page=await h.browser.newPage({viewport:{width:1440,height:980},reducedMotion:'reduce'});h.observe(page);await page.goto(h.base+'/preview',{waitUntil:'networkidle'});await page.getByRole('button',{name:'Live kernel',exact:true}).waitFor();
   await page.getByLabel('Message Muse',{exact:true}).fill('What is the capital of France? Answer briefly.');await page.getByRole('button',{name:'Send message',exact:true}).click();
   await page.locator('.live-assistant[data-status=stop]').waitFor({timeout:120000});
   const content=await page.locator('.live-assistant .response-text').textContent();assert.match(content,/Paris/i);

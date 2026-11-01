@@ -4,7 +4,7 @@ import {harness,root} from './harness.mjs';
 const h=await harness(),checks=[];
 const check=(v,label)=>{assert.ok(v,label);checks.push(label);};
 const style=page=>page.evaluate(()=>{
-  const result={};for(const q of ['.response-text','.chat-header','.emotion-steering','.model-name']){
+  const result={};for(const q of ['.lab-topline','.chat-heading','.lab-brand']){
     const el=document.querySelector(q);if(!el)throw Error(q);const s=getComputedStyle(el);
     result[q]=Object.fromEntries(['color','fontFamily','fontSize','lineHeight','whiteSpace','backgroundColor','display'].map(k=>[k,s[k]]));
   }return result;
@@ -14,7 +14,7 @@ try{
   await page.goto(h.base,{waitUntil:'networkidle'});const before=await style(page);
   check(!h.requests.some(u=>u.includes('/data/')),'Chat does not load capture data');
   await page.evaluate(()=>window.__labNavigation=42);
-  await page.getByRole('link',{name:'Steering diff · recorded',exact:true}).click();
+  await page.getByRole('link',{name:'Steering diff',exact:true}).click();
   await page.locator('.page-footer').waitFor();
   check(await page.evaluate(()=>window.__labNavigation===42),'Native client navigation, not a second app');
   check((await page.title()).includes('Steering diff'),'Route title follows explorer');
@@ -22,11 +22,11 @@ try{
   await page.getByRole('button',{name:'Source & gates'}).click();await page.getByRole('dialog').waitFor();
   check(await page.getByRole('dialog').evaluate(el=>Boolean(el.closest('.steering-diff-root'))),'Portalled dialog retains its scoped theme');
   await page.keyboard.press('Escape');
-  await page.getByRole('link',{name:'Back to chat',exact:true}).click();await page.locator('.chat-header').waitFor();
+  await page.getByRole('link',{name:'Back to chat',exact:true}).click();await page.locator('.chat-heading').waitFor();
   assert.deepEqual(await style(page),before);checks.push('Chat computed styles unchanged after explorer and portal');
   check(await page.evaluate(()=>window.__labNavigation===42),'Back link uses native navigation');
-  await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Open conversations',exact:true}).click();
-  await page.getByRole('dialog').getByRole('link',{name:'Steering diff · recorded',exact:true}).click();await page.locator('.page-footer').waitFor();
+  await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+  await page.getByRole('dialog').getByRole('link',{name:'Steering diff',exact:true}).click();await page.locator('.page-footer').waitFor();
   check(await page.getByRole('dialog').count()===0,'Mobile drawer is removed on navigation');
   check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile route has no root overflow');
   await fs.mkdir(root+'evidence',{recursive:true});await page.screenshot({path:root+'evidence/lab-integrated-mobile.png',fullPage:true});

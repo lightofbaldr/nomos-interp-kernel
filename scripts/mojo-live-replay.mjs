@@ -37,7 +37,7 @@ try{
     GLIMMER_META_ENV_FILE:path.join(dest,'no-meta-key.env'),GLIMMER_MOJO_PREFIX:'',NOMOS_TOKENIZER_JSON:tokenizer,NOMOS_TOKENIZER_SHA256:launch.tokenizer});
   const page=await h.browser.newPage({viewport:{width:1500,height:1100}});h.observe(page);page.setDefaultTimeout(30000);
   for(const name of ['loaded','reloaded']){
-    if(name==='loaded')await page.goto(h.base);else await page.reload();
+    if(name==='loaded')await page.goto(h.base+'/preview');else await page.reload();
     await page.getByText('Pi connected',{exact:true}).waitFor();
     assert.equal(await page.getByLabel('Pi conversation').inputValue(),String(snap.snapshot.settings.conversationId));
     const tool=page.getByTestId('file-tool-call').filter({has:page.getByRole('button',{name:/mojo Completed/})});

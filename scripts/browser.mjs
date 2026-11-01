@@ -7,7 +7,7 @@ const check=(v,name)=>{assert.ok(v,name);checks.push(name);};
 try{
   const context=await h.browser.newContext({viewport:{width:1440,height:980}}),page=await context.newPage();h.observe(page);
   await page.route('**/api/nomos/health',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({configured:false,health:null,error:'No kernel endpoint is configured.'})}));
-  await page.goto(h.base+'/?mode=demo',{waitUntil:'networkidle'});
+  await page.goto(h.base+'/preview?mode=demo',{waitUntil:'networkidle'});
   check(await page.getByText('Scripted chat and illustrative probe data. No model is running.',{exact:true}).isVisible(),'No inferred live state');
   check(await page.locator('.response-text').innerText()==scenarios[0].answer,'Initial scripted answer matches its fixture');
   check(await page.locator('.inspection-panel').isVisible(),'Read-only inspector initially visible on desktop');

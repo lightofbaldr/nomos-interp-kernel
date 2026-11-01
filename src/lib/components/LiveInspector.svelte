@@ -4,8 +4,9 @@
   import {emptyPi,selectedRow,projection} from '$lib/pi/model';
   import AlertControls from './AlertControls.svelte';
   import AgentProfile from './AgentProfile.svelte';
-  let {live}:{live:LiveState}=$props();
-  let tab=$state('signals'),emotionLayer=$state(29),workspaceLayer=$state(44),workspace=$state(false);
+  import {untrack} from 'svelte';
+  let {live,initialTab='signals'}:{live:LiveState;initialTab?:string}=$props();
+  let tab=$state(untrack(()=>initialTab)),emotionLayer=$state(29),workspaceLayer=$state(44),workspace=$state(false);
   let direction=$state('afraid'),steerLayer=$state(24),strength=$state(0),pending=$state(false),error=$state('');
   const pi=$derived(live.pi??emptyPi()),chosen=$derived(selectedRow(pi,live.selection));
   const turn=$derived(chosen?.turn??pi.turns.at(-1)),rows=$derived(turn?.records??[]);

@@ -11,7 +11,7 @@ try{
   await writeFile(f.root+'/imports/example/extensions/bad.ts',`import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(f.root+'/executed')},'bad');\n<script>window.IMPORTED_RAN=true</script>`);
   h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/profile-ui.sqlite',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin,GLIMMER_HARNESS_IMPORT_ROOTS:JSON.stringify([f.root+'/imports'])});
   page=await h.browser.newPage({viewport:{width:1500,height:1100}});h.observe(page);page.setDefaultTimeout(12000);
-  await page.goto(h.base);await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Profile',exact:true}).click();
+  await page.goto(h.base+'/preview');await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Profile',exact:true}).click();
   const selector=page.getByLabel('Pi conversation'),a=await selector.inputValue(),instructions=page.getByLabel('Profile instructions');
   await instructions.waitFor();assert.equal(await instructions.inputValue(),'You are a helpful AI assistant.\nReasoning strength: high.');
   await instructions.fill('UI_PROFILE_A');await page.getByLabel('New skill Markdown').fill('---\nname: careful\ndescription: Verify first\n---\nUI_SKILL_BODY');await page.getByRole('button',{name:'Add inline skill',exact:true}).click();

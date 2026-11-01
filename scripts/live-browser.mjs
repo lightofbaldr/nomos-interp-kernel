@@ -4,7 +4,7 @@ import {fakeKernel,until} from '../tests/live/fixture.ts';
 const f=await fakeKernel();let h,page;
 try{
   h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/browser.sqlite',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin});
-  page=await h.browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(12000);h.observe(page);await page.goto(h.base);
+  page=await h.browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(12000);h.observe(page);await page.goto(h.base+'/preview');
   await page.getByText('Pi connected',{exact:true}).waitFor();
   assert.equal(await page.locator('.live-dock').count(),1);assert.equal(await page.locator('.emotion-steering').count(),0);
   assert.match(await page.locator('.live-dock').innerText(),/Waiting for measured/);
@@ -53,7 +53,7 @@ try{
   await page.getByRole('tab',{name:'Status',exact:true}).click();await page.locator('.turn-status summary').filter({hasText:'contract_error'}).waitFor();
   // API security is checked without causing intentional errors in the observed browser.
   for(const route of ['/api/pi','/api/nomos/health','/api/nomos/kvstore'])assert.equal((await fetch(h.base+route,{headers:{Origin:'http://evil.test'}})).status,403);
-  const mobile=await h.browser.newPage({viewport:{width:390,height:844}});h.observe(mobile);await mobile.goto(h.base);await mobile.getByText('Pi connected',{exact:true}).waitFor();
+  const mobile=await h.browser.newPage({viewport:{width:390,height:844}});h.observe(mobile);await mobile.goto(h.base+'/preview');await mobile.getByText('Pi connected',{exact:true}).waitFor();
   await mobile.getByLabel('Pi conversation').selectOption(original);
   const mobileTrail=mobile.getByRole('region',{name:'Signal alert badges'}),mobileTurn=mobileTrail.locator('details').first();
   await mobileTurn.locator('summary').click();assert.equal(await mobileTurn.getByRole('button',{name:/Watch-list entry/}).count(),2);

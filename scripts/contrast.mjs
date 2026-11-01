@@ -6,7 +6,7 @@ const h=await harness(),states=[];
 try{
   const page=await h.browser.newPage({viewport:{width:1440,height:900},reducedMotion:'reduce'});
   h.observe(page);
-  await page.goto(h.base,{waitUntil:'networkidle'});
+  await page.goto(h.base+'/preview',{waitUntil:'networkidle'});
   async function inspect(name){
     const result=await page.evaluate(()=>{
       const canvas=document.createElement('canvas');canvas.width=canvas.height=1;

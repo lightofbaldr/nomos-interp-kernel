@@ -12,6 +12,7 @@ export async function GET({request,url}:RequestEvent){
   try{
     const runtime=await service(),id=url.searchParams.get('conversation');
     if(id)return bridgeStream(send=>runtime.bridge(id,send),request.signal);
+    if(url.searchParams.has('history'))return json({conversations:await runtime.list()},options);
     return json({conversations:await runtime.list(),...await capabilities(),annotator:await metaAvailability()},options);
   }catch(e){return json({error:e instanceof Error?e.message:'Agent unavailable.'},{status:503,...options});}
 }

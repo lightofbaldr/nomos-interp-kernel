@@ -7,7 +7,7 @@ const f=await fileKernel();let h,page;
 try{
   h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/file-ui.sqlite',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin});
   page=await h.browser.newPage({viewport:{width:1500,height:1100}});h.observe(page);page.setDefaultTimeout(15000);
-  await page.goto(h.base);await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Profile',exact:true}).click();
+  await page.goto(h.base+'/preview');await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Profile',exact:true}).click();
   const a=await page.getByLabel('Pi conversation').inputValue();
   await page.getByLabel('Profile instructions').waitFor();assert.equal(await page.getByLabel('Enable tool write',{exact:true}).isEnabled(),false);
   await page.getByRole('button',{name:'Check tool isolation',exact:true}).click();await page.getByTestId('tools-availability').filter({hasText:'Tools available'}).waitFor();

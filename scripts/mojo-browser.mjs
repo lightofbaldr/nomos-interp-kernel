@@ -6,7 +6,7 @@ const f=await fileKernel();let h;
 try{
   h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/mojo-ui.sqlite',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin,GLIMMER_MOJO_PREFIX:'/home/adam/Projects/nomos-interp-kernel/.pixi/envs/default'});
   const page=await h.browser.newPage({viewport:{width:1500,height:1100}});h.observe(page);page.setDefaultTimeout(15000);
-  await page.goto(h.base);await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Profile',exact:true}).click();
+  await page.goto(h.base+'/preview');await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Profile',exact:true}).click();
   await page.getByLabel('Enable tool mojo',{exact:true}).waitFor();assert.equal(await page.getByLabel('Enable tool mojo',{exact:true}).isEnabled(),false);
   await page.getByRole('button',{name:'Check Mojo toolchain',exact:true}).click();await page.getByTestId('mojo-availability').filter({hasText:'Mojo available'}).waitFor();
   for(const name of ['write','mojo'])await page.getByLabel(`Enable tool ${name}`,{exact:true}).check();

@@ -18,7 +18,7 @@ const env={NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/meta-browser.sq
 let h,page;
 try{
   h=await harness(false,env);page=await h.browser.newPage({viewport:{width:1440,height:1080}});page.setDefaultTimeout(12000);h.observe(page);
-  await page.goto(h.base);await page.getByText('Pi connected',{exact:true}).waitFor();
+  await page.goto(h.base+'/preview');await page.getByText('Pi connected',{exact:true}).waitFor();
   await page.getByRole('tab',{name:'Controls',exact:true}).click();await page.getByLabel('Workspace top-16',{exact:true}).check();await page.getByRole('button',{name:'Apply readout settings',exact:true}).click();
   await page.getByLabel('Signed steering strength').fill('-0.5');await page.getByRole('button',{name:'Apply steering',exact:true}).click();
   await page.getByTestId('steer-setting').filter({hasText:'afraid -0.5 at L24'}).waitFor();
@@ -56,7 +56,7 @@ try{
   await page.getByLabel('Message Muse',{exact:true}).fill('Rejection fixture');await page.getByRole('button',{name:'Send message',exact:true}).click();await ask.waitFor();await ask.click();
   await page.getByText(/Rejected by: word_limit · 131 words/).waitFor();assert.equal(calls.length,2);await page.reload();await page.getByText(/Rejected by: word_limit · 131 words/).waitFor();assert.equal(calls.length,2);assert.equal(await ask.count(),0);
   await h.close();h=await harness(false,{...env,GLIMMER_META_ENV_FILE:f.root+'/does-not-exist.env'});
-  page=await h.browser.newPage();h.observe(page);await page.goto(h.base);await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByLabel('Pi conversation').selectOption(conversation);await sectionFor(page).getByText(note,{exact:true}).waitFor();assert.equal(calls.length,2,'saved note survives missing key');
+  page=await h.browser.newPage();h.observe(page);await page.goto(h.base+'/preview');await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByLabel('Pi conversation').selectOption(conversation);await sectionFor(page).getByText(note,{exact:true}).waitFor();assert.equal(calls.length,2,'saved note survives missing key');
   await page.getByLabel('Message Muse',{exact:true}).fill('Next');await page.getByRole('button',{name:'Send message',exact:true}).click();await askFor(page).waitFor();
   assert.equal(await askFor(page).isDisabled(),true);await page.getByText('Muse Wonder unavailable: the dedicated server key is missing or unreadable.',{exact:true}).waitFor();assert.equal(calls.length,2);
   assert.deepEqual(h.errors,[]);assert.deepEqual(h.external,[]);console.log('META ANNOTATOR BROWSER VERIFIED');

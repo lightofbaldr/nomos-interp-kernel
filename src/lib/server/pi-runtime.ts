@@ -39,7 +39,17 @@ export async function createRuntime(baseUrl:string, database:string|Storage,file
   const api={host,harness,
     toolStatus(){return files?.status()??{available:false,reason:'No sandbox broker configured.',policy:'glimmer.files/bwrap-1'};},
     async checkTools(tools:readonly SandboxTool[]=[]){if(!files)throw Error('No sandbox broker configured.');await files.ready(tools);return files.status();},
-    async list(){return (await storage.scanConversations({order:'descending'},100,undefined,ctx)).items.map(c=>({id:String(c.id),busy:active===c.id}));},
+    async list(){
+      const items=(await storage.scanConversations({order:'descending'},100,undefined,ctx)).items;
+      return Promise.all(items.map(async c=>{
+        let batch=await storage.scanEntries({conversationId:c.id,order:'ascending'},16,undefined,ctx);
+        let first=batch.items.find(e=>e.model?.some(m=>m.role==='user'));
+        while(!first&&batch.next){batch=await storage.scanEntries({conversationId:c.id,order:'ascending'},16,batch.next,ctx);first=batch.items.find(e=>e.model?.some(m=>m.role==='user'));}
+        const m=first?.model?.find(m=>m.role==='user');
+        const text=typeof m?.content==='string'?m.content:m?.content.filter(b=>b.type==='text').map(b=>b.text).join('')??'';
+        return {id:String(c.id),busy:active===c.id,title:text.trim().replace(/\s+/g,' ').slice(0,90)||'New conversation'};
+      }));
+    },
     async create(){
       if(closing)throw Error('Agent is closing.');
       if((await api.list()).length>=100)throw Error('Local conversation limit reached.');
