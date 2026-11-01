@@ -7,6 +7,7 @@
   import LiveChat from './LiveChat.svelte';
   import LiveDock from './LiveDock.svelte';
   import LiveInspector from './LiveInspector.svelte';
+  import ConversationData from './ConversationData.svelte';
   import {emptyLiveState,type LiveState} from '$lib/live';
   import {LAB_CONTEXT} from '$lib/workspace/context';
   import './lab-shell.css';
@@ -30,7 +31,18 @@
     if(!create){createRequested=true;activate=true;}
     await goto('/');if(create){await create();if(live.conversation)await goto(`/?conversation=${live.conversation}`,{replaceState:true});}navigation=false;
   }
-  onMount(()=>{mounted=true;void fetch('/api/pi?history=1').then(r=>r.json()).then(d=>{if(d.conversations)history=d.conversations;else historyError=d.error??'History unavailable.';}).catch(()=>historyError='History unavailable.');});
+  onMount(()=>{
+    mounted=true;
+    const refresh=async()=>{try{
+      const r=await fetch('/api/pi?history=1'),d=await r.json();
+      if(!r.ok||!d.conversations)throw Error(d.error??'History unavailable.');
+      history=d.conversations;historyError='';
+      if(requested&&!history.some(c=>c.id===requested)){const url=new URL(page.url);url.searchParams.delete('conversation');url.searchParams.delete('turn');await goto(url.pathname+url.search,{replaceState:true});}
+    }catch(e){historyError=e instanceof Error?e.message:'History unavailable.';}};
+    const storage=(e:StorageEvent)=>{if(e.key==='glimmer.pi.purge')void refresh();};
+    window.addEventListener('glimmer-data-purged',refresh);window.addEventListener('storage',storage);void refresh();
+    return()=>{window.removeEventListener('glimmer-data-purged',refresh);window.removeEventListener('storage',storage);};
+  });
   $effect(()=>{if(mounted&&(isChat||requested||['/workbench','/statistics','/interpreter'].includes(path)))activate=true;});
 </script>
 
@@ -43,7 +55,7 @@
     {#each history as c}<a class:chosen={c.id===live.conversation} href={`/?conversation=${c.id}`} title={c.title??`Conversation ${c.id}`} onclick={()=>navigation=false}><ChatCircle size={15}/><span>{c.title??`Conversation ${c.id}`}</span>{#if c.busy}<i aria-label="Generating"></i>{/if}</a>{/each}
     {#if !history.length&&!historyError}<p>Your conversations appear here when you start chatting. They stay saved after a reload.</p>{/if}
   </div>
-  <div class="lab-sidebar-bottom"><a href="/workspace?recording=sietti-base"><Archive size={17}/>Recorded examples</a><a href="/steering-diff"><ArrowsSplit size={17}/>Steering diff</a><div class="lab-local"><span class:ready={live.health?.ready}></span>{live.health?.ready?'Glimmer connected':'Local workspace'}<small>Private · Nomos / Pi</small></div></div>
+  <div class="lab-sidebar-bottom"><ConversationData conversations={history} current={live.conversation} busy={live.busy}/><a href="/workspace?recording=sietti-base"><Archive size={17}/>Recorded examples</a><a href="/steering-diff"><ArrowsSplit size={17}/>Steering diff</a><div class="lab-local"><span class:ready={live.health?.ready}></span>{live.health?.ready?'Glimmer connected':'Local workspace'}<small>Private · Nomos / Pi</small></div></div>
 {/snippet}
 
 <a href="#lab-content" class="skip-link">Skip to content</a>

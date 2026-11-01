@@ -1,7 +1,7 @@
 import type {Bridge,BridgeMessage} from 'glimmer-agent/bridge';
 
 /** Snapshot is installed before any raced event. Browser disconnect stops only this bridge, not its conversation. */
-export function bridgeStream(attach:(send:(m:BridgeMessage)=>Promise<void>)=>Promise<Bridge>,signal:AbortSignal){
+export function bridgeStream(attach:(send:(m:BridgeMessage)=>Promise<void>)=>Promise<Bridge & {closed?:Promise<void>}>,signal:AbortSignal){
   let bridge:Bridge|undefined,ended=false,release:(()=>void)|undefined;
   let control:ReadableStreamDefaultController<Uint8Array>;
   const encoder=new TextEncoder();
@@ -26,6 +26,11 @@ export function bridgeStream(attach:(send:(m:BridgeMessage)=>Promise<void>)=>Pro
           held.push(m);
         }else await send(m);});
         if(ended){await bridge.stop();return;}
+        void (bridge as Bridge & {closed?:Promise<void>}).closed?.then(()=>{
+          // Host event only: lets browsers reconnect survivors or discard deleted
+          // data without treating an ordinary broken stream as a retry signal.
+          void send({type:'bridge.closed',reason:'maintenance'}).catch(()=>{});abort();
+        });
         await send({type:'bridge.snapshot',snapshot:bridge.snapshot});
         // Keep holding while draining: no newly delivered event may overtake a held one.
         while(held.length&&!ended)await send(held.shift());

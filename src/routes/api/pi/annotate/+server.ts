@@ -1,6 +1,6 @@
 import {json,type RequestEvent} from '@sveltejs/kit';
 import {sameOrigin,jsonBody} from '$lib/server/origin';
-import {metaAnnotator} from '$lib/server/pi-service';
+import {metaAnnotator,withService} from '$lib/server/pi-service';
 import type {AlertRules} from '$lib/pi/alerts';
 import {MetaError} from '$lib/server/meta-client';
 const options={headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}};
@@ -9,7 +9,7 @@ export async function POST({request,url}:RequestEvent){
   try{
     const b=await jsonBody(request);
     if(Object.keys(b).some(k=>!['conversation','request','rules','consent'].includes(k))||b.consent!==true||typeof b.conversation!=='string'||typeof b.request!=='string')throw Error('Invalid annotation request.');
-    return json({annotation:await(await metaAnnotator()).annotate(b.conversation,b.request,b.rules as AlertRules)},options);
+    return await withService(async runtime=>json({annotation:await metaAnnotator(runtime).annotate(b.conversation as string,b.request as string,b.rules as AlertRules)},options));
   }catch(e){
     // Never relay filesystem, fetch, authentication or provider diagnostics.
     const error=e instanceof MetaError?new MetaError(e.code).message:e instanceof Error&&e.message.includes('60-second cooldown')?'Muse Wonder has a 60-second cooldown per conversation.':'This completed turn could not be annotated. No automatic retry was made.';

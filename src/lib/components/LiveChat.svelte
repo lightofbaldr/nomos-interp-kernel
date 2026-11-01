@@ -8,7 +8,7 @@
   import {emptyLiveState,type LiveState} from '$lib/live';
   import {emptyPi,reducePi,messagesOf,textOf,type Assets} from '$lib/pi/model';
   import {emotionDirections} from '$lib/pi/assets';
-  import {readBridge} from '$lib/pi/stream';
+  import {readBridge,MaintenanceDisconnect} from '$lib/pi/stream';
   import {defaultRules,evaluateAlerts,validRules,type AlertRules,type AlertResult} from '$lib/pi/alerts';
   import AlertTrail from './AlertTrail.svelte';
   import MetaAnnotation from './MetaAnnotation.svelte';
@@ -22,6 +22,7 @@
   let view=$state.raw<LiveState>(emptyLiveState()),pi=$state.raw(emptyPi()),text=$state(''),error=$state('');
   let sessions=$state<{id:string;busy:boolean;title?:string}[]>([]),conversation=$state(''),opening=$state(false);
   let metaAvailable=$state(false);
+  let autoCreate=false;
   let controlPending=$state(false);
   let requestedSeen='';
   let scroll:HTMLDivElement,textarea:HTMLTextAreaElement|null=$state(null);
@@ -50,7 +51,19 @@
   }
   async function refresh(){
     const r=await fetch('/api/pi'),data=await r.json();if(!r.ok)throw Error(data.error??'Agent unavailable.');
-    if(!alive)return;sessions=data.conversations;metaAvailable=data.annotator?.available===true;update({health:data.health,assets:data.assets,error:data.error??''});
+    if(!alive)return;sessions=data.conversations;autoCreate=data.autoCreate===true;metaAvailable=data.annotator?.available===true;update({health:data.health,assets:data.assets,error:data.error??''});
+  }
+  async function refreshHistory(){
+    const r=await fetch('/api/pi?history=1'),data=await r.json();if(!r.ok)throw Error(data.error??'History unavailable.');
+    if(!alive)return;
+    sessions=data.conversations;
+    if(conversation&&!sessions.some(s=>s.id===conversation)){
+      revision++;controller?.abort();conversation='';pi=emptyPi();text='';error='';
+      localStorage.removeItem('glimmer.pi.conversation');
+      if(!sessions.length)localStorage.setItem('glimmer.pi.empty','true');
+      update({selection:undefined});
+      window.dispatchEvent(new Event('glimmer-data-purged'));
+    }else update();
   }
   async function command(action:'readout'|'steer',value:unknown){
     const id=conversation;const data=await api({action,conversation:id,[action]:value});
@@ -77,7 +90,14 @@
       try{const response=await fetch(`/api/pi?conversation=${encodeURIComponent(id)}`,{signal});
         await readBridge(response,wire=>{if(!alive||rev!==revision)return;pi=reducePi(pi,wire);update();latest();scheduleLabels();});
         if(!signal.aborted)throw Error('Bridge disconnected. Reconnect for a fresh snapshot; generation may still be running.');
-      }catch(e){if(alive&&rev===revision&&!signal.aborted){pi={...pi,connected:false};error=e instanceof Error?e.message:'Bridge failed.';update();}}
+      }catch(e){if(alive&&rev===revision&&!signal.aborted){pi={...pi,connected:false};error=e instanceof Error?e.message:'Bridge failed.';update();
+        // A purge closes the old harness, including surviving sessions' bridges.
+        // Retry only this read-only history check; never retry a generation.
+        for(let n=0;e instanceof MaintenanceDisconnect&&n<120&&alive&&rev===revision&&!signal.aborted;n++){
+          try{await refreshHistory();if(conversation&&rev===revision){error='';attach(conversation);}break;}
+          catch{await new Promise(resolve=>setTimeout(resolve,500));}
+        }
+      }}
     })();
   }
   async function create(){
@@ -89,7 +109,7 @@
         const layers=[20,24,29].filter(l=>d.layers.includes(l));
         if(layers.length)await api({action:'readout',conversation:id,readout:{enabled:true,emotion:{directions:d.id,layers},workspace:null}});
       }
-      await refresh();attach(id);text='';follow=true;
+      localStorage.removeItem('glimmer.pi.empty');await refresh();attach(id);text='';follow=true;
     }catch(e){error=e instanceof Error?e.message:'Could not create conversation.';}finally{opening=false;}
   }
   export function reset(){void create();}
@@ -119,9 +139,12 @@
       const saved=requestedConversation||localStorage.getItem('glimmer.pi.conversation');
       requestedSeen=requestedConversation;
       if(startNew&&view.health?.ready)await create();
-      else if(saved&&sessions.some(s=>s.id===saved))attach(saved);else if(sessions[0])attach(sessions[0].id);else if(view.health?.ready)await create();
+      else if(saved&&sessions.some(s=>s.id===saved))attach(saved);else if(sessions[0])attach(sessions[0].id);else if(view.health?.ready&&autoCreate&&!localStorage.getItem('glimmer.pi.empty'))await create();
     }catch(e){error=e instanceof Error?e.message:'Connection failed.';}})();
-    return()=>{alive=false;revision++;controller?.abort();clearTimeout(labelTimer);cancelAnimationFrame(frame);};
+    const purged=()=>{void refreshHistory().catch(()=>{});};
+    const storage=(e:StorageEvent)=>{if(e.key==='glimmer.pi.purge')purged();};
+    window.addEventListener('glimmer-data-purged',purged);window.addEventListener('storage',storage);
+    return()=>{alive=false;revision++;controller?.abort();clearTimeout(labelTimer);cancelAnimationFrame(frame);window.removeEventListener('glimmer-data-purged',purged);window.removeEventListener('storage',storage);};
   });
   $effect(()=>{if(!requestedConversation){requestedSeen='';return;}if(alive&&requestedConversation!==requestedSeen&&sessions.some(s=>s.id===requestedConversation)){requestedSeen=requestedConversation;if(requestedConversation!==conversation)attach(requestedConversation);}});
 </script>
@@ -134,7 +157,7 @@
   <img class="chat-mascot" src="/img/muse-mascot.webp" alt="" aria-hidden="true" width="1129" height="1393" decoding="async"/>
   <div class="conversation-scroll" id="conversation" tabindex="-1" bind:this={scroll} onscroll={()=>follow=scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop<80}>
     <div class="conversation-body live-conversation" aria-label="Live conversation">
-      {#if !messages.length}<div class="welcome live-welcome"><span class="welcome-mark"><CircleNotch aria-hidden="true" size={43} weight="bold"/></span><h1>Space to think.<br/>A way to look closer.</h1><p>{view.health?.ready?'Glimmer is ready. Start a conversation and follow its live readouts.':'Waiting for the configured Glimmer service.'}</p></div>{/if}
+      {#if !messages.length}<div class="welcome live-welcome"><span class="welcome-mark"><CircleNotch aria-hidden="true" size={43} weight="bold"/></span><h1>Space to think.<br/>A way to look closer.</h1><p>{view.health?.ready?'Glimmer is ready. Start a conversation and follow its live readouts.':'Waiting for the configured Glimmer service.'}</p>{#if !conversation&&view.health?.ready}<button class="lab-button empty-start" onclick={create} disabled={opening}>Start a conversation</button>{/if}</div>{/if}
       {#each messages as entry (entry.id)}
         {@const answer=textOf(entry.message)}{@const thinking=textOf(entry.message,'thinking')}
         {@const sourceEntry=pi.entries.find(e=>String(e.id)===entry.id.split(':')[0])}
@@ -167,7 +190,7 @@
   </div>
 </div>
 <section class="composer-section" aria-label="Message composer">
-  <div class="replay-toolbar"><span class="replay-meta">{pi.busy?'Glimmer is generating':pi.connected?'Durable Pi session':'Bridge disconnected'}</span><button class="text-button" onclick={reconnect} aria-label="Reconnect Pi bridge"><ArrowClockwise size={13} aria-hidden="true"/>Reconnect</button></div>
+  <div class="replay-toolbar"><span class="replay-meta">{!conversation?'No conversation selected':pi.busy?'Glimmer is generating':pi.connected?'Durable Pi session':'Bridge disconnected'}</span>{#if conversation}<button class="text-button" onclick={reconnect} aria-label="Reconnect Pi bridge"><ArrowClockwise size={13} aria-hidden="true"/>Reconnect</button>{/if}</div>
   <div class="decoding-control">
     {#key `${conversation}:${decoding?.version}:${controlPending}`}<Switch.Root id="glimmer-sampling" class="sampling-switch" checked={decoding?.sampling??false} onCheckedChange={sampling} disabled={!pi.connected||!decoding||pi.busy||controlPending} aria-label="Glimmer's sampling" aria-describedby="sampling-cost"><Switch.Thumb class="sampling-thumb"/></Switch.Root>{/key}
     <label for="glimmer-sampling">Glimmer's sampling <span>{decoding?.sampling?'On':'Off · greedy'}</span></label>
@@ -181,6 +204,7 @@
   <p class="composer-helper" id="live-composer-helper">Saved on this server. Switching chats or closing the page does not stop generation. Stop is explicit.</p>
 </section>
 <style>
+  .empty-start{margin-top:20px}
   .pi-session-bar{display:flex;align-items:center;gap:12px;padding:8px 24px;border-bottom:1px solid var(--color-rule);font-size:11px;color:var(--color-muted);flex-wrap:wrap}
   .pi-session-bar label{display:flex;align-items:center;gap:8px}.pi-session-bar select{max-width:180px;background:var(--color-paper-2);color:var(--color-ink);border:1px solid var(--color-rule);padding:7px;border-radius:6px}.pi-session-bar>span{margin-left:auto}
   .decoding-control{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px 10px;margin:4px 0 12px;font-size:12px}.decoding-control label{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}.decoding-control label span{color:var(--color-muted);font:10px var(--font-mono)}.decoding-control p{grid-column:2;margin:0;max-width:85ch;font-size:11px;line-height:1.5;color:var(--color-muted)}

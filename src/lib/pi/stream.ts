@@ -1,4 +1,5 @@
 import type {Wire} from './model.ts';
+export class MaintenanceDisconnect extends Error {}
 
 /** Same-origin bridge SSE. EOF is a disconnect, never a successful turn. Reattach from a fresh snapshot. */
 export async function readBridge(response:Response,receive:(message:Wire)=>void){
@@ -13,7 +14,7 @@ export async function readBridge(response:Response,receive:(message:Wire)=>void)
     while((match=/\r?\n\r?\n/.exec(buffer))){
       const frame=buffer.slice(0,match.index);buffer=buffer.slice(match.index+match[0].length);
       const data=frame.split(/\r?\n/).filter(s=>s.startsWith('data:')).map(s=>s.slice(5).trimStart()).join('\n');
-      if(data)receive(JSON.parse(data) as Wire);
+      if(data){const message=JSON.parse(data);if(message.type==='bridge.closed'&&message.reason==='maintenance')throw new MaintenanceDisconnect('Conversation data changed. Refreshing saved history…');receive(message as Wire);}
     }
   }}finally{await reader.cancel().catch(()=>{});reader.releaseLock();}
 }

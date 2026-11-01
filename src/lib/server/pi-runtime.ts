@@ -1,7 +1,7 @@
 import {mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {createModels} from '@earendil-works/pi-ai';
-import {BACKGROUND_CONTEXT as ctx,createRegistry,Harness,openNodeSqliteStorage,type ConversationId,type EntryId,type Storage} from 'glimmer-agent/pi';
+import {BACKGROUND_CONTEXT as ctx,createRegistry,Harness,LiveDoc,InboxDoc,openNodeSqliteStorage,type ConversationId,type EntryId,type Storage} from 'glimmer-agent/pi';
 import {ProfileHost,profileExtension} from 'glimmer-agent/profile';
 import type {ProfileOrigin,SandboxTool} from 'glimmer-agent/profile-model';
 import {fileToolsExtension,type FileBroker} from 'glimmer-agent/file-tools';
@@ -12,6 +12,7 @@ import {openBridge,type Bridge,type BridgeMessage} from 'glimmer-agent/bridge';
 import type {Assets} from '../pi/model.ts';
 import {GenerationHost} from './generation.ts';
 import {REPLY_CAP,CHAT_TIMEOUT_MS} from '../pi/generation.ts';
+import {unusedDatabase} from './conversation-data.ts';
 
 export function checkedBase(value:string){
   const url=new URL(value);
@@ -43,6 +44,20 @@ export async function createRuntime(baseUrl:string, database:string|Storage,file
   }
   const api={host,harness,
     busy(){return active!==null;},
+    async canAutoCreate(){return typeof database==='string'?unusedDatabase(path.resolve(database)):false;},
+    async assertIdle(){
+      if(closing||active!==null)throw Error('A conversation is still generating. Wait for it to finish or stop it before deleting data.');
+      const work=await harness.inspect(ctx);
+      if(work.tasks.length||work.submissions.length)throw Error('Saved conversation work is still pending. Wait for it to settle before deleting data.');
+      let cursor;
+      do{
+        const batch=await storage.scanConversations({order:'ascending'},100,cursor,ctx);cursor=batch.next;
+        for(const c of batch.items){
+          const live=await harness.snapshot(LiveDoc,c.id,ctx),inbox=await harness.snapshot(InboxDoc,c.id,ctx);
+          if(live?.run||live?.generation||live?.tools?.length||live?.nestedTools?.length||live?.compactions?.length||inbox?.items.length)throw Error('Saved conversation state is not settled. Stop or resolve it before deleting data.');
+        }
+      }while(cursor);
+    },
     toolStatus(){return files?.status()??{available:false,reason:'No sandbox broker configured.',policy:'glimmer.files/bwrap-1'};},
     async checkTools(tools:readonly SandboxTool[]=[]){if(!files)throw Error('No sandbox broker configured.');await files.ready(tools);return files.status();},
     async list(){
@@ -110,8 +125,10 @@ export async function createRuntime(baseUrl:string, database:string|Storage,file
     async readout(id:string,config:ReadoutConfig,assets:Assets){validateReadout(config,assets);const c=await conversation(id);await host.setReadout(c,config);return host.settings(c.id);},
     async steer(id:string,steer:Steer|null,assets:Assets){validateSteer(steer,assets);const c=await conversation(id);await host.setSteer(c,steer);return host.settings(c.id);},
     async bridge(id:string,send:(m:BridgeMessage)=>Promise<void>){
-      const c=await conversation(id);await generation.settings(c);const bridge=await openBridge(harness,host,c.id,ctx,send);bridges.add(bridge);
-      return {snapshot:bridge.snapshot,stop:async()=>{bridges.delete(bridge);await bridge.stop();}};
+      const c=await conversation(id);await generation.settings(c);const bridge=await openBridge(harness,host,c.id,ctx,send);
+      let ended!:()=>void;const closed=new Promise<void>(resolve=>ended=resolve);
+      const owned={snapshot:bridge.snapshot,closed,stop:async()=>{bridges.delete(owned);ended();await bridge.stop();}};
+      bridges.add(owned);return owned;
     },
     async close(){closing=true;if(active!==null)await (await conversation(String(active))).abort(ctx);await files?.close();for(const b of bridges)await b.stop();await host.close();generation.close();await harness.close(ctx);}
   };return api;
