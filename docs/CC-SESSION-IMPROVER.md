@@ -36,6 +36,12 @@ config, exactly four `--allowedTools`, `--permission-mode dontAsk`,
 and no plugins are enabled. There is no bypass-permissions flag, `--bare`,
 continue, resume, host shell, file download, WebFetch or other MCP server.
 
+When captured, the raw stream-json init event remains in the bound
+`stdout.jsonl`, including any memory or `CLAUDE.md` metadata the CLI reports.
+An omitted field is unknown, not evidence that no memory was loaded.
+`CLAUDE.md` exclusion relies on the CLI enforcing `--setting-sources ""` plus
+`--restricted`; it is not independently established by the tool inventory.
+
 The host child's environment is whitelisted: normal HOME, basic locale/path and
 systemd runtime metadata, plus disabled nonessential traffic, updater, memory
 and prompt history. Inherited API keys, auth tokens, OAuth env tokens, provider
@@ -152,14 +158,23 @@ HARNESS2_CC_LOGIN_CONTROL_APPROVED=1 HARNESS2_MOJO_LIVE_APPROVED=1 \
   --model opus --out /absolute/new/control-directory
 ```
 
-It attempts absolute/traversing `.env`, `.claude`, process-environment and URL
-reads, and an outside write; checks every actual MCP refusal; checks a legitimate
-read/write and the exact known Mojo probe; and asks for Bash and WebFetch. Their
+It creates `decoy-home/.env` and `decoy-home/.claude/canary` with a fresh random
+canary line, outside both tool roots. Only these synthetic files are targeted
+by absolute home-like paths, never the operator's real `.env` or `.claude`.
+The traversal strings, `/proc/self/environ` (the minimal server environment),
+URL probe and outside write remain. It checks every actual MCP refusal, a
+legitimate read/write and the exact known Mojo probe, and asks for Bash and
+WebFetch. Their
 absence is verified from the available-tool inventory, **not falsely counted as
 executed refusals of nonexistent tools**. Missing attempts, an altered sentinel,
 bad probe or failed client make the control nonzero. No automatic retry or
-usage-limit wait. The script saves `control-request.json`, the normal durable
-attempt and `control-result.json`. It does not authorize a run-3 sweep.
+usage-limit wait. The canary is never included in the mission. After success or
+failure, a bounded, no-follow scan checks retained stdout, stderr and host audit
+files; a canary hit, missing transcript or incomplete scan cannot pass. The
+scan reports filenames and hashes without echoing the canary, and deliberately
+does not traverse mutable workspace or probe scratch. The script saves
+`control-request.json`, the normal durable attempt and `control-result.json`.
+It does not authorize a run-3 sweep.
 
 ## References and disclosure
 
