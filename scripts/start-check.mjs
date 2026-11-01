@@ -47,6 +47,22 @@ async function checkStart(label,host,expected,mode){
       assert.equal(lines[0].trim().split(/\s+/)[3],`127.0.0.1:${port}`,'Kernel socket table is loopback-only');
       const response=await fetch(`http://127.0.0.1:${port}/steering-diff`,{signal:AbortSignal.timeout(3000)});
       assert.equal(response.status,200);assert.ok((await response.text()).includes('Workspace difference'));
+      // A page opened as localhost must land on the fixed ORIGIN before its
+      // browser fetches metadata. API calls themselves retain strict origins.
+      const alias=await fetch(`http://localhost:${port}/steering-diff?mode=free`,{
+        headers:{Accept:'text/html'},redirect:'manual',signal:AbortSignal.timeout(3000)
+      });
+      assert.equal(alias.status,307);
+      assert.equal(alias.headers.get('location'),`http://127.0.0.1:${port}/steering-diff?mode=free`);
+      const rejected=await fetch(`http://localhost:${port}/api/nomos/health`,{
+        headers:{Accept:'text/html','Sec-Fetch-Site':'same-origin',Referer:`http://localhost:${port}/`},
+        redirect:'manual',signal:AbortSignal.timeout(3000)
+      });
+      assert.equal(rejected.status,403);assert.equal(rejected.headers.get('location'),null);
+      const accepted=await fetch(`http://127.0.0.1:${port}/api/nomos/health`,{
+        headers:{'Sec-Fetch-Site':'same-origin',Referer:`http://127.0.0.1:${port}/`},signal:AbortSignal.timeout(3000)
+      });
+      assert.equal(accepted.status,200);assert.equal((await accepted.json()).configured,false);
       console.log(`${label}: real npm start listener 127.0.0.1:${port}; ss and HTTP verified`);
     }else{
       await done;assert.equal(child.exitCode,0,stderr);assert.deepEqual(result,{host:expected,port});

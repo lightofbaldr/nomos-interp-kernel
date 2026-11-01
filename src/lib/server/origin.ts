@@ -1,6 +1,31 @@
 /** Loopback, same-origin control plane. Not authentication for a shared/public deployment. */
+const loopbackHosts=['127.0.0.1','localhost','[::1]'];
+
+/** adapter-node's fixed ORIGIN can differ from a browser's loopback alias.
+ * Redirect page navigations before they issue API requests; never relax API
+ * origin checks or trust a forwarded-host header. The destination is fixed by
+ * the operator, and aliases must use the same port.
+ */
+export function canonicalLoopbackPage(request:Request,url:URL,configuredOrigin:string|undefined):string|null{
+  if(!configuredOrigin||!['GET','HEAD'].includes(request.method)
+    ||!request.headers.get('accept')?.includes('text/html')
+    ||url.pathname==='/api'||url.pathname.startsWith('/api/'))return null;
+  try{
+    const target=new URL(configuredOrigin),host=request.headers.get('host');
+    if(!['http:','https:'].includes(target.protocol)||!loopbackHosts.includes(target.hostname)
+      ||target.username||target.password||target.pathname!=='/'||target.search||target.hash||!host)return null;
+    const incoming=new URL(`${target.protocol}//${host}`);
+    if(!loopbackHosts.includes(incoming.hostname)||incoming.username||incoming.password
+      ||incoming.pathname!=='/'||incoming.search||incoming.hash||incoming.port!==target.port
+      ||incoming.origin===target.origin)return null;
+    target.pathname=url.pathname;
+    target.search=url.search;
+    return target.href;
+  }catch{return null;}
+}
+
 export function sameOrigin(request:Request,url:URL){
-  if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname))return false;
+  if(!loopbackHosts.includes(url.hostname))return false;
   const origin=request.headers.get('origin');
   if(origin!==null)return origin===url.origin;
   if(request.method!=='GET'||request.headers.get('sec-fetch-site')!=='same-origin')return false;
