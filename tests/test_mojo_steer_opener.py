@@ -71,9 +71,19 @@ class BrokerSteering(unittest.TestCase):
             STEER | {"layer": "24"},
             STEER | {"direction": ""},
             STEER | {"directions": "not-hex"},
+            STEER | {"from": "middle"},
+            STEER | {"from": 0},
         ):
             with self.assertRaisesRegex(ValueError, "steer"):
                 ModelBroker(self.root / "bad.sock", steer=bad)
+
+    def test_whole_context_steering_is_forwarded_as_given(self):
+        """`from: "start"` asks the serve to steer every position, not only the response (the serve's default)."""
+        whole = STEER | {"from": "start"}
+        body = {"model": MODEL, "messages": [], "max_tokens": 32}
+        with FakeModel() as fake, ModelBroker(self.root / "model.sock", steer=whole, _connection=fake.connection):
+            self.assertEqual(self.post(body), 200)
+        self.assertEqual(fake.requests, [body | {"nomos": {"steer": whole}}])
 
 
 class EnvParsing(unittest.TestCase):

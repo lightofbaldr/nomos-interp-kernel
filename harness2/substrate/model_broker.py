@@ -18,13 +18,16 @@ from pathlib import Path
 MODEL = "nomos-muse-glimmer-30b"
 MAX_BODY = 1_048_576
 STEER_KEYS = {"layer", "directions", "direction", "strength"}
+STEER_STARTS = {"response", "start"}  # the serve's steer.from: the last prompt token (its default) or the first token
 MAX_STRENGTH = 2.0  # the serve's readout.MAX_STRENGTH
 
 
 def validate_steer(steer) -> dict:
     """The serve's `nomos.steer` fields, checked before any rollout starts. The host sets steering; the agent never can."""
-    if not isinstance(steer, dict) or set(steer) != STEER_KEYS:
-        raise ValueError(f"steer must have exactly the fields {sorted(STEER_KEYS)}")
+    if not isinstance(steer, dict) or set(steer) - {"from"} != STEER_KEYS:
+        raise ValueError(f"steer must have exactly the fields {sorted(STEER_KEYS)}, and optionally 'from'")
+    if "from" in steer and (not isinstance(steer["from"], str) or steer["from"] not in STEER_STARTS):
+        raise ValueError(f"steer.from must be one of {sorted(STEER_STARTS)}")
     layer, directions, direction, strength = (steer[k] for k in ("layer", "directions", "direction", "strength"))
     if type(layer) is not int or not 0 <= layer <= 255:
         raise ValueError("steer.layer must be an integer layer")
