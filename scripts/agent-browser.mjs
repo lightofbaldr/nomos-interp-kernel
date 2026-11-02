@@ -20,6 +20,19 @@ try{
   await page.getByText('No workspace yet. A sandboxed tool can create one; viewing does not.',{exact:true}).waitFor();
   const history=await (await get(h.base+'/api/pi?history=1')).json(),id=history.conversations[0].id;
   await assert.rejects(readFile(database+`.workspaces/workspaces/${id}/main.mojo`));
+  // UI recovery control: a crash can leave an unowned durable ledger even
+  // when Pi itself is idle, so the composer has no Stop button. Real ledger
+  // recovery/refusal is separately exercised in tests/agent/budget.test.ts.
+  let injected=false;
+  await page.route(`**/api/pi/budget?conversation=${id}`,async route=>{
+    const response=await route.fetch();if(injected){await route.fulfill({response});return;}injected=true;
+    const data=await response.json();data.owned=false;data.run={status:'running',modelRequests:1,toolCalls:0};
+    await route.fulfill({response,json:data});
+  });
+  await page.reload();await page.getByRole('button',{name:'Harness & files',exact:true}).click();
+  await page.getByRole('button',{name:'Stop saved run',exact:true}).click();
+  await page.getByText('Saved run stopped. Inspect its files before starting again.',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Stop saved run',exact:true}).count(),0);await page.unroute(`**/api/pi/budget?conversation=${id}`);
   await mode.check();await page.getByText('· sandboxed · no network',{exact:true}).waitFor();
   const profile=await (await get(h.base+`/api/pi/profile?conversation=${id}`)).json();
   assert.deepEqual(profile.profile.active.content.tools,['read','write','edit','ls','find','grep','mojo']);
