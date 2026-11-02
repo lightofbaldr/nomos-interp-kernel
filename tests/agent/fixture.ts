@@ -1,14 +1,14 @@
 import http from 'node:http';
-import {fakeKernel,rejectRootProbe} from '../live/fixture.ts';
+import {fakeKernel,rejectRootProbe,recordFixtureRequest} from '../live/fixture.ts';
 /** Synthetic loopback provider: real tool execution is tested separately. */
 export async function agentKernel(){
   const f=await fakeKernel();let plan:({name:string;args:Record<string,unknown>}|null)[]=[];
   const requests:any[]=[],errors:unknown[]=[];
   const server=http.createServer(async(req,res)=>{
     try{
-      if(rejectRootProbe(req,res))return;
+      if(rejectRootProbe(req,res,f.unsolicitedRequests))return;
       if(req.url==='/health'){const r=await fetch(f.base+'/health');res.setHeader('Content-Type','application/json');res.end(await r.text());return;}
-      if(req.url!=='/v1/chat/completions')throw Error('Unexpected synthetic endpoint');
+      if(req.method!=='POST'||req.url!=='/v1/chat/completions'){recordFixtureRequest(req,f.unsolicitedRequests);throw Error('Unexpected synthetic endpoint');}
       let raw='';for await(const b of req)raw+=b;requests.push(JSON.parse(raw));
       const call=plan.shift();f.reply({answer:call?'':'Synthetic agent task complete.',finish:call?'tool_calls':'stop'});
       const upstream=await fetch(f.base+'/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:raw});

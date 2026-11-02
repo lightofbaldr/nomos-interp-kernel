@@ -11,7 +11,7 @@ import type {ToolAvailability} from '../../src/lib/server/file-broker.ts';
 import {generationFor} from '../../src/lib/pi/generation.ts';
 import {emptyPi,messagesOf,projection,reducePi,selectedRow,textOf,type PiView} from '../../src/lib/pi/model.ts';
 import {fromLive,selectedPosition} from '../../src/lib/workspace/model.ts';
-import {fakeKernel,until,rejectRootProbe} from '../live/fixture.ts';
+import {fakeKernel,until,rejectRootProbe,recordFixtureRequest} from '../live/fixture.ts';
 
 const source='Synthetic file contents: never compiled or executed.';
 const plan=[
@@ -27,7 +27,8 @@ async function toolReadoutKernel(missingFirstSummary=false){
   const errors:unknown[]=[];
   const server=http.createServer(async(req,res)=>{
     try{
-      if(rejectRootProbe(req,res))return;
+      if(rejectRootProbe(req,res,f.unsolicitedRequests))return;
+      if(req.method!=='POST'||req.url!=='/v1/chat/completions')recordFixtureRequest(req,f.unsolicitedRequests);
       assert.equal(req.method,'POST');assert.equal(req.url,'/v1/chat/completions');
       const index=round++,call=plan[index];assert.ok(index<3,'Unexpected extra model request');
       let body='';for await(const part of req){body+=part;assert.ok(body.length<1_000_000);}
