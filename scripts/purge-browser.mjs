@@ -92,6 +92,8 @@ try{
     const status=u.pathname==='/api/pi/profile'?400:u.pathname==='/api/pi/budget'?404:0;
     return status!==0&&(e.status===status||e.message===`Failed to load resource: the server responded with a status of ${status} (${status===400?'Bad Request':'Not Found'})`);
   }
+  assert.ok(h.errors.some((e,index)=>e?.status===404&&deletedRead(e,index)),
+    'The deliberately delayed budget read must refuse after deletion.');
   // Maintenance 503s remain expected only for read-only reconnects.
   const errors=h.errors.filter((e,index)=>!(typeof e==='object'&&e.status===503)&&!(typeof e==='object'&&e.message?.includes('503'))&&!deletedRead(e,index));
   assert.deepEqual(errors,[]);
