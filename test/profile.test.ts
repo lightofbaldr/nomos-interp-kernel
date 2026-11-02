@@ -22,7 +22,7 @@ test("profile model: sizes, restricted frontmatter and disabled/duplicate skills
 	assert.deepEqual(validateContent(new Proxy(p, {})), p);
 	assert.equal(profileDigest(validateContent({ allowLarge: false, advisory: [], skills: [skill], instructions: "base" })), profileDigest(validateContent(p)));
 	assert.throws(() => validateContent({ ...p, skills: [skill, skill] }), /Duplicate/);
-	assert.throws(() => validateContent({ ...p, tools: ["bash"] }), /Unknown/);
+	assert.throws(() => validateContent({ ...p, tools: ["host_exec"] }), /Unknown/);
 	assert.throws(() => validateContent(emptyContent("x".repeat(6000))), /6,000/);
 	assert.ok(profileSize(validateContent({ ...emptyContent("x".repeat(6000)), allowLarge: true })).approximateTokens > 1500);
 	assert.throws(() => validateContent({ ...emptyContent("x".repeat(66000)), allowLarge: true }));

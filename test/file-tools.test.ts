@@ -7,18 +7,48 @@ import { AgentDoc } from "../src/pi.ts";
 import { AGENT, entries, openAgent } from "./harness.ts";
 import { ctx, fakeServe, chunk, waitFor } from "./support.ts";
 
-test("file catalog: fixed schemas, sequential calls, mutation replay unsafe; no shell or arbitrary tool names", () => {
+test("sandbox catalog: fixed schemas, sequential calls, mutation replay unsafe; no arbitrary tool names", () => {
   const ext = fileToolsExtension({ ready: async () => {}, execute: async () => ({ ok: true, text: "" }) });
   assert.deepEqual(ext.tools!.map(t => t.name), SANDBOX_TOOLS);
   for (const t of ext.tools!) {
     assert.equal(t.executionMode, "sequential");
-    assert.equal(t.replay, t.name === "write" || t.name === "edit" || t.name === "mojo" ? "unsafe" : "safe");
+    assert.equal(t.replay, ["write", "edit", "mojo", "bash"].includes(t.name) ? "unsafe" : "safe");
     assert.deepEqual(t.callers, ["model"]);
     assert.equal((t.parameters as { additionalProperties?: boolean }).additionalProperties, false);
   }
-  assert.throws(() => validateContent({ ...emptyContent(), tools: ["bash"] }), /Unknown/);
+  assert.throws(() => validateContent({ ...emptyContent(), tools: ["host_exec"] }), /Unknown/);
   assert.throws(() => validateContent({ ...emptyContent(), tools: ["read", "read"] }), /duplicate/);
   assert.deepEqual(validateContent({ ...emptyContent(), tools: ["write", "read"] }).tools, ["read", "write"]);
+});
+test("bash is command-only, unsafe to replay, off in empty profiles, and supplied solely by the broker", async () => {
+  const seen: unknown[] = [], signal = new AbortController().signal;
+  const ext = fileToolsExtension({ ready: async () => {}, execute: async (...args) => {
+    seen.push(args); return { ok: false, text: "synthetic sandbox denial" };
+  } });
+  const tool = ext.tools!.find(t => t.name === "bash")!;
+  assert.equal(tool.replay, "unsafe");
+  assert.deepEqual(Object.keys((tool.parameters as any).properties), ["command"]);
+  assert.equal((tool.parameters as any).additionalProperties, false);
+  assert.equal((tool.parameters as any).properties.command.maxLength, 16384);
+  assert.deepEqual(emptyContent().tools, []);
+  const result = await tool.execute!({ command: "python3 check_mojo.py" }, { conversationId: 7 } as any, { abortSignal: signal } as any);
+  assert.deepEqual(seen, [[7, "bash", { command: "python3 check_mojo.py" }, signal]]);
+  assert.equal((result as any).isError, true);
+});
+test("operator shell refusal prevents profile activation and never calls the model or broker executor", async () => {
+  let executed = 0;
+  const files = fileToolsExtension({ ready: async () => {}, execute: async () => { executed++; return { ok: true, text: "" }; } });
+  const serve = await fakeServe(() => ({ chunks: [] }));
+  const profiles = new ProfileHost(ctx, { tools: files.tools!, ready: async tools => {
+    if (tools?.includes("bash")) throw Error("shell disabled by operator");
+  } });
+  const t = await openAgent(serve.url, undefined, [files, profileExtension(profiles)]); profiles.attach(t.harness);
+  try {
+    const chat = await t.harness.root(ctx, { ...AGENT, agent: { ...AGENT.agent, tools: [] } });
+    const initial = await profiles.get(chat);
+    await assert.rejects(profiles.save(chat, initial.version, { ...emptyContent(), tools: ["bash"] }), /disabled/);
+    assert.deepEqual(await profiles.get(chat), initial); assert.equal(executed, 0); assert.equal(serve.bodies.length, 0);
+  } finally { await t.host.close(); await t.harness.close(ctx); await serve.close(); }
 });
 
 test("held tool run keeps its native capabilities through the second round; pending removal activates only on the next user input", async () => {

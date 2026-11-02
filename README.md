@@ -6,9 +6,17 @@ bridge that streams a conversation to the UI and the reports.
 
 Design: glimmer-emotions `docs/superpowers/specs/2026-10-20-readout-spine-design.md`, section 4.
 
+The fixed sandbox catalog includes an optional `bash` capability under profile
+policy `glimmer.profile/tools-3`. It is absent from every default profile. The
+embedding host must enforce its operator switch in both `ready()` and
+`execute()`; this package supplies only schemas and broker delegation, never
+host shell execution. Mutation replay is unsafe. Glimmer Lab keeps it disabled
+by default and separate from its file/Mojo Agent-mode switch. Imported scripts
+are not copied into the workspace, and extensions are never loaded by this path.
+
 ## Development
 
-Validated on Node 24.18.0. Pi AI, Pi Durable and Chord are pinned to 1.3.0; `src/pi.ts` is the only Pi Durable import
+Validated on Node 24.22.1. Pi AI, Pi Durable and Chord are pinned to 1.3.0; `src/pi.ts` is the only Pi Durable import
 boundary. The launcher witnesses also need Python 3 (standard library only). CPU tests use local fake HTTP servers,
 real Pi APIs and memory/SQLite storage, not a GPU.
 

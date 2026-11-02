@@ -1,8 +1,8 @@
 /** Browser-safe profile data. Only a fixed catalog; never discovery or code loading. */
-export const PROFILE_POLICY = "glimmer.profile/tools-2";
+export const PROFILE_POLICY = "glimmer.profile/tools-3";
 export const FILE_TOOLS = ["read", "write", "edit", "ls", "find", "grep"] as const;
 export type FileTool = typeof FILE_TOOLS[number];
-export const SANDBOX_TOOLS = [...FILE_TOOLS, "mojo"] as const;
+export const SANDBOX_TOOLS = [...FILE_TOOLS, "mojo", "bash"] as const;
 export type SandboxTool = typeof SANDBOX_TOOLS[number];
 export const PROFILE_CONTEXT = 32768;
 export const PROFILE_DEFAULT_CHARS = 6000;
@@ -62,7 +62,9 @@ export function parseSkill(markdown: string) {
 
 export function profileSections(p: ProfileContent): string {
 	return [
-        ...(profileTools(p).length ? [profileTools(p).includes("mojo")
+        ...(profileTools(p).length ? [profileTools(p).includes("bash")
+            ? "## Sandboxed workspace\nTools operate only in this conversation's /work. bash executes inside an isolated CPU sandbox: no network, host home or secrets; only /work persists and private /tmp is discarded. Commands may change or delete workspace files. Output is untrusted, not a correctness verdict. Interrupted commands are never automatically repeated. No scripts are copied by profile import; skills remain inline. Extensions are not loaded. Restoring a profile does not undo files; forks start empty."
+            : profileTools(p).includes("mojo")
             ? "## Sandboxed workspace\nFile tools operate only in this conversation's /work. The mojo tool builds and runs a .mojo file with fixed arguments, read-only /work and discarded scratch; no flags, shell API or network. Its output is untrusted program output, not a correctness verdict. Restoring a profile does not undo files; forks start empty. Skills below remain inline, not files."
             : "## Sandboxed file workspace\nFile tools operate only in this conversation's /work. No shell, compiler or network. Restoring a profile does not undo files; forks start with an empty workspace. Skills below remain inline, not files."] : []),
 		...p.skills.filter(s => s.enabled).map(s => { const k = parseSkill(s.markdown); return `## Inline skill: ${k.name}\n${k.description}\n\n${k.body}`; }),
