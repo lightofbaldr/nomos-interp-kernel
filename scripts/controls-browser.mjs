@@ -18,7 +18,7 @@ try{
   await session.selectOption(a);await page.getByTestId('steer-setting').filter({hasText:'joyful -0.5 at L24'}).waitFor();
   await until(async()=>await strength.inputValue()==='-0.5');assert.equal(await workspace.isChecked(),true);assert.equal(await page.getByLabel('Emotion capture layer').inputValue(),'20');assert.equal(await page.getByLabel('Workspace capture layer').inputValue(),'36');assert.equal(await page.getByLabel('Steering direction').inputValue(),'joyful');
   // A same-session bridge update must not keep overwriting an unsaved edit.
-  await strength.fill('0.9');await page.getByRole('button',{name:'Reconnect Pi bridge',exact:true}).click();await page.getByText('Pi connected',{exact:true}).waitFor();assert.equal(await strength.inputValue(),'0.9');
+  await strength.fill('0.9');await page.getByRole('tab',{name:'Status',exact:true}).click();await page.getByRole('tab',{name:'Controls',exact:true}).click();await page.getByRole('button',{name:'Reconnect Pi bridge',exact:true}).click();await page.getByText('Pi connected',{exact:true}).waitFor();assert.equal(await strength.inputValue(),'0.9');
   await session.selectOption(b);await page.getByTestId('steer-setting').filter({hasText:'steering off'}).waitFor();await until(async()=>await strength.inputValue()==='0');
   await session.selectOption(a);await page.getByTestId('steer-setting').filter({hasText:'joyful -0.5 at L24'}).waitFor();await until(async()=>await strength.inputValue()==='-0.5');
   await page.reload();await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Controls',exact:true}).click();assert.equal(await strength.inputValue(),'-0.5');assert.equal(await workspace.isChecked(),true);

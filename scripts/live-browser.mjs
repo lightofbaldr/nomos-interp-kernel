@@ -40,8 +40,14 @@ try{
   assert.equal(await page.locator('.workspace-tokens li').count(),0);
   await page.getByRole('button',{name:'Follow',exact:true}).click();
   await page.getByRole('tab',{name:'Status',exact:true}).click();await page.getByText('Turn 0 · complete · 43 rows',{exact:true}).waitFor();
-  await page.getByRole('button',{name:'Reconnect Pi bridge',exact:true}).click();await page.getByText('Pi connected',{exact:true}).waitFor();
+  await page.getByRole('tab',{name:'Controls',exact:true}).click();
+  const reconnected=page.waitForResponse(r=>r.request().method()==='GET'&&new URL(r.url()).pathname==='/api/pi'&&new URL(r.url()).searchParams.has('conversation'));
+  await page.getByRole('button',{name:'Reconnect Pi bridge',exact:true}).click();await reconnected;await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Status',exact:true}).click();
   assert.equal(await page.getByText('Hello from Pi.',{exact:true}).count(),1);
+  // Rebuilding the saved snapshot may remount the disclosure closed. Reopen
+  // it before checking the actual retained re-entry count, not UI open state.
+  await page.getByText('Turn 0 · complete · 43 rows',{exact:true}).waitFor();
+  const reloadedTrail=trail.locator('details').first();await reloadedTrail.waitFor();if(!await reloadedTrail.evaluate(el=>el.open))await reloadedTrail.locator(':scope > summary').click();
   assert.match(await cannot.innerText(),/\+1 re-entry/,'reconnect does not inflate re-entries');
   await page.screenshot({path:'preview/checks/live-pi-desktop.png',fullPage:true});
   // New session keeps the previous one. Reload also restores the selected session.

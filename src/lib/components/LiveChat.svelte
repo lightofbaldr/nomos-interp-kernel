@@ -22,7 +22,7 @@
   let {onState,compact=false,startNew=false,requestedConversation=''}:{onState:(state:LiveState)=>void;compact?:boolean;startNew?:boolean;requestedConversation?:string}=$props();
   let view=$state.raw<LiveState>(emptyLiveState()),pi=$state.raw(emptyPi()),text=$state(''),error=$state('');
   let sessions=$state<{id:string;busy:boolean;title?:string}[]>([]),conversation=$state(''),opening=$state(false);
-  let metaAvailable=$state(false);
+  let metaAvailable=$state(false),bridgeFailed=$state(false);
   let autoCreate=false;
   let controlPending=$state(false);
   let requestedSeen='';
@@ -87,13 +87,14 @@
     finally{labelFlight=false;if(alive)scheduleLabels();}
   }
   function attach(id:string){
+    bridgeFailed=false;
     const rev=++revision;controller?.abort();controller=new AbortController();const signal=controller.signal;
     conversation=id;pi=emptyPi();update({selection:undefined});localStorage.setItem('glimmer.pi.conversation',id);
     void (async()=>{
       try{const response=await fetch(`/api/pi?conversation=${encodeURIComponent(id)}`,{signal});
         await readBridge(response,wire=>{if(!alive||rev!==revision)return;pi=reducePi(pi,wire);update();latest();scheduleLabels();});
         if(!signal.aborted)throw Error('Bridge disconnected. Reconnect for a fresh snapshot; generation may still be running.');
-      }catch(e){if(alive&&rev===revision&&!signal.aborted){pi={...pi,connected:false};error=e instanceof Error?e.message:'Bridge failed.';update();
+      }catch(e){if(alive&&rev===revision&&!signal.aborted){bridgeFailed=true;pi={...pi,connected:false};error=e instanceof Error?e.message:'Bridge failed.';update();
         // A purge closes the old harness, including surviving sessions' bridges.
         // Retry only this read-only history check; never retry a generation.
         for(let n=0;e instanceof MaintenanceDisconnect&&n<120&&alive&&rev===revision&&!signal.aborted;n++){
@@ -156,6 +157,7 @@
   <label>Conversation <select aria-label="Pi conversation" value={conversation} onchange={e=>attach(e.currentTarget.value)} disabled={opening}>{#each sessions as s}<option value={s.id}>Session {s.id}{s.busy?' · generating':''}</option>{/each}</select></label>
   <button class="text-button" onclick={create} disabled={opening}>New session</button><span>{pi.connected?'Pi connected':'Disconnected'}</span>
 </div>{/if}
+{#if conversation&&!pi.connected&&bridgeFailed}<div class="bridge-recovery" role="status"><span>Bridge disconnected · the run may still be active.</span><button class="text-button" onclick={reconnect} aria-label="Reconnect disconnected Pi bridge"><ArrowClockwise size={14} aria-hidden="true"/>Reconnect</button></div>{/if}
 <AgentMode live={view} onPending={pending=>{controlPending=pending;update();}} onSettings={settings=>{pi=reducePi(pi,settings);update();}}/>
 <div class="conversation-stage">
   <img class="chat-mascot" src="/img/muse-mascot.webp" alt="" aria-hidden="true" width="1129" height="1393" decoding="async"/>
@@ -206,6 +208,7 @@
   <p class="composer-helper" id="live-composer-helper">Saved on this server. Switching chats or closing the page does not stop generation. Stop is explicit.</p>
 </section>
 <style>
+  .bridge-recovery{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 24px;padding:10px 12px;border:1px solid var(--color-rule);border-radius:6px;font-size:11px;color:var(--color-ink)}.bridge-recovery button{display:flex;align-items:center;gap:6px;flex:none}
   .empty-start{margin-top:20px}
   .readout-attribution{font:10px/1.6 var(--font-mono);color:var(--color-muted);margin:6px 0}
   .pi-session-bar{display:flex;align-items:center;gap:12px;padding:8px 24px;border-bottom:1px solid var(--color-rule);font-size:11px;color:var(--color-muted);flex-wrap:wrap}

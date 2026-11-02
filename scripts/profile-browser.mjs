@@ -36,7 +36,7 @@ try{
   await until(async()=>await instructions.inputValue()==='You are a helpful AI assistant.\nReasoning strength: high.');
   await instructions.fill('UI_PROFILE_B');await page.getByRole('button',{name:'Save profile',exact:true}).click();await page.getByText('Profile applied.',{exact:true}).waitFor();
   await selector.selectOption(a);await until(async()=>await instructions.inputValue()==='UI_PENDING');
-  await instructions.fill('UNSAVED_KEEP');await page.getByRole('button',{name:'Reconnect Pi bridge',exact:true}).click();await page.getByText('Pi connected',{exact:true}).waitFor();assert.equal(await instructions.inputValue(),'UNSAVED_KEEP');
+  await instructions.fill('UNSAVED_KEEP');await page.getByRole('tab',{name:'Controls',exact:true}).click();await page.getByRole('button',{name:'Reconnect Pi bridge',exact:true}).click();await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Profile',exact:true}).click();assert.equal(await instructions.inputValue(),'UNSAVED_KEEP','Unsaved profile survives both the tab switch and bridge reconnect');
   await page.getByRole('button',{name:'Reload saved profile',exact:true}).click();await until(async()=>await instructions.inputValue()==='UI_PENDING');
   await page.getByLabel('Harness relative path').fill('example');await page.getByRole('button',{name:'Preview import and diff',exact:true}).click();await page.getByTestId('import-preview').waitFor();
   assert.match(await page.getByTestId('import-preview').innerText(),/on-demand.*inline/);assert.match(await page.getByTestId('import-preview').innerText(),/Current profile/);
