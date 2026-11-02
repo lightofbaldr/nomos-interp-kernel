@@ -1,14 +1,14 @@
 import http from 'node:http';
-import {fakeKernel,rejectRootProbe} from '../live/fixture.ts';
+import {fakeKernel,rejectRootProbe,recordFixtureRequest,type FixtureRequestEvidence} from '../live/fixture.ts';
 export async function fileKernel(){
   const f=await fakeKernel();let plan:({name:string;args:Record<string,unknown>}|null)[]=[];
-  const requests:any[]=[],errors:string[]=[];let closing=false,pending=0,drained:(()=>void)|undefined;
+  const requests:any[]=[],errors:string[]=[],unsolicitedRequests:FixtureRequestEvidence[]=[];let closing=false,pending=0,drained:(()=>void)|undefined;
   const server=http.createServer(async(req,res)=>{
     pending++;
     try{
-    if(rejectRootProbe(req,res))return;
+    if(rejectRootProbe(req,res,unsolicitedRequests))return;
     if(req.url==='/health'){const r=await fetch(f.base+'/health');res.setHeader('Content-Type','application/json');res.end(await r.text());return;}
-    if(req.method!=='POST'||req.url!=='/v1/chat/completions')throw Error(`Unexpected fixture request ${req.method} ${req.url}`);
+    if(req.method!=='POST'||req.url!=='/v1/chat/completions'){recordFixtureRequest(req,unsolicitedRequests);throw Error(`Unexpected fixture request ${req.method} ${req.url}`);}
     let raw='';for await(const b of req)raw+=b;requests.push(JSON.parse(raw));
     const call=plan.shift(),id=`chatcmpl-files-${requests.length}`;
     res.writeHead(200,{'Content-Type':'text/event-stream'});
@@ -25,6 +25,6 @@ export async function fileKernel(){
     }finally{pending--;if(!pending)drained?.();}
   });
   await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));
-  return {...f,base:`http://127.0.0.1:${(server.address() as any).port}`,requests,errors,pending:()=>pending,plan:(p:typeof plan)=>{plan=p;},
+  return {...f,base:`http://127.0.0.1:${(server.address() as any).port}`,requests,errors,unsolicitedRequests,pending:()=>pending,plan:(p:typeof plan)=>{plan=p;},
     close:async()=>{closing=true;server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));await new Promise<void>(r=>{if(pending)drained=r;else r();});await f.close();if(errors.length)throw Error('File fixture errors: '+errors.join('; '));}};
 }

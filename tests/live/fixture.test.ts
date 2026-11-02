@@ -12,6 +12,19 @@ test('GET and HEAD root probes are refused without a synthetic model request',as
   }finally{await f.close();await rm(f.root,{recursive:true,force:true});}
 });
 
+test('unsolicited request evidence keeps only bounded caller metadata',async()=>{
+  const f=await fakeKernel();
+  try{
+    const response=await fetch(f.base,{headers:{'User-Agent':'fixture-caller-'+'x'.repeat(600),
+      Referer:'http://127.0.0.1/fixture',Origin:'http://127.0.0.1',Authorization:'decoy-secret',Cookie:'decoy-cookie'}});
+    assert.equal(response.status,404);assert.equal(f.unsolicitedRequests.length,1);
+    const evidence=f.unsolicitedRequests[0];assert.equal(evidence.userAgent?.length,512);
+    assert.equal(evidence.referer,'http://127.0.0.1/fixture');assert.equal(evidence.origin,'http://127.0.0.1');
+    assert.equal(evidence.remoteAddress,'127.0.0.1');assert.equal(evidence.localPort,Number(new URL(f.base).port));
+    assert.doesNotMatch(JSON.stringify(evidence),/decoy-secret|decoy-cookie/);assert.equal(f.requests.length,0);
+  }finally{await f.close();await rm(f.root,{recursive:true,force:true});}
+});
+
 test('fake kernel joins a deliberately interrupted request body during teardown',async()=>{
   const f=await fakeKernel();let request:ReturnType<typeof http.request>|undefined;
   try{
