@@ -75,3 +75,11 @@ manifests and measurement snapshots contain source pins and fresh conversation
 content; retain them privately and review before export. Workspace file names
 and text are private runtime data. No workspace or model-output bytes are
 committed as part of Agent mode.
+
+The separately operator-disabled shell adds the same private compiler prefix
+to `scripts/shell-browser.mjs`, `tests/shell/integration.test.ts` and the real
+namespace controls in `tests/shell/sandbox_test.py`. All their prompts/canaries
+are synthetic. Review shell transcripts separately: arbitrary command text,
+workspace paths and output can be private even though no host credentials are
+passed. Never commit or publish an operator shell flag or live enablement as if
+it were the default deployment.

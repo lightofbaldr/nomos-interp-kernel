@@ -11,7 +11,7 @@ try{
   await mkdir(f.root+'/imports/improved/skills/verify',{recursive:true});
   await writeFile(f.root+'/imports/improved/systemprompt.md','SYNTHETIC_IMPORTED_PROFILE: verify the program.');
   await writeFile(f.root+'/imports/improved/skills/verify/SKILL.md','---\nname: verify\ndescription: Check before claiming success\n---\nSynthetic fixture only.');
-  h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:database,GLIMMER_MOJO_PREFIX:prefix,NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin,GLIMMER_HARNESS_IMPORT_ROOTS:JSON.stringify([f.root+'/imports'])});
+  h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:database,GLIMMER_ENABLE_SANDBOX_SHELL:'',GLIMMER_MOJO_PREFIX:prefix,NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin,GLIMMER_HARNESS_IMPORT_ROOTS:JSON.stringify([f.root+'/imports'])});
   page=await h.browser.newPage({viewport:{width:1440,height:900}});h.observe(page);page.setDefaultTimeout(20000);
   await page.goto(h.base+'/');
   const mode=page.getByRole('switch',{name:'Agent mode',exact:true});await mode.waitFor();await until(async()=>await mode.isEnabled());
@@ -66,6 +66,8 @@ try{
   // Import and choose a harness entirely from Chat, using the existing importer.
   await page.getByRole('button',{name:'Configure harness & budget',exact:true}).click();
   await page.getByRole('button',{name:'Import / edit harness',exact:true}).click();await page.getByRole('dialog').waitFor();
+  assert.equal(await page.getByRole('button',{name:'Check shell isolation',exact:true}).isDisabled(),true);
+  assert.equal(await page.getByLabel('Enable tool bash',{exact:true}).isDisabled(),true);
   await page.getByLabel('Harness relative path').fill('improved');await page.getByRole('button',{name:'Preview import and diff',exact:true}).click();await page.getByTestId('import-preview').waitFor();
   await page.getByRole('button',{name:'Apply previewed text profile',exact:true}).click();await page.getByText('Profile applied.',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Back to Agent mode',exact:true}).click();await until(async()=>!(await mode.isChecked()));

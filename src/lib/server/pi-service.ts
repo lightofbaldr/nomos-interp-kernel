@@ -44,7 +44,7 @@ function managed(){
   const db=env.GLIMMER_SESSION_DB||path.join(os.homedir(),'nomos_data/glimmer-lab/sessions.sqlite');
   const base=env.NOMOS_API_BASE_URL;
   if(!manager)console.info('Glimmer trusted file broker:',FILE_BROKER_PATH);
-  return manager??=runtimeManager(path.resolve(db),()=>createRuntime(base,path.resolve(db),createFileBroker(path.resolve(db)+'.workspaces',env.GLIMMER_MOJO_PREFIX)));
+  return manager??=runtimeManager(path.resolve(db),()=>createRuntime(base,path.resolve(db),createFileBroker(path.resolve(db)+'.workspaces',env.GLIMMER_MOJO_PREFIX,{shell:env.GLIMMER_ENABLE_SANDBOX_SHELL==='1'})));
 }
 export function withService<T>(fn:(runtime:Runtime)=>Promise<T>){return managed().use(fn);}
 export const previewConversationPurge=(target:unknown)=>managed().preview(target);

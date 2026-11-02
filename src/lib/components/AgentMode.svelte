@@ -120,6 +120,7 @@
   </div>
   <p id="agent-mode-help">{waiting?'Checking isolation and Mojo toolchain…':enabled?'Read, write, edit, list, find, grep, and Mojo build/run are enabled for this conversation.':'Off by default. Turning on checks isolation and the Mojo toolchain, then enables sandboxed tools and live readouts.'}</p>
   {#if profile?.pending}<p>Profile change pending. Wait for the current run to settle before changing Agent mode.</p>{/if}
+  {#if loaded===live.conversation&&profile?.active?.content.tools?.includes('bash')}<p>Sandboxed shell is also selected in this saved profile. It was not enabled by the Agent mode switch.</p>{/if}
   {#if error}<p class="agent-error" role="alert">{error}</p>{/if}{#if notice}<p role="status">{notice}</p>{/if}
 </section>
 <style>

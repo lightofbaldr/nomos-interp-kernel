@@ -11,7 +11,11 @@ describes the recorded Baseline | Steered | Difference explorer.
 The [harness workbench](docs/HARNESS-WORKBENCH.md) adds per-conversation
 instructions, inline skills, a text-only Harness² import and recorded profile
 attribution. Optional file tools and a fixed-argument Mojo build/run tool run
-only in checked, resource-limited Linux sandboxes. No shell tool is exposed.
+only in checked, resource-limited Linux sandboxes. [Chat Agent mode](docs/AGENT-MODE.md)
+puts activation, harness choice, workspace files and live readouts in Chat.
+A separate [sandboxed shell](docs/AGENT-SHELL-BOUNDARY.md) is operator-disabled
+by default and is never enabled by the Agent-mode switch. It remains held for
+Adam's decision; there is no host-shell fallback.
 The [recorded Harness² comparison](docs/WORKBENCH-RECORDED.md) shows one pinned
 Base | Improved | Changes pair, saved tool exchanges, actual grader results and
 the ten-task context. It never attaches a live conversation or executes a tool.
@@ -82,8 +86,9 @@ review branch; they are not the live-Pi acceptance commands.
   Recorded steering bundles are external, immutable local data; the default
   catalog is under `~/nomos_data/steering-diff/catalog-sampled-20261029`, not the scratch repo.
 - Greedy decoding is explicit and remains the default. Each conversation can
-  opt into slower sampling; each reply records its own decoding and 6,144-token
-  limit. A capped reasoning-only reply offers an explicit Retry without adding
+  opt into slower sampling; each reply records its decoding and requested cap
+  (Chat 6,144; Agent 8,192). Agent runs also have whole-run call/time bounds.
+  A capped reasoning-only reply offers an explicit Retry without adding
   another copy of the question. See [decoding and Retry](docs/LIVE-PI.md#decoding-and-an-explicit-retry).
 - No tools or attachments are enabled in the initial session. Automatic retries
   and automatic compaction stay off. Model text is escaped plain text.
@@ -106,6 +111,8 @@ node scripts/workbench-recorded-assets.mjs # pinned Run 2 artifacts, read-only
 node scripts/workbench-recorded-build.mjs  # zero-warning check and current build
 node scripts/workbench-recorded-browser.mjs # saved evidence + fake-kernel navigation
 node scripts/workbench-recorded-regression.mjs # profile, workspace, origin, purge
+node scripts/agent-regression.mjs # all offline units, CPU sandboxes and browser flows
+node scripts/shell-tests.mjs      # real sandbox decoy controls; no model/API calls
 npm run test:kernel                # explicit GPU client test against existing :8091
 ```
 

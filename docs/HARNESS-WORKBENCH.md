@@ -3,7 +3,10 @@
 The **Profile** tab beside Controls manages each Pi conversation's instructions,
 ordered Markdown skills, imported advisory text and optional sandboxed tools.
 The `mojo` tool builds/runs a workspace source with fixed argv. No model-supplied
-command string, compiler flags, host extension or shell tool is accepted.
+command string, compiler flags or host extension is accepted by `mojo`.
+The separate [shell option](AGENT-SHELL-BOUNDARY.md) remains operator-disabled
+by default and held for Adam's decision; the ordinary Agent switch never adds
+it. That option executes command text only inside its own checked namespace.
 
 ## Editing and history
 

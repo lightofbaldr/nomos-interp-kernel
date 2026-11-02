@@ -41,7 +41,7 @@
       if(data.preview){preview=data.preview;allowImportLarge=false;}
       if(data.tools)tools=data.tools;
       if(data.conversation)await live.openConversation?.(data.conversation);
-    }catch(e){if(id===live.conversation){error=e instanceof Error?e.message:String(e);if(body.action==='checkTools')tools={...tools,available:false,reason:error};if(body.action==='checkMojo')tools={...tools,mojo:{available:false,reason:error}};}}finally{waiting=false;}
+    }catch(e){if(id===live.conversation){error=e instanceof Error?e.message:String(e);if(body.action==='checkTools')tools={...tools,available:false,reason:error};if(body.action==='checkMojo')tools={...tools,mojo:{available:false,reason:error}};if(body.action==='checkShell')tools={...tools,shell:{enabled:tools.shell?.enabled===true,available:false,reason:error}};}}finally{waiting=false;}
   }
   function addSkill(){try{parseSkill(skillText);draft.skills.push({markdown:skillText,enabled:true});skillText='';error='';}catch(e){error=String(e);}}
   function toggleTool(name:SandboxTool,enabled:boolean){draft.tools=SANDBOX_TOOLS.filter(t=>t===name?enabled:(draft.tools??[]).includes(t));}
@@ -71,6 +71,12 @@
       <button onclick={()=>action({action:'checkMojo'})}>Check Mojo toolchain</button>
       <label class="check"><input type="checkbox" aria-label="Enable tool mojo" checked={(draft.tools??[]).includes('mojo')} disabled={!tools.mojo?.available&&!(draft.tools??[]).includes('mojo')} onchange={e=>toggleTool('mojo',e.currentTarget.checked)}/>mojo</label>
       <p>Build and run a .mojo file with fixed arguments. /work stays read-only; the executable and scratch are discarded. No caller flags, program arguments, interactive input or network. Build: 90 seconds; run: 10 seconds; worker memory: 4 GiB. Output is untrusted program text, not proof of correctness. Interrupted execution is not replayed.</p>
+      <h4>Sandboxed shell <span>OPERATOR-GATED · OFF BY DEFAULT</span></h4>
+      <p data-testid="shell-availability">{tools.shell?.available?'Shell available':'Shell unavailable'} — {tools.shell?.reason??'Disabled by operator.'}</p>
+      <button onclick={()=>action({action:'checkShell'})} disabled={!tools.shell?.enabled}>Check shell isolation</button>
+      <label class="check"><input type="checkbox" aria-label="Enable tool bash" checked={(draft.tools??[]).includes('bash')} disabled={!tools.shell?.available&&!(draft.tools??[]).includes('bash')} onchange={e=>toggleTool('bash',e.currentTarget.checked)}/>bash · sandbox only</label>
+      <p>No network, host home or inherited credentials. Writes persist only in /work; private /tmp is discarded. 90-second command limit, 4 GiB memory, bounded output. Commands can delete workspace files. Interrupted mutations are not replayed. Agent mode never enables this capability.</p>
+      <p>Helper import is not implemented: scripts are not copied into /work. Model extensions (including mojo-verify-note.ts) are not loaded. Shell access is not unmodified Harness² execution.</p>
       <h4>Skills <span>INLINE</span></h4><p>Enabled skills are sent in full. They are not materialized as workspace files; on-demand skill delivery is not implemented.</p>
       {#each draft.skills as skill,i}
         <section class="skill"><div class="skill-heading"><label class="check"><input type="checkbox" aria-label={`Enable ${skillName(skill.markdown,i)}`} bind:checked={skill.enabled}/>{skillName(skill.markdown,i)}</label><button onclick={()=>draft.skills.splice(i,1)} aria-label={`Remove skill ${i+1}`}>Remove</button></div>

@@ -14,15 +14,20 @@
       return valid(value.compile)&&(value.run===null||valid(value.run))?value:null;
     }catch{return null;}
   }
+  function shellOutput(text:string):Phase|null{
+    try{const v=JSON.parse(text);return v&&typeof v==='object'&&(v.exit_code===null||Number.isInteger(v.exit_code))&&(v.reason===null||typeof v.reason==='string')&&typeof v.stdout==='string'&&typeof v.stderr==='string'?v:null;}catch{return null;}
+  }
 </script>
 {#each calls as call (call.id)}
   {@const result=results.find(r=>r.toolCallId===call.id)}
   <div class="file-tool" data-testid="file-tool-call">
     <Tool.Root><Tool.Header type={call.name} state={result?result.isError?'output-error':'output-available':streaming?'input-streaming':'input-available'}/><Tool.Content>
-      <p>{call.name==='mojo'?'Recorded sandboxed Mojo build/run. Program output is untrusted, not a correctness grade; source workspace stays read-only.':'Recorded Pi tool call. File tools are confined to this conversation’s sandboxed /work.'}</p>
+      <p>{call.name==='bash'?'Recorded sandboxed shell command. No network or host home; commands can mutate the conversation workspace. Output is untrusted, not proof of correctness.':call.name==='mojo'?'Recorded sandboxed Mojo build/run. Program output is untrusted, not a correctness grade; source workspace stays read-only.':'Recorded Pi tool call. File tools are confined to this conversation’s sandboxed /work.'}</p>
       <pre aria-label={`${call.name} arguments`}>{JSON.stringify(call.arguments,null,2)}</pre>
       {#if result}
         {@const mojo=call.name==='mojo'?mojoOutput(textOf(result)):null}
+        {@const shell=call.name==='bash'?shellOutput(textOf(result)):null}
+        {#if shell}<section aria-label="Sandboxed shell output"><h4>Shell · exit {shell.exit_code??'unknown'}{shell.reason?` · ${shell.reason}`:''}</h4>{#if shell.stdout}<pre aria-label="Shell stdout">{shell.stdout}</pre>{/if}{#if shell.stderr}<pre aria-label="Shell stderr">{shell.stderr}</pre>{/if}</section>{/if}
         {#if mojo}
           {#each [{name:'Compile',value:mojo.compile},{name:'Run',value:mojo.run}] as phase}
             <section aria-label={`Mojo ${phase.name.toLowerCase()} output`}>
