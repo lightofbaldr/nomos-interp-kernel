@@ -120,10 +120,10 @@ function checkTurn(state:PiView,index:number,status:'complete'|'contract_error'=
 test('real Pi retains attributed emotion/workspace rows through model → write → model → mojo → model and bridge reconnect',
   {timeout:15000},async()=>{
     const f=await toolReadoutKernel(),fake=heldBroker();
-    for(const method of ['GET','HEAD'])assert.equal((await fetch(f.base,{method})).status,404);
-    assert.deepEqual(f.errors,[]);
     let runtime:Awaited<ReturnType<typeof createRuntime>>|undefined;
     try{
+      for(const method of ['GET','HEAD'])assert.equal((await fetch(f.base,{method})).status,404);
+      assert.deepEqual(f.errors,[]);
       runtime=await createRuntime(f.base,new MemoryStorage(),fake.broker);const r=runtime;
       const id=await r.create(),profile=await r.profile(id);
       const saved=await r.saveProfile(id,profile.version,{...emptyContent('Synthetic readout continuity test.'),tools:['write','mojo']});
