@@ -57,6 +57,16 @@
   }
   function toggle(enabled:boolean){return post('/api/pi/agent',{version:profile?.version,enabled});}
   function setBudget(mode:BudgetMode){return post('/api/pi/budget',{version:budget?.settings.version,mode});}
+  async function settleSavedRun(){
+    // After a process crash Pi may be idle while the durable budget is still
+    // running. Do not strand its explicit recovery behind the composer Stop.
+    if(waiting||!ready||budget?.owned||budget?.run?.status!=='running')return;
+    const id=live.conversation!;waiting=true;onPending(true);error='';
+    try{const r=await fetch('/api/pi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'abort',conversation:id})}),d=await r.json();
+      if(!r.ok)throw Error(d.error??'Saved run could not be stopped.');if(id===live.conversation){await load(id);notice='Saved run stopped. Inspect its files before starting again.';}
+    }catch(e){if(id===live.conversation)error=e instanceof Error?e.message:String(e);}
+    finally{waiting=false;onPending(false);}
+  }
   function applyHarness(){
     if(!profile?.active||choice==='current')return;
     if(choice==='base')return post('/api/pi/profile',{action:'save',version:profile.version,content:baseAgentContent(profile.active.content)});
@@ -72,6 +82,7 @@
       <Collapsible.Content class="agent-content">
         <p class="agent-current">{profile?.active?.origin?`Imported harness · ${profile.active.origin.digest.slice(0,12)}`:'Glimmer Lab harness'} · r{profile?.active?.revision??'—'}<br/>{budget?.settings.mode==='agent'?'8,192 tokens/request · 32 requests · 64 tools · 20 minutes':'Chat budget · 6,144 tokens/reply'}</p>
         {#if budget?.run}<p class="agent-run-status" role="status">Last run · {budget.run.status==='running'?'running':budget.run.stopReason} · {budget.run.modelRequests} model requests · {budget.run.toolCalls} tool calls{budget.run.status==='running'&&!budget.owned?' · requires Stop after restart':''}</p>{/if}
+        {#if budget?.run?.status==='running'&&!budget.owned}<button class="agent-recover" disabled={waiting||!ready} onclick={settleSavedRun}>Stop saved run</button>{/if}
         <Collapsible.Root bind:open={optionsOpen} class="agent-configuration"><Collapsible.Trigger class="agent-configure">Configure harness & budget</Collapsible.Trigger><Collapsible.Content>
         <div class="agent-budget">
           <label>Reply / run budget<select aria-label="Agent run budget" value={budget?.settings.mode??'chat'} disabled={locked} onchange={e=>setBudget(e.currentTarget.value as BudgetMode)}><option value="chat">Chat · 6,144 tokens per reply</option><option value="agent">Agent · 8,192 tokens per request</option></select></label>
@@ -118,6 +129,7 @@
   .agent-harness{display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin-top:10px}.agent-harness label{display:grid;gap:5px;font-size:11px}.agent-harness select{max-width:290px;background:var(--color-paper-2);color:var(--color-ink);padding:7px;border:1px solid var(--color-rule);border-radius:5px}.agent-harness button,.agent-harness :global(.agent-editor-trigger){font-size:11px;padding:7px 9px;border:1px solid var(--color-rule);border-radius:5px;background:var(--color-paper-2);color:var(--color-ink)}button:disabled{opacity:.5}.agent-provenance{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:9px 0;font:10px/1.6 var(--font-mono);color:var(--color-muted)}
   .agent-budget{padding:8px 0 12px;border-bottom:1px solid var(--color-rule)}.agent-budget label{display:grid;gap:6px;font-size:11px}.agent-budget select{max-width:100%;padding:7px;border:1px solid var(--color-rule);border-radius:5px;background:var(--color-paper);color:var(--color-ink)}.agent-run-status{font-family:var(--font-mono)}
   .agent-current{font-family:var(--font-mono)}.agent-mode :global(.agent-configure){width:100%;text-align:left;padding:9px 0;color:var(--color-accent);border:0;border-block:1px solid var(--color-rule);background:transparent;font-size:11px}
+  .agent-recover{font-size:11px;padding:7px 9px;border:1px solid var(--color-rule);border-radius:5px;background:var(--color-paper-2);color:var(--color-ink)}
   .agent-panels{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:12px 0}.agent-live-workspace{min-width:0}.agent-live-workspace h3{font-size:12px;font-weight:500}.agent-live-workspace h3 span{font:9px var(--font-mono);color:var(--color-muted);margin-left:8px}.agent-live-workspace ol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));list-style:none;margin:8px 0;padding:0;gap:2px 10px}.agent-live-workspace li{display:flex;gap:8px;justify-content:space-between;border-bottom:1px solid var(--color-rule);font:11px/1.7 var(--font-mono)}.agent-live-workspace li span{overflow:hidden;text-overflow:ellipsis;white-space:pre}.agent-live-workspace small{color:var(--color-muted)}
   :global(.agent-editor-overlay){position:fixed;inset:0;background:#0008;z-index:80}:global(.agent-editor){position:fixed;z-index:81;left:50%;top:50%;transform:translate(-50%,-50%);width:min(850px,calc(100vw - 28px));max-height:90vh;overflow:auto;padding:24px;border:1px solid var(--color-rule);border-radius:10px;background:var(--color-paper);color:var(--color-ink)}:global(.agent-editor>h2){font-size:19px}:global(.agent-editor>p){font-size:12px;line-height:1.7;color:var(--color-muted)}:global(.agent-editor-close){margin-top:16px;border:1px solid var(--color-rule);border-radius:5px;padding:8px 12px;background:var(--color-paper-2);color:var(--color-ink)}
   @media(max-width:700px){.agent-mode{margin:0 14px}.agent-panels{grid-template-columns:1fr}.agent-mode :global(.agent-content){max-height:36vh}.agent-harness select{max-width:100%}}
