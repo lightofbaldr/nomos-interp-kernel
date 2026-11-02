@@ -1,11 +1,12 @@
 import http from 'node:http';
-import {fakeKernel} from '../live/fixture.ts';
+import {fakeKernel,rejectRootProbe} from '../live/fixture.ts';
 /** Synthetic loopback provider: real tool execution is tested separately. */
 export async function agentKernel(){
   const f=await fakeKernel();let plan:({name:string;args:Record<string,unknown>}|null)[]=[];
   const requests:any[]=[],errors:unknown[]=[];
   const server=http.createServer(async(req,res)=>{
     try{
+      if(rejectRootProbe(req,res))return;
       if(req.url==='/health'){const r=await fetch(f.base+'/health');res.setHeader('Content-Type','application/json');res.end(await r.text());return;}
       if(req.url!=='/v1/chat/completions')throw Error('Unexpected synthetic endpoint');
       let raw='';for await(const b of req)raw+=b;requests.push(JSON.parse(raw));

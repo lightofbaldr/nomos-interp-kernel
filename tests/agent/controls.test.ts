@@ -42,6 +42,8 @@ test('real Pi request admission binds the whole tool loop and stops before reque
   try{
     const id=await r.create(),s=await r.profile(id);await r.setAgentMode(id,s.version,true,f.assets);
     f.plan(Array.from({length:33},()=>({name:'ls',args:{path:'.'}})));
+    for(const method of ['GET','HEAD'])assert.equal((await fetch(f.base,{method})).status,404);
+    assert.equal(f.requests.length,0);assert.deepEqual(f.errors,[]);
     await r.submit(id,'Synthetic call-cap control.');await until(()=>!r.busy(),15000);
     assert.equal(f.requests.length,32);assert.ok(f.requests.every(q=>q.max_tokens===8192));
     const {run}=await r.budget(id);assert.equal(run?.status,'finished');assert.equal(run?.stopReason,'model_requests');assert.equal(run?.modelRequests,32);assert.equal(run?.toolCalls,32);
