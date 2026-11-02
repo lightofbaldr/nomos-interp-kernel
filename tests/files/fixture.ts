@@ -1,11 +1,12 @@
 import http from 'node:http';
-import {fakeKernel} from '../live/fixture.ts';
+import {fakeKernel,rejectRootProbe} from '../live/fixture.ts';
 export async function fileKernel(){
   const f=await fakeKernel();let plan:({name:string;args:Record<string,unknown>}|null)[]=[];
   const requests:any[]=[],errors:string[]=[];let closing=false,pending=0,drained:(()=>void)|undefined;
   const server=http.createServer(async(req,res)=>{
     pending++;
     try{
+    if(rejectRootProbe(req,res))return;
     if(req.url==='/health'){const r=await fetch(f.base+'/health');res.setHeader('Content-Type','application/json');res.end(await r.text());return;}
     if(req.method!=='POST'||req.url!=='/v1/chat/completions')throw Error(`Unexpected fixture request ${req.method} ${req.url}`);
     let raw='';for await(const b of req)raw+=b;requests.push(JSON.parse(raw));

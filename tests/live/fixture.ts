@@ -8,6 +8,12 @@ import {createHash} from 'node:crypto';
 export const hash=(s:string|Uint8Array)=>createHash('sha256').update(s).digest('hex');
 export const pause=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 export async function until(fn:()=>unknown,ms=5000){const end=Date.now()+ms;while(!await fn()){if(Date.now()>end)throw Error('Timed out');await pause(10);}}
+/** A root availability probe is not a model request. Refuse it without parsing
+ * a JSON body, changing the response plan or masking malformed completion POSTs. */
+export function rejectRootProbe(req:http.IncomingMessage,res:http.ServerResponse){
+  if(req.url!=='/'||!['GET','HEAD'].includes(req.method??''))return false;
+  res.writeHead(404,{'Content-Type':'text/plain','Cache-Control':'no-store'});res.end();return true;
+}
 export async function fakeKernel(){
   const root=await mkdtemp(path.join(os.tmpdir(),'glimmer-pi-test-'));
   const names=['calm','joyful','sad','afraid','angry','desperate','compassionate'];
@@ -25,6 +31,7 @@ export async function fakeKernel(){
   const server=http.createServer(async(req,res)=>{
     pending++;let bodyBytes=0;
     try{
+    if(rejectRootProbe(req,res))return;
     if(req.url==='/health'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ready:true,model:'fake',engine:'fake',spec:true,readout:{supported:true,assets:assets.map(a=>a.id)}}));return;}
     if(req.url==='/v1/kvstore/stats'){cacheRequests++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({prepares:7,prompt_tokens:100,reused_tokens:75,restores_ram:4,restores_nvme:1,forks:2,ram_bytes:1024,nvme_bytes:2048,ram_evictions:0,nvme_evictions:0}));return;}
     if(req.method!=='POST'||req.url!=='/v1/chat/completions')throw Error(`Unexpected fixture request ${req.method} ${req.url}`);

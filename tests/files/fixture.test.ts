@@ -5,6 +5,17 @@ import {rm} from 'node:fs/promises';
 import {fileKernel} from './fixture.ts';
 import {until} from '../live/fixture.ts';
 
+test('root probes do not consume the file tool response plan',async()=>{
+  const f=await fileKernel();
+  try{
+    f.plan([{name:'ls',args:{path:'.'}}]);
+    for(const method of ['GET','HEAD'])assert.equal((await fetch(f.base,{method})).status,404);
+    assert.equal(f.requests.length,0);assert.deepEqual(f.errors,[]);
+    const response=await fetch(f.base+'/v1/chat/completions',{method:'POST',body:'{}'});
+    assert.equal(response.status,200);assert.match(await response.text(),/"name":"ls"/);assert.equal(f.requests.length,1);
+  }finally{await f.close();await rm(f.root,{recursive:true,force:true});}
+});
+
 test('file fixture joins a deliberately interrupted request body during teardown',async()=>{
   const f=await fileKernel();let request:ReturnType<typeof http.request>|undefined;
   try{

@@ -4,6 +4,14 @@ import http from 'node:http';
 import {rm} from 'node:fs/promises';
 import {fakeKernel,until} from './fixture.ts';
 
+test('GET and HEAD root probes are refused without a synthetic model request',async()=>{
+  const f=await fakeKernel();
+  try{
+    for(const method of ['GET','HEAD'])assert.equal((await fetch(f.base,{method})).status,404);
+    assert.equal(f.requests.length,0);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();await rm(f.root,{recursive:true,force:true});}
+});
+
 test('fake kernel joins a deliberately interrupted request body during teardown',async()=>{
   const f=await fakeKernel();let request:ReturnType<typeof http.request>|undefined;
   try{
