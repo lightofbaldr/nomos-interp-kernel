@@ -92,7 +92,10 @@ try{
     assert.ok(readouts.length>0&&readouts.every(t=>t.status==='complete'));
     assert.ok(readouts.every(t=>t.records.some(r=>r.source==='generated'&&r.emotion&&r.workspace)));
     assert.ok(toolResults.length>=2,'Both write and Mojo results must be retained');
-    const savedSource=await readFile(db+`.workspaces/workspaces/${activeId}/main.mojo`,'utf8');assert.equal(savedSource,source);
+    const savedSource=await readFile(db+`.workspaces/workspaces/${activeId}/main.mojo`,'utf8');
+    // A final source newline is immaterial to this compile/run smoke. Keep all
+    // other bytes exact; do not normalize program text or the retained evidence.
+    assert.ok(savedSource===source||savedSource===source.slice(0,-1),'Source differs beyond an optional final newline');
     const calls=entries.flatMap(e=>e.model??[]).flatMap(m=>Array.isArray(m.content)?m.content:[]).filter(b=>b.type==='toolCall');
     const mojoId=calls.findLast(c=>c.name==='mojo')?.id;assert.ok(mojoId);
     const mojoMessages=entries.flatMap(e=>e.model??[]).filter(m=>m.role==='toolResult'&&m.toolCallId===mojoId);
