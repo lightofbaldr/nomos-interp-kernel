@@ -5,6 +5,7 @@
   import {emotionDirections} from '$lib/pi/assets';
   import AlertControls from './AlertControls.svelte';
   import AgentProfile from './AgentProfile.svelte';
+  import GenerationControls from './GenerationControls.svelte';
   import {untrack} from 'svelte';
   let {live,initialTab='signals'}:{live:LiveState;initialTab?:string}=$props();
   let tab=$state(untrack(()=>initialTab)),emotionLayer=$state(29),workspaceLayer=$state(44),workspace=$state(false);
@@ -61,6 +62,7 @@
       </section>
     </Tabs.Content>
     <Tabs.Content value="control">
+      <GenerationControls {live}/>
       <section><div class="title"><h3>Next request</h3><span>v{pi.settings?.version??'—'}</span></div>
         <p>Apply saves a versioned Pi setting. It does not alter a request already running. Inspect the turn header for what actually ran.</p>
         <p data-testid="readout-setting">{!pi.settings?'Loading saved settings…':!pi.settings.readout.enabled?'Saved: readouts off.':`Saved: emotion L${pi.settings.readout.emotion?.layers.join(', L')}; workspace ${pi.settings.readout.workspace?`L${pi.settings.readout.workspace.layers.join(', L')}, top-${pi.settings.readout.workspace.k}`:'off'}.`} The form edits one capture layer at a time.</p>

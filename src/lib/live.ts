@@ -6,6 +6,7 @@ export type LiveState={health:Health|null;stats:KVStats|null;statsAt:string|null
   selection?:{request:string;pos:number};emotionLayer?:number;
   select?:(selection?:{request:string;pos:number})=>void;selectLayer?:(layer:number)=>void;
   command?:(action:'readout'|'steer',value:unknown)=>Promise<void>;
+  controlPending?:boolean;setSampling?:(value:boolean)=>Promise<void>;reconnect?:()=>Promise<void>;
   openConversation?:(id:string)=>Promise<void>;
   alertRules?:import('./pi/alerts').AlertRules;alerts?:import('./pi/alerts').AlertResult;
   setAlertRules?:(rules:import('./pi/alerts').AlertRules)=>void;metaAvailable?:boolean;
