@@ -21,6 +21,14 @@ test('file changes distinguish absent, empty, removed and unchanged',()=>{
   const r=harnessChanges([file('a',''),file('b','1'),file('c','')],[file('a',''),file('b','2'),file('d','')]);
   assert.deepEqual(r.map(f=>f.kind),['unchanged','changed','removed','added']);assert.equal(r[2].improved,null);assert.equal(r[3].improved?.text,'');
 });
+test('only the four executor-excluded README stubs are marked as improver scaffold',()=>{
+  const stubs=['skills/README.md','scripts/README.md','extensions/README.md','sub_agents/README.md'];
+  const loaded=['systemprompt.md','skills/mojo-verify/SKILL.md','skills/mojo-verify/scripts/check_mojo.py','skills/mojo-simd/SKILL.md','extensions/mojo-verify-note.ts'];
+  const files=[...stubs,...loaded,'skills/mojo-verify/README.md'].map(path=>({path,text:'fixture',sha256:sha256('fixture')}));
+  const changes=harnessChanges([],files);
+  assert.deepEqual(changes.filter(f=>f.scaffold).map(f=>f.path).sort(),stubs.sort());
+  assert.ok(changes.filter(f=>!stubs.includes(f.path)).every(f=>f.scaffold===false));
+});
 test('all identity links refuse inconsistencies even with updated file pins',async t=>{
   const cases:[string,string,(x:any)=>void][]=[
     ['duplicate task','split-run2.json',x=>x.test[1]=x.test[0]],

@@ -6,7 +6,10 @@ No optimization, inference, compilation, model call or tool execution takes
 place when it opens. It does not attach to Pi, even if a `conversation` query
 parameter is supplied; navigating here detaches a mounted client bridge without
 aborting its server-side work. The production session database is not opened by
-this view. Normal navigation back to chat/editor still works as before.
+this view. If opened directly, it defers the first history fetch until leaving
+the recorded route, including for System or Global Workspace, which need not
+mount LiveChat. Empty history or a failed fetch does not cause a request loop.
+Normal navigation back to chat/editor still works as before.
 
 ## What to show
 
@@ -33,6 +36,12 @@ this view. Normal navigation back to chat/editor still works as before.
    source shown is the final submission, not a reconstruction at the selected
    event. Reminder text injected by the historical harness remains in tool
    outputs. Assistant reasoning and the final answer are separately inspectable.
+   The count is **4 added · 2 changed · 3 unchanged, plus 4 scaffold notes**.
+   The `skills/README.md`, `scripts/README.md`, `extensions/README.md` and
+   `sub_agents/README.md` stubs
+   remain inspectable, but are labelled **improver scaffold, not loaded by
+   Glimmer**. The executor excludes these four from its harness identity and
+   never copies them into `/work`; they are not four additional executor changes.
 
 ## Scope and claims
 
@@ -100,8 +109,14 @@ cover fixture negatives, the real input recount, check/build, browser isolation
 and existing-feature regressions. Browser tests use temporary databases and a
 fake kernel solely to test navigation from an attached conversation. They never
 contact :8091, :8092 or :8093. Real artifact tests are read-only.
+The browser gate also runs `scripts/workbench-recorded-followups-browser.mjs`:
+all four scaffold annotations, direct recorded-to-System/Workspace history,
+no repeat initial fetch and a visible failure without a request loop. History
+and System responses in those cases are browser fixtures, with no Pi attachment.
 
 Screenshots and local evidence go to `preview/checks/workbench-recorded-*`;
 completion evidence is in `.unlazy/workbench-recorded/GATES.md`. Neither is
-committed. Review and merge are separate from deployment; this branch does not
-restart `glimmer-lab-live`.
+committed. Review follow-up RED/GREEN logs use `preview/checks/workbench-followups-*`,
+with the scaffold screenshot at `preview/checks/workbench-scaffold-notes.png`.
+Review and merge are separate from deployment; this branch does not restart
+`glimmer-lab-live`.

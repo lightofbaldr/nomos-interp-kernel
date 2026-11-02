@@ -19,5 +19,10 @@ assert.equal(checks.length,4);assert.ok(checks.every(x=>x.isError));assert.match
 assert.equal(r.base.events.filter(e=>e.name==='bash'&&/(?:^|\s)mojo\s+(?:run|build)|check_mojo\.py/.test(String(e.args.command))).length,0);
 assert.equal(r.base.grade.compile.returncode,1);assert.equal(r.base.grade.run,null);assert.equal(r.improved.grade.compile.returncode,0);assert.equal(r.improved.grade.run.returncode,0);assert.equal(r.improved.grade.run.stdout,'ok\n');
 assert.equal(r.tasks.filter(t=>!t.base.passed&&t.improved.passed).length,7);assert.equal(r.tasks.filter(t=>t.base.passed&&!t.improved.passed).length,0);
-console.log(JSON.stringify({inputs:Object.keys(r.inputs).length,results:r.results,tools:[6,15],selfCheck:'compiled; no code ran',grader:'separate PASS'}));
+assert.deepEqual(r.changes.filter(f=>f.scaffold).map(f=>f.path),['extensions/README.md','scripts/README.md','skills/README.md','sub_agents/README.md']);
+const loaded=r.changes.filter(f=>!f.scaffold);
+assert.deepEqual(loaded.filter(f=>f.kind==='added').map(f=>f.path),['extensions/mojo-verify-note.ts','skills/mojo-simd/SKILL.md','skills/mojo-verify/SKILL.md','skills/mojo-verify/scripts/check_mojo.py']);
+const changes=Object.fromEntries(['added','changed','unchanged','removed'].map(kind=>[kind,loaded.filter(f=>f.kind===kind).length]));
+assert.deepEqual(changes,{added:4,changed:2,unchanged:3,removed:0});
+console.log(JSON.stringify({inputs:Object.keys(r.inputs).length,results:r.results,tools:[6,15],selfCheck:'compiled; no code ran',grader:'separate PASS',changes,scaffoldNotes:4}));
 console.log('RECORDED WORKBENCH ASSETS VERIFIED');

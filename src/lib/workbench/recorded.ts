@@ -24,14 +24,20 @@ export type RecordedComparison = {
   base:RecordedArm; improved:RecordedArm;
   tasks:{id:string; base:RecordedTaskResult; improved:RecordedTaskResult}[];
   results:{base:number; improved:number; total:number};
-  changes:{path:string; kind:'added'|'removed'|'changed'|'unchanged'; base:RecordedFile|null; improved:RecordedFile|null}[];
+  changes:{path:string; kind:'added'|'removed'|'changed'|'unchanged'; scaffold:boolean; base:RecordedFile|null; improved:RecordedFile|null}[];
   inputs:Record<string,string>;
 };
+
+// These exact improver-facing stubs are excluded by the historical executor's
+// harness identity and are not copied into Glimmer's workspace. Other README
+// paths are not automatically scaffolding.
+const IMPROVER_SCAFFOLD=new Set(['scripts/README.md','sub_agents/README.md','extensions/README.md','skills/README.md']);
+export const isImproverScaffold=(path:string)=>IMPROVER_SCAFFOLD.has(path);
 
 /** Exact file-level change classification. Full before/after text is displayed, not a generated summary. */
 export function harnessChanges(base:RecordedFile[],improved:RecordedFile[]):RecordedComparison['changes']{
   const a=new Map(base.map(f=>[f.path,f])),b=new Map(improved.map(f=>[f.path,f]));
-  return [...new Set([...a.keys(),...b.keys()])].sort().map(path=>({path,
+  return [...new Set([...a.keys(),...b.keys()])].sort().map(path=>({path,scaffold:isImproverScaffold(path),
     kind:!a.has(path)?'added':!b.has(path)?'removed':a.get(path)!.sha256===b.get(path)!.sha256?'unchanged':'changed',
     base:a.get(path)??null,improved:b.get(path)??null}));
 }

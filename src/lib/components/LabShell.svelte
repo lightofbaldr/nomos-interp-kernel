@@ -14,6 +14,7 @@
   let {children}:{children:Snippet}=$props();
   let live=$state.raw<LiveState>(emptyLiveState()),history=$state<{id:string;title?:string;busy:boolean}[]>([]);
   let controls=$state(false),navigation=$state(false),mounted=$state(false),historyError=$state('');
+  let historyAttempted=$state(false);
   const path=$derived(page.url.pathname),isChat=$derived(path==='/');
   const isRecordedHarness=$derived(path==='/workbench/recorded');
   const requested=$derived(page.url.searchParams.get('conversation')??'');
@@ -32,18 +33,27 @@
     if(!create){createRequested=true;activate=true;}
     await goto('/');if(create){await create();if(live.conversation)await goto(`/?conversation=${live.conversation}`,{replaceState:true});}navigation=false;
   }
-  onMount(()=>{
-    mounted=true;
-    const refresh=async()=>{if(isRecordedHarness)return;try{
+  async function refreshHistory(){
+    if(isRecordedHarness)return;
+    // Claim the initial read synchronously, before awaiting it. Empty history
+    // and failed reads must not cause a reactive fetch loop.
+    historyAttempted=true;
+    try{
       const r=await fetch('/api/pi?history=1'),d=await r.json();
       if(!r.ok||!d.conversations)throw Error(d.error??'History unavailable.');
       history=d.conversations;historyError='';
       if(requested&&!history.some(c=>c.id===requested)){const url=new URL(page.url);url.searchParams.delete('conversation');url.searchParams.delete('turn');await goto(url.pathname+url.search,{replaceState:true});}
-    }catch(e){historyError=e instanceof Error?e.message:'History unavailable.';}};
-    const storage=(e:StorageEvent)=>{if(e.key==='glimmer.pi.purge')void refresh();};
-    window.addEventListener('glimmer-data-purged',refresh);window.addEventListener('storage',storage);void refresh();
-    return()=>{window.removeEventListener('glimmer-data-purged',refresh);window.removeEventListener('storage',storage);};
+    }catch(e){historyError=e instanceof Error?e.message:'History unavailable.';}
+  }
+  onMount(()=>{
+    mounted=true;
+    const storage=(e:StorageEvent)=>{if(e.key==='glimmer.pi.purge')void refreshHistory();};
+    window.addEventListener('glimmer-data-purged',refreshHistory);window.addEventListener('storage',storage);
+    return()=>{window.removeEventListener('glimmer-data-purged',refreshHistory);window.removeEventListener('storage',storage);};
   });
+  // A direct recorded-page entry deliberately skips history. Read it once on
+  // departure, including destinations that never mount LiveChat.
+  $effect(()=>{if(mounted&&!isRecordedHarness&&!historyAttempted)void refreshHistory();});
   $effect(()=>{if(mounted&&!isRecordedHarness&&(isChat||requested||['/workbench','/statistics','/interpreter'].includes(path)))activate=true;});
 </script>
 

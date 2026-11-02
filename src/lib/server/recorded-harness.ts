@@ -1,6 +1,6 @@
 import {pinnedBytes,sha256} from './pinned-recording.ts';
 import {recordedHarnessConfig} from './recorded-harness-config.ts';
-import {harnessChanges,type RecordedArm,type RecordedCommand,type RecordedComparison,type RecordedEvent,type RecordedFile,type RecordedGrade,type RecordedTaskResult} from '../workbench/recorded.ts';
+import {harnessChanges,isImproverScaffold,type RecordedArm,type RecordedCommand,type RecordedComparison,type RecordedEvent,type RecordedFile,type RecordedGrade,type RecordedTaskResult} from '../workbench/recorded.ts';
 
 type Config={root:string;task:string;base:{id:string;directory:string;sha256:string};improved:{id:string;directory:string;sha256:string};pins:Record<string,string>};
 type Obj=Record<string,any>;
@@ -18,14 +18,13 @@ function equal(a:unknown,b:unknown,why:string){requireThat(canonical(a)===canoni
 function textContent(content:unknown,kind='text'):string{
   return arr(content).filter(p=>obj(p).type===kind).map(p=>str(p[kind])).join('\n');
 }
-const STUBS=new Set(['scripts/README.md','sub_agents/README.md','extensions/README.md','skills/README.md']);
 const ALWAYS=new Set(['systemprompt.md','guardrails.md','LongTermMEMORY.md','tool_descriptions/tool_guidance.md']);
 function surface(file:string){return ALWAYS.has(file)||/^skills\/[a-z0-9_-]+\/SKILL\.md$/.test(file)||/^skills\/[a-z0-9_-]+\/scripts\/[A-Za-z0-9_.-]+$/.test(file)||/^extensions\/[a-z0-9_-]+\.ts$/.test(file)||/^scripts\/[a-z0-9_]+\.py$/.test(file)||/^sub_agents\/[a-z0-9_-]+\/AGENT\.md$/.test(file);}
 /** Python json.dumps(tree, sort_keys=True), the recorded executor's harness identity.
  * Its read_tree normalizes text newlines and excludes four README stubs. */
 export function harnessDigest(files:RecordedFile[]):string{
   const quote=(s:string)=>JSON.stringify(s).replace(/[\u007f-\uffff]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
-  const entries=files.filter(f=>!STUBS.has(f.path)&&surface(f.path)).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
+  const entries=files.filter(f=>!isImproverScaffold(f.path)&&surface(f.path)).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
   return sha256('{'+entries.map(f=>`${quote(f.path)}: ${quote(f.text.replace(/\r\n?/g,'\n'))}`).join(', ')+'}');
 }
 function command(x:unknown):RecordedCommand{
@@ -135,7 +134,7 @@ export async function loadRecordedHarness(cfg:Config=recordedHarnessConfig):Prom
     requireThat(result.model_calls===trace.modelCalls&&usage.turns===trace.modelCalls&&usage.tool_calls===trace.events.length,'trace counts');
     const limit=integer(launch.max_model_calls);requireThat(limit>=trace.modelCalls,'call limit');if(which)requireThat(limit===maxModelCalls,'same call limit');else maxModelCalls=limit;
     const files:RecordedFile[]=[...bytes].filter(([f])=>f.startsWith(arm.directory+'/')).map(([f,b])=>({path:f.slice(arm.directory.length+1),text:b.toString('utf8'),sha256:sha256(b)}));
-    requireThat(files.length>0&&files.every(f=>STUBS.has(f.path)||surface(f.path)),'harness surface');
+    requireThat(files.length>0&&files.every(f=>isImproverScaffold(f.path)||surface(f.path)),'harness surface');
     requireThat(harnessDigest(files)===arm.sha256,'full harness identity');
     arms.push({label:which?'Improved':'Base',harnessSha256:arm.sha256,directory:arm.directory,launchSha256:cfg.pins[prefix+'launch.json'],traceSha256:cfg.pins[prefix+'pi.jsonl'],completionSha256:cfg.pins[prefix+'complete.json'],gradeSha256:cfg.pins[prefix+'mojo-grade.json'],...trace,prompt,seconds:number(result.seconds),source:code.toString('utf8'),sourceSha256:sha256(code),grade:g,files});
     evaluations.push(evaluation);

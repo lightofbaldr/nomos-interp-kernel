@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
 import {mkdtemp,rm,readFile,writeFile,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -46,11 +47,11 @@ try{
   await improved.getByRole('button',{name:'Last self-check',exact:true}).click();await page.locator('.comparison-grid').scrollIntoViewIfNeeded();
   await page.screenshot({path:root+'preview/checks/workbench-recorded-grader.png'});
   for(const file of data.changes){
-    await page.getByLabel('Harness file',{exact:true}).selectOption(file.path);
+    await page.getByLabel('Frozen file',{exact:true}).selectOption(file.path);
     if(file.improved)assert.equal(await page.getByLabel('improved harness file',{exact:true}).textContent(),file.improved.text||'(Empty file)');
     else assert.equal(await page.getByLabel('improved harness file',{exact:true}).count(),0);
   }
-  await page.getByLabel('Harness file',{exact:true}).selectOption('skills/mojo-verify/SKILL.md');
+  await page.getByLabel('Frozen file',{exact:true}).selectOption('skills/mojo-verify/SKILL.md');
   assert.ok(!h.requests.some(u=>/^\/api\/(pi|nomos|meta|system)/.test(new URL(u).pathname)),'Direct recorded view must not attach Pi or probe the model');
   assert.ok(methods.every(([m])=>m==='GET'),'Recorded view emits no writes');
   await assert.rejects(stat(temp+'/unused.sqlite'),'A recorded view must not create a session database');
@@ -81,7 +82,9 @@ try{
   await page.getByRole('link',{name:'View recorded Base | Improved | Changes →',exact:true}).click();await page.getByRole('article',{name:'Improved recorded rollout'}).waitFor();await pause(800);
   assert.equal(await page.locator('.live-conversation').count(),0);assert.ok(!h.requests.some(u=>new URL(u).pathname.startsWith('/api/pi')));assert.deepEqual(await history(),saved);assert.equal(fake.requests.length,0);
   assert.deepEqual(h.errors,[]);assert.deepEqual(h.external,[]);
-  await writeFile(root+'preview/checks/workbench-recorded-browser.json',JSON.stringify({pass:true,realModelCalls:0,recordedTools:[6,15],tasks:10,noSessionCreated:true,spaDetach:true,desktop:[1440,900],mobile:[390,844]},null,2));
-  console.log('RECORDED WORKBENCH BROWSER VERIFIED');
 }catch(e){if(page&&!page.isClosed()){console.error((await page.locator('body').innerText()).slice(-7000));await page.screenshot({path:root+'preview/checks/workbench-recorded-failure.png'});}throw e;}
 finally{await h?.close();if(fake){await fake.close();await rm(fake.root,{recursive:true,force:true});}await rm(temp,{recursive:true,force:true});}
+const followups=spawnSync(process.execPath,['--test','scripts/workbench-recorded-followups-browser.mjs'],{cwd:root,stdio:'inherit'});
+assert.equal(followups.status,0,'Recorded-view scaffold and deferred-history regressions');
+await writeFile(root+'preview/checks/workbench-recorded-browser.json',JSON.stringify({pass:true,realModelCalls:0,recordedTools:[6,15],tasks:10,noSessionCreated:true,spaDetach:true,scaffoldNotes:4,deferredHistory:true,desktop:[1440,900],mobile:[390,844]},null,2));
+console.log('RECORDED WORKBENCH BROWSER VERIFIED');
