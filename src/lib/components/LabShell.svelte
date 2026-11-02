@@ -15,6 +15,7 @@
   let live=$state.raw<LiveState>(emptyLiveState()),history=$state<{id:string;title?:string;busy:boolean}[]>([]);
   let controls=$state(false),navigation=$state(false),mounted=$state(false),historyError=$state('');
   const path=$derived(page.url.pathname),isChat=$derived(path==='/');
+  const isRecordedHarness=$derived(path==='/workbench/recorded');
   const requested=$derived(page.url.searchParams.get('conversation')??'');
   let activate=$state(false);
   const title=$derived(live.conversations?.find(c=>c.id===live.conversation)?.title??'New conversation');
@@ -33,7 +34,7 @@
   }
   onMount(()=>{
     mounted=true;
-    const refresh=async()=>{try{
+    const refresh=async()=>{if(isRecordedHarness)return;try{
       const r=await fetch('/api/pi?history=1'),d=await r.json();
       if(!r.ok||!d.conversations)throw Error(d.error??'History unavailable.');
       history=d.conversations;historyError='';
@@ -43,30 +44,30 @@
     window.addEventListener('glimmer-data-purged',refresh);window.addEventListener('storage',storage);void refresh();
     return()=>{window.removeEventListener('glimmer-data-purged',refresh);window.removeEventListener('storage',storage);};
   });
-  $effect(()=>{if(mounted&&(isChat||requested||['/workbench','/statistics','/interpreter'].includes(path)))activate=true;});
+  $effect(()=>{if(mounted&&!isRecordedHarness&&(isChat||requested||['/workbench','/statistics','/interpreter'].includes(path)))activate=true;});
 </script>
 
 {#snippet sidebar()}
   <a class="lab-brand" href="/" aria-label="Glimmer Lab home"><CircleNotch size={29}/><span>glimmer<span>LAB</span></span></a>
   <button class="lab-new" onclick={newChat}><Plus size={17}/>New conversation</button>
-  <nav aria-label="Lab pages">{#each links as l}<a href={link(l.href)} aria-current={path===l.href?'page':undefined} onclick={()=>navigation=false}><l.icon size={19}/>{l.name}</a>{/each}</nav>
+  <nav aria-label="Lab pages">{#each links as l}<a href={link(l.href)} aria-current={path===l.href||(isRecordedHarness&&l.href==='/workbench')?'page':undefined} onclick={()=>navigation=false}><l.icon size={19}/>{l.name}</a>{/each}</nav>
   <div class="lab-history"><h2>Conversations <span>{history.length||''}</span></h2>
     {#if historyError}<p role="status">{historyError}</p>{/if}
     {#each history as c}<a class:chosen={c.id===live.conversation} href={`/?conversation=${c.id}`} title={c.title??`Conversation ${c.id}`} onclick={()=>navigation=false}><ChatCircle size={15}/><span>{c.title??`Conversation ${c.id}`}</span>{#if c.busy}<i aria-label="Generating"></i>{/if}</a>{/each}
-    {#if !history.length&&!historyError}<p>Your conversations appear here when you start chatting. They stay saved after a reload.</p>{/if}
+    {#if !history.length&&!historyError}<p>{isRecordedHarness?'History is not loaded in this read-only view.':'Your conversations appear here when you start chatting. They stay saved after a reload.'}</p>{/if}
   </div>
-  <div class="lab-sidebar-bottom"><ConversationData conversations={history} current={live.conversation} busy={live.busy}/><a href="/workspace?recording=sietti-base"><Archive size={17}/>Recorded examples</a><a href="/steering-diff"><ArrowsSplit size={17}/>Steering diff</a><div class="lab-local"><span class:ready={live.health?.ready}></span>{live.health?.ready?'Glimmer connected':'Local workspace'}<small>Private · Nomos / Pi</small></div></div>
+  <div class="lab-sidebar-bottom">{#if !isRecordedHarness}<ConversationData conversations={history} current={live.conversation} busy={live.busy}/>{/if}<a href="/workbench/recorded"><Archive size={17}/>Recorded harness</a><a href="/workspace?recording=sietti-base"><Archive size={17}/>Recorded examples</a><a href="/steering-diff"><ArrowsSplit size={17}/>Steering diff</a><div class="lab-local"><span class:ready={!isRecordedHarness&&live.health?.ready}></span>{isRecordedHarness?'Read-only recording':live.health?.ready?'Glimmer connected':'Local workspace'}<small>Private · Nomos / Pi</small></div></div>
 {/snippet}
 
 <a href="#lab-content" class="skip-link">Skip to content</a>
 <div class="video-shell">
   <aside class="lab-sidebar" aria-label="Conversations and navigation">{@render sidebar()}</aside>
   <div class="lab-body">
-    <div class="lab-topline"><button class="icon-button lab-menu" onclick={()=>navigation=true} aria-label="Open navigation"><SidebarSimple size={22}/></button><span>Glimmer Lab <span class="lab-slash">/</span> {links.find(l=>l.href===path)?.name??'Workspace'}</span><span class="lab-top-meta">Weights unchanged. A closer look inside.</span></div>
+    <div class="lab-topline"><button class="icon-button lab-menu" onclick={()=>navigation=true} aria-label="Open navigation"><SidebarSimple size={22}/></button><span>Glimmer Lab <span class="lab-slash">/</span> {isRecordedHarness?'Recorded harness comparison':links.find(l=>l.href===path)?.name??'Workspace'}</span><span class="lab-top-meta">{isRecordedHarness?'Recorded run · No live generation':'Weights unchanged. A closer look inside.'}</span></div>
     {#if isChat}<header class="lab-page-heading chat-heading"><div><span class="lab-eyebrow">CONVERSATION</span><h1>{title}</h1><p>Talk to Glimmer. Inspect the signals behind any saved turn.</p></div><button class="lab-button" onclick={()=>controls=true}><SlidersHorizontal size={17}/>Steering &amp; readouts</button></header>{/if}
     <main id="lab-content" class="lab-content" tabindex="-1">
       <div class="lab-chat chat-main" hidden={!isChat}>
-        {#if activate}<LiveChat compact startNew={createRequested} requestedConversation={requested} onState={update}/>{:else}<p class="lab-empty">Opening your local workspace…</p>{/if}
+        {#if activate&&!isRecordedHarness}<LiveChat compact startNew={createRequested} requestedConversation={requested} onState={update}/>{:else}<p class="lab-empty">Opening your local workspace…</p>{/if}
         <div class="lab-live-strip"><LiveDock {live}/><a href={link('/workspace')}>Open Global Workspace <ArrowRight size={15}/></a></div>
       </div>
       {@render children()}

@@ -12,6 +12,9 @@ The [harness workbench](docs/HARNESS-WORKBENCH.md) adds per-conversation
 instructions, inline skills, a text-only Harness² import and recorded profile
 attribution. Optional file tools and a fixed-argument Mojo build/run tool run
 only in checked, resource-limited Linux sandboxes. No shell tool is exposed.
+The [recorded Harness² comparison](docs/WORKBENCH-RECORDED.md) shows one pinned
+Base | Improved | Changes pair, saved tool exchanges, actual grader results and
+the ten-task context. It never attaches a live conversation or executes a tool.
 
 The [video workspace checkpoint](docs/VIDEO-WORKSPACE.md) separates minimal chat,
 saved conversation history, the token-by-token Global Workspace and the harness
@@ -98,6 +101,11 @@ node scripts/workspace-browser.mjs --recorded # requires the pinned local captur
 node scripts/step2-tests.mjs      # synthetic pinned-input and marker controls
 node scripts/step2-assets.mjs     # reconcile all 48 external recordings, read-only
 node scripts/step2-browser.mjs    # saved-data browser; build first, no model call
+node scripts/workbench-recorded-tests.mjs  # synthetic identities and trace controls
+node scripts/workbench-recorded-assets.mjs # pinned Run 2 artifacts, read-only
+node scripts/workbench-recorded-build.mjs  # zero-warning check and current build
+node scripts/workbench-recorded-browser.mjs # saved evidence + fake-kernel navigation
+node scripts/workbench-recorded-regression.mjs # profile, workspace, origin, purge
 npm run test:kernel                # explicit GPU client test against existing :8091
 ```
 

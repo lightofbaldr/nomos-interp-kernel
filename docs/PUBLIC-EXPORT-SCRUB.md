@@ -60,3 +60,10 @@ setup texts, labels, marker anchors and evidence JSON in runtime responses and
 screenshots before export. These are external capture data, not committed assets.
 The private capture root is `~/nomos_data/sysprompt-study-20261101`; the tokenizer
 is `~/nomos_data/muse-glimmer-tokenizer`. Neither requires a public default.
+
+The recorded Harness² view adds private run paths, task IDs and evidence pins in
+`src/lib/server/recorded-harness-config.ts`, its real-asset tests and
+`docs/WORKBENCH-RECORDED.md`. Runtime payloads contain full recorded tool outputs,
+assistant text, submitted source and historical harness files. Review those and
+the screenshots separately before any public export. They are intentionally not
+committed; the page's read-only label is not an authorization to publish them.
