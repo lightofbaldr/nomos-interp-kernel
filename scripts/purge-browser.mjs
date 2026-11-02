@@ -13,12 +13,15 @@ try{
   const history=async()=>{const r=await fetch(h.base+'/api/pi?history=1',{headers:{Origin:h.base}});assert.equal(r.status,200);return(await r.json()).conversations;};
   const manage=()=>page.getByRole('button',{name:'Manage conversation data',exact:true});
   const dialog=()=>page.getByRole('dialog',{name:'Conversation data',exact:true});
-  await page.goto(h.base+'/');await until(async()=>await page.locator('.replay-meta').innerText()==='Durable Pi session');
+  // The session status moved into Controls. The composer becomes editable only
+  // after this page's Pi bridge is connected and the provider is ready.
+  const connected=p=>until(async()=>await p.getByLabel('Message Muse',{exact:true}).isEnabled());
+  await page.goto(h.base+'/');await connected(page);
   await page.getByLabel('Message Muse',{exact:true}).fill('Conversation to delete');await page.getByRole('button',{name:'Send message',exact:true}).click();
   await page.getByText('Hello from Pi.',{exact:true}).waitFor();const first=(await history())[0].id;await waitForProfileSettled(h.base,first);
   await page.getByRole('button',{name:'New conversation',exact:true}).click();await until(async()=>(await history()).length===2);
   const keep=(await history())[0].id;await waitForProfileSettled(h.base,keep);
-  await until(async()=>new URL(page.url()).searchParams.get('conversation')===keep&&await page.locator('.replay-meta').innerText()==='Durable Pi session');
+  await until(async()=>new URL(page.url()).searchParams.get('conversation')===keep);await connected(page);
   await page.getByLabel('Message Muse',{exact:true}).fill('Keep this conversation');await page.getByRole('button',{name:'Send message',exact:true}).click();await page.getByText('Hello from Pi.',{exact:true}).waitFor();await waitForProfileSettled(h.base,keep);
   const peer=await context.newPage();h.observe(peer);await peer.goto(h.base+'/?conversation='+first);await peer.getByText('Conversation to delete',{exact:true}).last().waitFor();
   // A different browser context has no storage events; its old SSE bridge still clears/reconnects.
@@ -32,11 +35,11 @@ try{
   await page.screenshot({path:root+'preview/checks/purge-selected-desktop.png'});
   await permanent.click();await dialog().waitFor({state:'hidden'});await until(async()=>(await history()).length===1);
   await until(async()=>(await peer.locator('.live-user').count())===0&&(await independent.locator('.live-user').count())===0);
-  await until(async()=>await page.locator('.replay-meta').innerText()==='Durable Pi session');
+  await connected(page);
   assert.match(await page.locator('.live-user').innerText(),/Keep this conversation/);
   assert.doesNotMatch(await peer.locator('body').innerText(),/Conversation to delete/);
   assert.doesNotMatch(await independent.locator('body').innerText(),/Conversation to delete/);
-  await peer.reload();await until(async()=>await peer.locator('.replay-meta').innerText()==='Durable Pi session');
+  await peer.reload();await connected(peer);
   assert.match(await peer.locator('.live-user').innerText(),/Keep this conversation/);
   // Same-origin and exact-body protection are server checks, not UI-only confirmation.
   assert.equal((await post('/api/pi/data',{action:'preview',target:{scope:'all'}},'http://evil.example')).status,403);
@@ -67,7 +70,7 @@ try{
   await page.getByRole('dialog',{name:'Lab navigation',exact:true}).waitFor({state:'hidden'});
   await page.setViewportSize({width:1440,height:900});
   await page.getByRole('button',{name:'Start a conversation',exact:true}).click();await until(async()=>(await history()).length===1);
-  await until(async()=>await page.locator('.replay-meta').innerText()==='Durable Pi session');assert.ok(Number((await history())[0].id)>Number(keep));
+  await connected(page);assert.ok(Number((await history())[0].id)>Number(keep));
   assert.equal(f.requests.length,3,'purge and reload never submit model requests');
   assert.deepEqual(h.external,[]);
   // Expected 503s while the exclusive maintenance barrier is held are retried
