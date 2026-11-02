@@ -15,8 +15,9 @@
   import {annotationFor} from '$lib/pi/annotation';
   import ProfileDetails from './ProfileDetails.svelte';
   import FileToolCalls from './FileToolCalls.svelte';
+  import AgentMode from './AgentMode.svelte';
   import type {ProfileUsed} from 'glimmer-agent/profile-model';
-  import {cappedReasoningOnly,generationSettings,generationFor,generationLabel,retryTarget,wasRetried,type GenerationUsed} from '$lib/pi/generation';
+  import {cappedReasoningOnly,generationSettings,generationFor,generationLabel,effectiveReplyBudget,retryTarget,wasRetried,type GenerationUsed} from '$lib/pi/generation';
 
   let {onState,compact=false,startNew=false,requestedConversation=''}:{onState:(state:LiveState)=>void;compact?:boolean;startNew?:boolean;requestedConversation?:string}=$props();
   let view=$state.raw<LiveState>(emptyLiveState()),pi=$state.raw(emptyPi()),text=$state(''),error=$state('');
@@ -31,6 +32,7 @@
   let rules=defaultRules(),labelVersion=0,alertKey='',alertRows:unknown[]=[],alerts:AlertResult|undefined;
   const messages=$derived(messagesOf(pi));
   const decoding=$derived(generationSettings(pi.entries));
+  const agentBudget=$derived((pi.entries.findLast(e=>e.kind==='glimmer.agent.changed')?.data as {mode?:string}|undefined)?.mode==='agent');
   const retryId=$derived(retryTarget(pi.entries));
   const partialDecoding=$derived(pi.entries.findLast(e=>e.kind==='glimmer.generation.used')?.data as GenerationUsed|undefined);
   function setAlertRules(next:AlertRules){validRules(next);rules=structuredClone(next);update();}
@@ -154,6 +156,7 @@
   <label>Conversation <select aria-label="Pi conversation" value={conversation} onchange={e=>attach(e.currentTarget.value)} disabled={opening}>{#each sessions as s}<option value={s.id}>Session {s.id}{s.busy?' · generating':''}</option>{/each}</select></label>
   <button class="text-button" onclick={create} disabled={opening}>New session</button><span>{pi.connected?'Pi connected':'Disconnected'}</span>
 </div>{/if}
+<AgentMode live={view} onPending={pending=>{controlPending=pending;update();}} onSettings={settings=>{pi=reducePi(pi,settings);update();}}/>
 <div class="conversation-stage">
   <img class="chat-mascot" src="/img/muse-mascot.webp" alt="" aria-hidden="true" width="1129" height="1393" decoding="async"/>
   <div class="conversation-scroll" id="conversation" tabindex="-1" bind:this={scroll} onscroll={()=>follow=scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop<80}>
@@ -162,7 +165,7 @@
       {#each messages as entry (entry.id)}
         {@const answer=textOf(entry.message)}{@const thinking=textOf(entry.message,'thinking')}
         {@const sourceEntry=pi.entries.find(e=>String(e.id)===entry.id.split(':')[0])}
-        {@const measuredTurn=sourceEntry?.byTaskId?pi.turns.find(t=>t.task===sourceEntry.byTaskId&&t.status==='complete'):undefined}
+        {@const measuredTurn=sourceEntry?.byTaskId?pi.turns.find(t=>t.task===sourceEntry.byTaskId):undefined}
         {@const used=sourceEntry?.byTaskId?pi.entries.filter(e=>e.kind==='glimmer.profile.used').map(e=>e.data as ProfileUsed).findLast(p=>p.task===sourceEntry.byTaskId):undefined}
         {@const decodingUsed=entry.streaming?partialDecoding:generationFor(pi.entries,sourceEntry?.byTaskId,undefined,sourceEntry?.id)}
         {@const retried=sourceEntry?wasRetried(pi.entries,sourceEntry.id):false}
@@ -178,11 +181,15 @@
           {#if !answer&&!(entry.message.role==='assistant'&&entry.message.content.some(b=>b.type==='toolCall'))}<p class="live-reply-status">{entry.streaming?'Waiting for answer text…':retried?'Stopped at the reply limit, retried.':cappedReasoningOnly(entry.message)?'Stopped at the reply limit; no answer text. Reasoning is preserved above.':'No answer text received. Reasoning is preserved above.'}</p>{/if}
           <div class="live-turn-footer">{entry.streaming?'Generating':entry.message.role==='assistant'?`Generation: ${entry.message.stopReason}`:''}</div>
           <div class="decoding-attribution" data-testid="turn-decoding">{generationLabel(decodingUsed)}</div>
+          {#if decodingUsed?.budget}{@const ceiling=effectiveReplyBudget(decodingUsed,measuredTurn)}
+            {#if ceiling?.clamped}<p class="error-message" data-testid="context-cap-warning">Context-limited: derived ceiling {ceiling.effective.toLocaleString()} tokens, below the requested {ceiling.requested.toLocaleString()}. Based on this request’s {ceiling.prompt.toLocaleString()}-token prompt and advertised {ceiling.capacity.toLocaleString()} context; the serve does not return its effective limit.</p>
+            {:else if !ceiling}<div class="decoding-attribution">Effective reply limit unknown; the serve may shorten the requested limit to fit context.</div>{/if}
+          {/if}
           {#if !entry.streaming&&sourceEntry&&sourceEntry.id===retryId}<div class="retry-panel"><button class="text-button" onclick={()=>retry(sourceEntry.id)} disabled={controlPending||pi.busy||!pi.connected||!view.health?.ready}><ArrowClockwise size={14} aria-hidden="true"/>Retry</button><p>Reuses the same question with the saved controls. Greedy may repeat the same result; sampling is optional in Controls.</p></div>{/if}
-          {#if measuredTurn&&!entry.streaming&&compact}<a class="inspect-link" href={`/workspace?conversation=${conversation}&turn=${encodeURIComponent(measuredTurn.request)}`}>Inspect this turn’s workspace →</a>{/if}
+          {#if measuredTurn&&!entry.streaming}<p class="readout-attribution">Readout request {measuredTurn.request.slice(0,8)} · {measuredTurn.status} · {measuredTurn.records.length.toLocaleString()} measured positions</p>{#if compact}<a class="inspect-link" href={`/workspace?conversation=${conversation}&turn=${encodeURIComponent(measuredTurn.request)}`}>Inspect this turn’s workspace →</a>{/if}{/if}
           <details class:turn-details={compact} open={!compact}><summary class:sr-only={!compact}>Turn details &amp; second opinion</summary>
           {#if !entry.streaming}{#if used}<ProfileDetails profile={used.profile} label={`Profile r${used.profile.revision} · inline skills · ${used.profile.content.tools?.length??0} tools`}/>{:else}<small>Profile unrecorded for this historical turn.</small>{/if}{/if}
-          {#if measuredTurn&&!entry.streaming}<MetaAnnotation {conversation} request={measuredTurn.request} turn={measuredTurn.turn} rules={view.alertRules??defaultRules()} available={metaAvailable} saved={annotationFor(pi.entries,measuredTurn.request)}/>{/if}
+          {#if measuredTurn?.status==='complete'&&!entry.streaming}<MetaAnnotation {conversation} request={measuredTurn.request} turn={measuredTurn.turn} rules={view.alertRules??defaultRules()} available={metaAvailable} saved={annotationFor(pi.entries,measuredTurn.request)}/>{/if}
           </details>
         </article>{/if}
       {/each}
@@ -193,13 +200,14 @@
 <section class="composer-section" aria-label="Message composer">
   <PromptInput.Root class="muse-composer" onSubmit={submit} clearOnSubmit={false} maxFiles={0} maxFileSize={0}>
     <PromptInput.Body><label class="sr-only" for="live-message-input">Message Muse</label><PromptInput.Textarea id="live-message-input" bind:ref={textarea} bind:value={text} placeholder="Message Muse…" maxlength={4000} disabled={!pi.connected||!view.health?.ready} aria-describedby="live-composer-helper"/></PromptInput.Body>
-    <PromptInput.Toolbar class="composer-toolbar"><div class="composer-tools"><span>Muse Glimmer</span><span class="composer-thinking">Pi · reasoning on · 6,144-token reply limit</span></div><PromptInput.Submit class="send-button" status={pi.busy?'streaming':'ready'} onStop={stop} disabled={!pi.busy&&(controlPending||!pi.connected||!view.health?.ready||!text.trim())} aria-label={pi.busy?'Stop generating':'Send message'}>{#if pi.busy}<Square size={15} weight="fill" aria-hidden="true"/>{:else}<ArrowUp size={20} weight="bold" aria-hidden="true"/>{/if}</PromptInput.Submit></PromptInput.Toolbar>
+    <PromptInput.Toolbar class="composer-toolbar"><div class="composer-tools"><span>Muse Glimmer</span><span class="composer-thinking">Pi · reasoning on · {agentBudget?'8,192-token request · 20-minute run':'6,144-token reply limit'}</span></div><PromptInput.Submit class="send-button" status={pi.busy?'streaming':'ready'} onStop={stop} disabled={!pi.busy&&(controlPending||!pi.connected||!view.health?.ready||!text.trim())} aria-label={pi.busy?'Stop generating':'Send message'}>{#if pi.busy}<Square size={15} weight="fill" aria-hidden="true"/>{:else}<ArrowUp size={20} weight="bold" aria-hidden="true"/>{/if}</PromptInput.Submit></PromptInput.Toolbar>
   </PromptInput.Root>
   {#each [...new Set([error,view.error,...pi.errors])].filter(Boolean) as message}<p class="error-message" role="alert"><Info size={16} aria-hidden="true"/>{message}</p>{/each}
   <p class="composer-helper" id="live-composer-helper">Saved on this server. Switching chats or closing the page does not stop generation. Stop is explicit.</p>
 </section>
 <style>
   .empty-start{margin-top:20px}
+  .readout-attribution{font:10px/1.6 var(--font-mono);color:var(--color-muted);margin:6px 0}
   .pi-session-bar{display:flex;align-items:center;gap:12px;padding:8px 24px;border-bottom:1px solid var(--color-rule);font-size:11px;color:var(--color-muted);flex-wrap:wrap}
   .pi-session-bar label{display:flex;align-items:center;gap:8px}.pi-session-bar select{max-width:180px;background:var(--color-paper-2);color:var(--color-ink);border:1px solid var(--color-rule);padding:7px;border-radius:6px}.pi-session-bar>span{margin-left:auto}
   .decoding-attribution{font:10px/1.7 var(--font-mono);color:var(--color-muted);margin:4px 0 9px}.retry-panel{display:flex;gap:14px;align-items:center;margin:10px 0}.retry-panel button{display:flex;gap:6px;align-items:center;flex:none;min-height:36px}.retry-panel p{font-size:11px;line-height:1.6;color:var(--color-muted);max-width:65ch}

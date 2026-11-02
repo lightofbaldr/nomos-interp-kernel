@@ -8,11 +8,17 @@ import {readMetaKey,META_MODEL} from './meta-client.ts';
 import {createFileBroker,FILE_BROKER_PATH} from './file-broker.ts';
 import {installShutdown} from './shutdown.ts';
 import {runtimeManager} from './pi-manager.ts';
+import {createWorkspaceFiles} from './workspace-files.ts';
 
 // One harness per server process, never per HTTP request or browser attachment.
 let manager:ReturnType<typeof runtimeManager>|undefined;
 let vocabulary:ReturnType<typeof loadLabels>|undefined;
 let stopping=false;
+let workspaceFiles:ReturnType<typeof createWorkspaceFiles>|undefined;
+export function conversationFiles(){
+  const db=env.GLIMMER_SESSION_DB||path.join(os.homedir(),'nomos_data/glimmer-lab/sessions.sqlite');
+  return workspaceFiles??=createWorkspaceFiles(path.resolve(db)+'.workspaces/workspaces');
+}
 // Does not open a new harness just to report System status.
 export async function piBusy(){return manager?manager.busy():false;}
 installShutdown(async()=>{stopping=true;await manager?.close();});

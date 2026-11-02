@@ -4,12 +4,13 @@
   import {tick} from 'svelte';
   import {ArrowLeft,ArrowRight,MagnifyingGlass,Stack,Info,ArrowUpRight} from 'phosphor-svelte';
   import {labContext} from '$lib/workspace/context';
-  import {candidates,fromLive,promptForTurn,selectedPosition,validateWorkspaceTurn,type WorkspaceTurn} from '$lib/workspace/model';
+  import {candidates,fromLive,promptForTurn,selectedPosition,initialChannel,validateWorkspaceTurn,type WorkspaceTurn} from '$lib/workspace/model';
   import {generationFor,generationLabel} from '$lib/pi/generation';
   import {answerWindows,firstStep2Recording,setupNames,type RecordingChoice} from '$lib/workspace/step2';
   const lab=labContext();
   let recorded=$state.raw<WorkspaceTurn|null>(null),loading=$state(false),error=$state('');
   let pos=$state<number|null>(null),channel=$state('answer'),wordsOnly=$state(true),search=$state('');
+  let channelSource='';
   let stream:HTMLDivElement|undefined=$state();
   let studyDetails:HTMLDetailsElement|undefined=$state();
   let catalog=$state.raw<RecordingChoice[]>([]),catalogError=$state('');
@@ -46,6 +47,7 @@
     return()=>abort.abort();
   });
   $effect(()=>{if(!recordingId){liveTurn?.request;pos=null;}});
+  $effect(()=>{if(turn&&turn.records.some(r=>r.source==='generated')&&channelSource!==turn.id){channelSource=turn.id;channel=initialChannel(turn.records);pos=null;}});
   async function choose(position:number,focus=false){pos=position;await tick();const el=stream?.querySelector<HTMLButtonElement>(`[data-pos="${position}"]`);el?.scrollIntoView({block:'nearest'});if(focus)el?.focus();}
   function step(delta:number,focus=false){const r=rows[Math.max(0,Math.min(rows.length-1,selectedIndex+delta))];if(r)void choose(r.pos,focus);}
   function findNext(){const next=matches.find(r=>r.pos>(selected?.pos??-1))??matches[0];if(next)void choose(next.pos);}
@@ -83,7 +85,7 @@
     <div class="workspace-grid">
       <section class="token-pane" aria-label="Recorded token stream">
         <header><div><h2>The response</h2><p>Click a token to hold its readout.</p></div><span>{rows.length.toLocaleString()} positions</span></header>
-        <div class="channel-switch" aria-label="Readout channels">{#each [['answer','Answer'],['reasoning','Reasoning'],['all','All positions']] as [value,label]}<button aria-pressed={channel===value} onclick={()=>changeChannel(value)}>{label}</button>{/each}</div>
+        <div class="channel-switch" aria-label="Readout channels">{#each [['answer','Answer'],['reasoning','Reasoning'],['tool','Tool'],['all','All positions']] as [value,label]}<button aria-pressed={channel===value} onclick={()=>changeChannel(value)}>{label}</button>{/each}</div>
         {#if study&&windows}<div class="study-windows">
           <button class="registered-jump" onclick={()=>jumpAnswer(windows?.registered[0])}>Registered window · {windows.registered.length}/64 answer tokens</button>
           <button class="task-jump" onclick={()=>jumpAnswer(windows?.taskStart)}>Task response starts here →</button>

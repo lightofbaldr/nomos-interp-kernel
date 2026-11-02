@@ -94,8 +94,10 @@ export function messagesOf(state:PiView){
   return entries;
 }
 export function lastRow(state:PiView){
-  const turn=state.turns.at(-1);const record=turn?.records.findLast(r=>r.source==='generated');
-  return turn&&record?{turn,record}:null;
+  // A new tool-followup request can have only prompt rows so far. Keep the
+  // last actual generated measurement, with its original request identity.
+  for(let i=state.turns.length-1;i>=0;i--){const turn=state.turns[i],record=turn.records.findLast(r=>r.source==='generated');if(record)return {turn,record};}
+  return null;
 }
 export function projection(turn:TurnView,row:ReadoutRecord,layer:number,name:string):number|null {
   const setting=turn.header?.settings?.emotion;

@@ -67,3 +67,11 @@ The recorded Harness² view adds private run paths, task IDs and evidence pins i
 assistant text, submitted source and historical harness files. Review those and
 the screenshots separately before any public export. They are intentionally not
 committed; the page's read-only label is not an authorization to publish them.
+
+Agent-mode tests and the opt-in budget runner add private compiler, Python,
+tokenizer and kernel-protocol paths in `scripts/agent-budget-e2e.mjs`,
+`scripts/agent-browser.mjs` and `tests/agent/prompt-count.test.mjs`. Operator
+manifests and measurement snapshots contain source pins and fresh conversation
+content; retain them privately and review before export. Workspace file names
+and text are private runtime data. No workspace or model-output bytes are
+committed as part of Agent mode.

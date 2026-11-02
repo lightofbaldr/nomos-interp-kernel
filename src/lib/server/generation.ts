@@ -5,19 +5,21 @@ import {defineDoc,defineEntry,defineExtension,GenerationTask,hook,InboxDoc,LiveD
   type Context,type Conversation,type EntryId,type HarnessT,type HookApi} from 'glimmer-agent/pi';
 import {ReadoutStateDoc} from 'glimmer-agent/extension';
 import {cappedReasoningOnly,generationParameters,type GenerationSettings,type GenerationUsed} from '../pi/generation.ts';
+import type {AgentBudgetHost} from './agent-budget.ts';
 
 const SettingsDoc=defineDoc<GenerationSettings>({kind:'glimmer.generation',version:1,scope:'conversation',history:'rewindable',fork:'asOf',initial:()=>({version:0,sampling:false})});
 const RequestDoc=defineDoc<{key:string}>({kind:'glimmer.generation.request',version:1,scope:'conversation',history:'rewindable',fork:'initial',initial:()=>({key:''})});
 const Changed=defineEntry<GenerationSettings>('glimmer.generation.changed');
 const Used=defineEntry<GenerationUsed>('glimmer.generation.used');
 const Retried=defineEntry<{target:number;task:number;reason:string}>('glimmer.retry');
-type Prepared={last:Message|undefined;used:GenerationUsed;remove():void};
+type Prepared={last:Message|undefined;used:GenerationUsed;signal?:AbortSignal;remove():void};
 
 export class GenerationHost {
   #harness!:HarnessT;
   #prepared=new Map<string,Prepared>();
   private context:Context;
-  constructor(context:Context){this.context=context;}
+  private budget?:AgentBudgetHost;
+  constructor(context:Context,budget?:AgentBudgetHost){this.context=context;this.budget=budget;}
   attach(harness:HarnessT){this.#harness=harness;}
   async settings(c:Conversation){
     return c.commit(async tx=>{
@@ -47,6 +49,11 @@ export class GenerationHost {
     const used:GenerationUsed={task:api.taskId,attempt:checkpoint.attempt,cutoff:checkpoint.cutoff,
       request:readout?.open?.task===api.taskId?readout.open.request:null,
       mode:saved?.sampling?'sampled':'greedy',parameters:generationParameters(saved?.sampling??false)};
+    if(this.budget){
+      used.budget=this.budget.requestLimit(api.conversationId,api.taskId);
+      used.parameters.max_tokens=used.budget.outputTokens;
+      used.advertisedContextTokens=32768; // nomosProvider's advertised model capacity; not queried from /health.
+    }
     const c=await this.#harness.conversation(api.conversationId,context);if(!c)throw Error('Conversation unavailable.');
     await c.commit(async tx=>{
       const state=await tx.doc(RequestDoc,c.id),key=JSON.stringify(used);
@@ -56,7 +63,7 @@ export class GenerationHost {
     const session=provider.sessionId;
     this.#prepared.get(session)?.remove();
     const remove=()=>{context.abortSignal?.removeEventListener('abort',remove);if(this.#prepared.get(session)===prepared)this.#prepared.delete(session);};
-    const prepared:Prepared={last:messages.at(-1),used,remove};
+    const prepared:Prepared={last:messages.at(-1),used,signal:used.budget?this.budget!.signal(api.conversationId,used.budget.runId):undefined,remove};
     if(context.abortSignal?.aborted)throw Error('Decoding preparation aborted.');
     this.#prepared.set(session,prepared);context.abortSignal?.addEventListener('abort',remove,{once:true});
   }
@@ -69,7 +76,8 @@ export class GenerationHost {
       if(!original||typeof original!=='object'||Array.isArray(original))throw Error('Invalid Nomos request payload.');
       return {...original,...prepared.used.parameters};
     };
-    return {...options,onPayload} as O;
+    const signal=prepared.signal?(options?.signal?AbortSignal.any([options.signal,prepared.signal]):prepared.signal):options?.signal;
+    return {...options,signal,onPayload} as O;
   }
   provider(base:Provider):Provider {
     return {...base,stream:(model,context,options)=>base.stream(model,context,this.#options(context.messages,options)),

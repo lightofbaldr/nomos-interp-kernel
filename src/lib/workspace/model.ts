@@ -9,6 +9,10 @@ export type WorkspaceTurn = {
   step2?:Step2Info;
 };
 export type Candidate = {id:number;score:number;rank:number;label:string|null;hiddenReason:string|null};
+/** A tool-calling response need not contain any answer-channel token. */
+export function initialChannel(records:readonly ReadoutRecord[]){
+  return ['answer','tool','reasoning'].find(channel=>records.some(r=>r.source==='generated'&&r.channel===channel))??'all';
+}
 
 /** A display heuristic, NOT a lexical or scientific classification. Never edits the raw list. */
 export function filterReason(label:string|null):string|null {
