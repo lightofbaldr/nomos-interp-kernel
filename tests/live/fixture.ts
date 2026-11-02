@@ -20,12 +20,15 @@ export async function fakeKernel(){
   const registry=path.join(root,'registry.json');await writeFile(registry,JSON.stringify({v:1,assets}));
   const tokenizer=JSON.stringify({model:{type:'BPE',vocab:{...Object.fromEntries(Array.from({length:30},(_,i)=>[`Ġword${i}`,503+i])),'Ġcannot':501,'Ġinvent':502}},decoder:{type:'ByteLevel'},added_tokens:[]});
   const tokenizerPath=path.join(root,'tokenizer.json');await writeFile(tokenizerPath,tokenizer);
-  const requests:any[]=[];let fault='',hold=false,cacheRequests=0;
+  const requests:any[]=[],errors:string[]=[];let fault='',hold=false,cacheRequests=0,closing=false,pending=0,drained:(()=>void)|undefined;
   let reply={thinking:'Let me think carefully. ',answer:'Hello from Pi.',finish:'stop'};
   const server=http.createServer(async(req,res)=>{
+    pending++;let bodyBytes=0;
+    try{
     if(req.url==='/health'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ready:true,model:'fake',engine:'fake',spec:true,readout:{supported:true,assets:assets.map(a=>a.id)}}));return;}
     if(req.url==='/v1/kvstore/stats'){cacheRequests++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({prepares:7,prompt_tokens:100,reused_tokens:75,restores_ram:4,restores_nvme:1,forks:2,ram_bytes:1024,nvme_bytes:2048,ram_evictions:0,nvme_evictions:0}));return;}
-    let raw='';for await(const b of req)raw+=b;
+    if(req.method!=='POST'||req.url!=='/v1/chat/completions')throw Error(`Unexpected fixture request ${req.method} ${req.url}`);
+    let raw='';for await(const b of req){bodyBytes+=b.length;raw+=b;}
     const body=JSON.parse(raw);requests.push(body);const n=body.nomos,r=n?.readout,response={...reply};
     const id=`chatcmpl-${requests.length}`,header={v:'nomos.readout/1',conversation:n?.conversation??null,turn:n?.turn??null,response_id:id,
       settings:r?{...r,emotion:{...r.emotion,names},workspace:r.workspace??null}:null,steer:n?.steer?{...n.steer,from_pos:2}:null};
@@ -44,8 +47,14 @@ export async function fakeKernel(){
     if(hold)return;
     const summary={header,ranges:{reused:[0,0],prompt:r?[0,3]:[0,0],generated:r?[3,43]:[0,0]},counts:{records:r?43:0,emotion_valid:r?43:0,workspace_valid:r?.workspace?40:0},missing:{kv_reused:0,natural_stop:1,settle_trimmed:0,...(!r?{readout_off:1}:{})}};
     send({},response.finish,fault==='summary'?undefined:n?{summary}:undefined);res.end('data: [DONE]\n\n');
+    }catch(e){
+      // Intentional client cancellation or fixture teardown can interrupt body
+      // parsing. Join those handlers; retain every other failure for close().
+      if(!closing&&!req.aborted)errors.push(`${req.method} ${req.url} bytes=${bodyBytes} complete=${req.complete}: ${String(e)}`);
+      if(!res.destroyed){if(!res.headersSent)res.writeHead(400);res.end();}
+    }finally{pending--;if(!pending)drained?.();}
   });
   await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${(server.address() as any).port}`;
-  return {root,base,requests,registry,tokenizerPath,tokenizerPin:hash(tokenizer),assets:{supported:true,error:null,directions:[{id:assets[0].id,names,layers:[20,24,29]}],lenses:[{id:assets[1].id,layers:[36,40,44,48]}],tokenizer:hash(tokenizer)},
-    cacheRequests:()=>cacheRequests,fault:(v:string)=>{fault=v;},hold:(v:boolean)=>{hold=v;},reply:(v:Partial<typeof reply>)=>{reply={...reply,...v};},async close(){server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}};
+  return {root,base,requests,errors,pending:()=>pending,registry,tokenizerPath,tokenizerPin:hash(tokenizer),assets:{supported:true,error:null,directions:[{id:assets[0].id,names,layers:[20,24,29]}],lenses:[{id:assets[1].id,layers:[36,40,44,48]}],tokenizer:hash(tokenizer)},
+    cacheRequests:()=>cacheRequests,fault:(v:string)=>{fault=v;},hold:(v:boolean)=>{hold=v;},reply:(v:Partial<typeof reply>)=>{reply={...reply,...v};},async close(){closing=true;server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));await new Promise<void>(r=>{if(pending)drained=r;else r();});if(errors.length)throw Error('Kernel fixture errors: '+errors.join('; '));}};
 }
