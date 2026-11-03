@@ -24,6 +24,9 @@ try{
     await until(async()=>await settings.evaluate(el=>document.activeElement===el));
     await page.screenshot({path:root+'preview/checks/chat-sidebar-desktop.png'});
     await page.setViewportSize({width:390,height:844});
+    // Make the drawer's asynchronous close deterministic. No visual motion is
+    // needed: its closing lifecycle must finish before settings opens.
+    await page.addStyleTag({content:'@keyframes drawer-close-test{from{opacity:1}to{opacity:1}}.lab-nav-dialog[data-state="closed"]{animation:drawer-close-test 120ms linear !important}'});
     const navigation=page.getByRole('button',{name:'Open navigation',exact:true});await navigation.click();
     await page.getByRole('dialog',{name:'Lab navigation',exact:true}).getByRole('button',{name:'Steering & readouts',exact:true}).click();
     const controls=page.getByRole('dialog',{name:'Steering & readout capture',exact:true});await controls.waitFor();

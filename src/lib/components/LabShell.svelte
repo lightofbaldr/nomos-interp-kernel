@@ -16,6 +16,7 @@
   let live=$state.raw<LiveState>(emptyLiveState()),history=$state<{id:string;title?:string;busy:boolean}[]>([]);
   let controls=$state(false),navigation=$state(false),mounted=$state(false),historyError=$state('');
   let brandPaused=$state(false);
+  let controlsAfterNavigation=false;
   let controlsTrigger:HTMLButtonElement|null=null,navTrigger:HTMLButtonElement;
   let historyAttempted=$state(false);
   const path=$derived(page.url.pathname),isChat=$derived(path==='/');
@@ -29,11 +30,17 @@
     live={...state,openConversation:async id=>{await state.openConversation?.(id);await goto(`${path}?conversation=${encodeURIComponent(id)}`);}};
     history=state.conversations??history;
   }
-  async function openControls(event:MouseEvent){
+  function openControls(event:MouseEvent){
     controlsTrigger=event.currentTarget as HTMLButtonElement;
-    navigation=false;
-    // Let the mobile navigation close before the settings dialog takes focus.
-    await tick();controls=true;
+    if(navigation){controlsAfterNavigation=true;navigation=false;}
+    else controls=true;
+  }
+  async function navigationSettled(open:boolean){
+    if(open||!controlsAfterNavigation)return;
+    // Bits UI retires closed content after its animation/frame lifecycle. A
+    // single render tick after setting open=false does not guarantee removal.
+    await tick();
+    if(!navigation&&controlsAfterNavigation){controlsAfterNavigation=false;controls=true;}
   }
   function restoreControlsFocus(event:Event){
     event.preventDefault();
@@ -85,7 +92,7 @@
 <div class="video-shell">
   <aside class="lab-sidebar" aria-label="Conversations and navigation">{@render sidebar()}</aside>
   <div class="lab-body">
-    <div class="lab-topline"><button class="icon-button lab-menu" bind:this={navTrigger} onclick={()=>navigation=true} aria-label="Open navigation"><SidebarSimple size={22}/></button><span>Glimmer Lab <span class="lab-slash">/</span> {isRecordedHarness?'Recorded harness comparison':links.find(l=>l.href===path)?.name??'Workspace'}</span><span class="lab-top-meta">{isRecordedHarness?'Recorded run · No live generation':'Weights unchanged. A closer look inside.'}</span></div>
+    <div class="lab-topline"><button class="icon-button lab-menu" bind:this={navTrigger} onclick={()=>{controlsAfterNavigation=false;navigation=true;}} aria-label="Open navigation"><SidebarSimple size={22}/></button><span>Glimmer Lab <span class="lab-slash">/</span> {isRecordedHarness?'Recorded harness comparison':links.find(l=>l.href===path)?.name??'Workspace'}</span><span class="lab-top-meta">{isRecordedHarness?'Recorded run · No live generation':'Weights unchanged. A closer look inside.'}</span></div>
     <main id="lab-content" class="lab-content" tabindex="-1">
       <div class="lab-chat chat-main" hidden={!isChat}>
         {#if activate&&!isRecordedHarness}<LiveChat compact startNew={createRequested} requestedConversation={requested} onState={update}/>{:else}<p class="lab-empty">Opening your local workspace…</p>{/if}
@@ -96,4 +103,4 @@
   </div>
 </div>
 <Dialog.Root bind:open={controls}><Dialog.Portal><Dialog.Overlay class="modal-overlay"/><Dialog.Content class="lab-controls-dialog" onCloseAutoFocus={restoreControlsFocus}><div class="lab-dialog-head"><Dialog.Title>Steering &amp; readout capture</Dialog.Title><Dialog.Close class="icon-button" aria-label="Close controls"><X size={20}/></Dialog.Close></div><Dialog.Description class="lab-dialog-desc">Changes apply to the next request. This turn keeps its recorded settings.</Dialog.Description><LiveInspector {live} initialTab="control"/></Dialog.Content></Dialog.Portal></Dialog.Root>
-<Dialog.Root bind:open={navigation}><Dialog.Portal><Dialog.Overlay class="modal-overlay"/><Dialog.Content class="lab-nav-dialog"><Dialog.Title class="sr-only">Lab navigation</Dialog.Title><Dialog.Description class="sr-only">Pages and saved conversations.</Dialog.Description><Dialog.Close class="icon-button" aria-label="Close navigation"><X size={20}/></Dialog.Close>{@render sidebar()}</Dialog.Content></Dialog.Portal></Dialog.Root>
+<Dialog.Root bind:open={navigation} onOpenChangeComplete={navigationSettled}><Dialog.Portal><Dialog.Overlay class="modal-overlay"/><Dialog.Content class="lab-nav-dialog"><Dialog.Title class="sr-only">Lab navigation</Dialog.Title><Dialog.Description class="sr-only">Pages and saved conversations.</Dialog.Description><Dialog.Close class="icon-button" aria-label="Close navigation"><X size={20}/></Dialog.Close>{@render sidebar()}</Dialog.Content></Dialog.Portal></Dialog.Root>
