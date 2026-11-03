@@ -1,4 +1,3 @@
-# Modified by Light of Baldr LLC, 2026. See MODIFICATIONS.md.
 """Improver channels: claude_cli on the login, codex_cli, and the plan-limit wait."""
 
 import json

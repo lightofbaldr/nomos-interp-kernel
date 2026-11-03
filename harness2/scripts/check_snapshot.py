@@ -1,5 +1,9 @@
-# Modified by Light of Baldr LLC, 2026. See MODIFICATIONS.md.
-"""Verify the fresh root commit against the read-only source tree, without importing refs."""
+"""Verify the fresh root commit against the read-only source tree, without importing refs.
+
+Historical: this checked the one-root import of 2026-10-30 (tag snapshot-20261030, which the combined repository
+does not carry). In the combined repository, with four roots, it fails by design; MODIFICATIONS.md records the
+provenance.
+"""
 import os
 import subprocess
 from pathlib import Path

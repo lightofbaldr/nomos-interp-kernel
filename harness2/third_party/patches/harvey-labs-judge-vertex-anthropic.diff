@@ -1,3 +1,4 @@
+# Modified by Light of Baldr LLC, 2026. See ../../MODIFICATIONS.md.
 diff --git a/evaluation/judge.py b/evaluation/judge.py
 index ffad89de..938dffd7 100644
 --- a/evaluation/judge.py

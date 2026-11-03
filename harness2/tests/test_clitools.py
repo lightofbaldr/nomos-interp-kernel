@@ -1,4 +1,3 @@
-# Modified by Light of Baldr LLC, 2026. See MODIFICATIONS.md.
 """Contracts of the shared headless Claude Code / Codex tooling."""
 
 import json

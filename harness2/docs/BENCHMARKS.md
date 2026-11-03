@@ -136,3 +136,5 @@ the improver never receives verifier output. Missing verifier results remain
 unscored. Runs live under `runs/wb/<subset>/`.
 
 For Codex, start the bridge with `harness2-bridge --host 0.0.0.0` so that the containers can reach it.
+
+_Modified by Light of Baldr LLC, 2026. See ../MODIFICATIONS.md._

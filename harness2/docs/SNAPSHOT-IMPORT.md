@@ -3,6 +3,9 @@
 Source: Adam's read-only Harness² clone at
 `~/nomos_data/scratch/harness2-read`, revision
 `75f8d20ce2e6688624a4d88bf6b305668d6c6a31` (138 tracked files).
+That revision is Google's upstream `1cfe254` plus 23 of our own commits from 2026-10-20, made before the
+hackathon: Pi as a substrate for JobBench and LAB, headless Claude and Codex CLI tooling with new proposer channels,
+and a local judge bridge. [MODIFICATIONS.md](../MODIFICATIONS.md) lists every change against Google's code.
 The source worktree was clean. Its history included a non-project author identity and
 upstream authors/committers, so no source commits or refs were imported.
 
@@ -17,5 +20,3 @@ All new commits use the repository-local identity
 `Light of Baldr <oss@lightofbaldr.dev>`. The source clone and Forgejo remain
 read-only. Task data, credentials, runtime installations and run output are not
 part of the snapshot.
-
-_Modified by Light of Baldr LLC, 2026. See ../MODIFICATIONS.md._

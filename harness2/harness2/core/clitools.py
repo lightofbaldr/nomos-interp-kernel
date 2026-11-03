@@ -1,4 +1,3 @@
-# Modified by Light of Baldr LLC, 2026. See MODIFICATIONS.md.
 """Shared helpers for driving the Claude Code and Codex CLIs headlessly.
 
 Both the improver channels (`core.proposer`) and the judge bridge (`cli.judge_bridge`) build

@@ -1,4 +1,3 @@
-# Modified by Light of Baldr LLC, 2026. See MODIFICATIONS.md.
 """Serve OpenAI-compatible judge endpoints over `claude -p` and `codex exec`.
 
 The upstream benchmark judges are ordinary OpenAI clients: JobBench calls chat completions,

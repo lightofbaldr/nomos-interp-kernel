@@ -121,3 +121,5 @@ task selection.
 
 Refinement, judging, and reporting use `harness2`, `harness2-judge`, and
 `harness2-report`; each supports `--help`.
+
+_Modified by Light of Baldr LLC, 2026. See ../MODIFICATIONS.md._

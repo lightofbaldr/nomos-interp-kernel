@@ -12,18 +12,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modified by Light of Baldr LLC, 2026. See MODIFICATIONS.md.
 
-"""Verify the release's runner and patch files against dependencies/ASSETS.json."""
+"""Verify the release's runner and patch files against dependencies/ASSETS.json.
+
+Keys starting with "_" are metadata (the file's modification notice), not assets.
+"""
 
 import hashlib
 import json
 from pathlib import Path
 
 
-def main():
-    root = Path(__file__).resolve().parents[1]
+def main(root=None):
+    root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
     try:
-        expected = json.loads((root / "dependencies/ASSETS.json").read_text())
+        manifest = json.loads((root / "dependencies/ASSETS.json").read_text())
+        expected = {name: digest for name, digest in manifest.items() if not name.startswith("_")}
         failures = []
         for name, digest in expected.items():
             path = root / name

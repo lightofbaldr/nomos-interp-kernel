@@ -195,3 +195,5 @@ OpenAI-compatible endpoint. Start it in a separate shell, copy the `HARNESS2_JUD
 `HARNESS2_JUDGE_API_KEY` lines it prints into `.env`, and set `HARNESS2_JUDGE_MODEL` to
 `cli/codex:gpt-5.6-sol` or `cli/claude:opus`. `harness2-check` verifies the bridge is reachable.
 Changing the judge model changes the measurement, as upstream notes.
+
+_Modified by Light of Baldr LLC, 2026. See ../MODIFICATIONS.md._

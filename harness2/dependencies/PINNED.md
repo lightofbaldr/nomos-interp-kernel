@@ -41,3 +41,5 @@ refuses one it cannot verify; see
 These inputs support the public execution workflow. Historical paper runs may
 have used different tasks, model deployments, and additional local tooling;
 see [experiment notes](../README.md#experiments).
+
+_Modified by Light of Baldr LLC, 2026. See ../MODIFICATIONS.md._
