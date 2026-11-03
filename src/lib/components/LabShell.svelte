@@ -3,17 +3,19 @@
   import {page} from '$app/state';
   import {goto} from '$app/navigation';
   import {Dialog} from 'bits-ui';
-  import {CircleNotch,ChatCircle,Graph,SlidersHorizontal,ArrowsSplit,Plus,ArrowRight,SidebarSimple,X,Archive,ChartLine,Eye,HardDrives} from 'phosphor-svelte';
+  import {ChatCircle,Graph,SlidersHorizontal,ArrowsSplit,Plus,ArrowRight,SidebarSimple,X,Archive,ChartLine,Eye,HardDrives} from 'phosphor-svelte';
   import LiveChat from './LiveChat.svelte';
   import LiveDock from './LiveDock.svelte';
   import LiveInspector from './LiveInspector.svelte';
   import ConversationData from './ConversationData.svelte';
+  import SparkleBrand from './SparkleBrand.svelte';
   import {emptyLiveState,type LiveState} from '$lib/live';
   import {LAB_CONTEXT} from '$lib/workspace/context';
   import './lab-shell.css';
   let {children}:{children:Snippet}=$props();
   let live=$state.raw<LiveState>(emptyLiveState()),history=$state<{id:string;title?:string;busy:boolean}[]>([]);
   let controls=$state(false),navigation=$state(false),mounted=$state(false),historyError=$state('');
+  let brandPaused=$state(false);
   let controlsTrigger:HTMLButtonElement|null=null,navTrigger:HTMLButtonElement;
   let historyAttempted=$state(false);
   const path=$derived(page.url.pathname),isChat=$derived(path==='/');
@@ -68,7 +70,7 @@
 </script>
 
 {#snippet sidebar()}
-  <a class="lab-brand" href="/" aria-label="Glimmer Lab home"><CircleNotch size={29}/><span>glimmer<span>LAB</span></span></a>
+  <SparkleBrand bind:paused={brandPaused}/>
   <button class="lab-new" onclick={newChat}><Plus size={17}/>New conversation</button>
   <nav aria-label="Lab pages">{#each links as l}<a href={link(l.href)} aria-current={path===l.href||(isRecordedHarness&&l.href==='/workbench')?'page':undefined} onclick={()=>navigation=false}><l.icon size={19}/>{l.name}</a>{/each}</nav>
   <div class="lab-history"><h2>Conversations <span>{history.length||''}</span></h2>
