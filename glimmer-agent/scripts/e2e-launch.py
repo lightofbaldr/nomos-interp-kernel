@@ -2,6 +2,9 @@
 
 Invoke inside the reviewed with_serve_down wrapper and a separate systemd user unit.
 --check validates admission without creating a directory or loading the engine.
+
+Historical: it pins the kernel revision and library its run verified (REVISION and LIBRARY_SHA below), so it
+refuses any other kernel build by design. Don't relax that gate to make it pass on a newer kernel.
 """
 import argparse
 import hashlib

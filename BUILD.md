@@ -6,6 +6,11 @@ Nomos is a Mojo GPU kernel. Mojo **bakes GPU code for one architecture into each
 > **Build on the machine you will run on.** Never copy a `.so` between GPUs of
 > different compute capability, even when both are Blackwell.
 
+> **In this repository:** this guide comes from the base performance kernel, which builds Gemma 4 by default.
+> Every build also needs the model's tokenizer for special-token validation. For Muse-Glimmer-30B:
+> `bash refresh_build.sh --model muse --tokenizer-dir ~/nomos_data/muse-glimmer-tokenizer` writes
+> `libnomos_kernel-muse.so`; then follow [README.md, Running it](README.md#running-it).
+
 ## Prerequisites
 
 - An NVIDIA Blackwell GPU and a recent driver + CUDA runtime (13.x).
@@ -19,7 +24,7 @@ Nomos is a Mojo GPU kernel. Mojo **bakes GPU code for one architecture into each
 
 ```bash
 pixi install          # resolves mojo + max-core (GPU codegen) + Python deps
-bash refresh_build.sh # compiles libnomos_kernel.so FOR THIS GPU (arch auto-detected)
+bash refresh_build.sh --tokenizer-dir <dir>  # Gemma 4 by default; --model muse for Glimmer. Builds FOR THIS GPU
 ```
 
 `refresh_build.sh` syncs the pixi env, compiles the C shims, builds
@@ -28,7 +33,7 @@ prints the exported-symbol count. Verify the build produced a fresh library
 with the full ABI:
 
 ```bash
-nm -D libnomos_kernel.so | grep -c ' T nomos_'   # expect 85
+nm -D libnomos_kernel.so | grep -c ' T nomos_'   # expect 122 in this repository (85 in the base kernel)
 ```
 
 > A ~10-second "build" is an incremental cache hit — confirm the `.so`
@@ -48,7 +53,8 @@ accelerator codegen; without `max-core` the build fails with
 ./nomos smoke --prompt "hello"   # one completion (needs transformers for the tokenizer)
 ```
 
-Serving (OpenAI-compatible HTTP) is covered in the README.
+Serving (OpenAI-compatible HTTP) is covered in [KERNEL.md](KERNEL.md); for Glimmer, see
+[README.md, Running it](README.md#running-it).
 
 ## Per-architecture notes
 

@@ -10,8 +10,11 @@ records their hashes, committed-base hashes and modified/untracked status.
 It includes pre-existing Glimmer live-chat/serve plumbing and UI work. Authorship
 could not be established from the inspected source documentation, so it is
 explicitly **unknown**, not attributed to this import session. File modification
-times are metadata, not evidence of authorship. All 52 imported files retain
-their working-copy bytes. The source repository and its Forgejo remote were not
+times are metadata, not evidence of authorship. All 52 imported files kept
+their working-copy bytes on import. In the public copy, 51 still do: the root README was redacted, so
+its public SHA-256 is `99a0a0355b2728bf88444b15963d638148bdbc099a60fcd0f16e14207c5bac82`, while
+`docs/import/snapshot.json` keeps the pre-redaction `6ab6c3b732856a17b133d86ac4e5d179dd6b6ebd0c31474249ac521b50edb123`
+as provenance. The source repository and its Forgejo remote were not
 modified; none of its Git history is present here.
 
 The three `vendor/*.tgz` packages are the port's existing local Svelte dependencies,
