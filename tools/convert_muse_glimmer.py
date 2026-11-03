@@ -127,7 +127,7 @@ def write_embed_and_head(out_dir: str, emb: np.ndarray, lm: np.ndarray) -> dict:
 def write_head_nvfp4(out_dir: str, lm: np.ndarray, write_nvfp4) -> dict:
     """lm_head_weight.nvfp4, encoded from lm_head with the existing encoder, atomically. The W4A4 loader reads the
     untied head from this file (UNTIED_LM_HEAD in lib/model_profiles/muse.mojo, head_stem in lib/gemma4_engine.mojo).
-    Encoding the full head peaks around 28 GiB of RAM (measured on an eighth of its rows, scaled)."""
+    Encoding the full head needs an estimated 28 GiB of RAM (extrapolated from encoding one eighth of its rows)."""
     stem = os.path.join(out_dir, "lm_head_weight")
     write_nvfp4(stem + ".tmp.nvfp4", lm)
     os.replace(stem + ".tmp.nvfp4", stem + ".nvfp4")

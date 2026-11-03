@@ -149,7 +149,7 @@ RTX 5090 laptop GPU and RTX PRO 4000s. The base kernel also runs on a DGX Spark 
    ```
    Put the tokenizer files in `~/nomos_data/muse-glimmer-tokenizer`. These are the paths `pyhost/models.py` and the example env file below expect.
    The NVFP4 conversion also encodes the untied head as `lm_head_weight.nvfp4`, which the serve needs; that step alone
-   peaks around 28 GiB of RAM.
+   needs an estimated 28 GiB of RAM (extrapolated from encoding one eighth of the head).
 2. **Build** for this GPU:
    `pixi install && bash refresh_build.sh --model muse --tokenizer-dir ~/nomos_data/muse-glimmer-tokenizer`.
 3. **Serve** on loopback, with the settings our laptop GPU runs:
