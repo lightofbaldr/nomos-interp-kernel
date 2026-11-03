@@ -101,6 +101,13 @@
 .steering-diff-root .view-navigation { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin: 2px 0 14px; font-size: 11px; line-height: 1.8; color: var(--muted); }
 .steering-diff-root .view-navigation strong { color: #e2c697; font-weight: 500; }
 .steering-diff-root .view-navigation a { color: var(--blue); }
+.steering-diff-root .full-response-access { display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;margin:14px 0; }
+.steering-diff-root .full-response-trigger { display:inline-flex;align-items:center;gap:9px;min-height:42px;border:1px solid #49668b;background:#213148;color:#c8dfff;border-radius:6px;padding:9px 14px;font-size:12px; }
+.steering-diff-root .full-response-access>p { flex:1 1 260px;font-size:11px;line-height:1.7;color:var(--muted); }
+.steering-diff-root .full-response-dialog .response-section { margin-top:20px;padding-top:20px; }
+.steering-diff-root .response-origin-note { margin-top:10px;font-size:12px;line-height:1.7;color:#e2c697; }
+.steering-diff-root .response-identity { margin-top:20px;font-size:11px;line-height:1.8;color:var(--muted);overflow-wrap:anywhere; }
+.steering-diff-root .response-identity a { color:var(--blue); }
 .steering-diff-root .position-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .steering-diff-root .position-current strong { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
 .steering-diff-root .position-current code { font-size: 18px; font-weight: 450; color: #e4eeff; }

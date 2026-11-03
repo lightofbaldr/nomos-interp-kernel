@@ -9,6 +9,7 @@
   import EmotionGrid from './EmotionGrid.svelte';
   import ResponseView from './ResponseView.svelte';
   import ScenarioContext from './ScenarioContext.svelte';
+  import FullResponse from './FullResponse.svelte';
   let datasets = $state<{dataset:Dataset; index:BundleIndex}[]>([]);
   let activeDataset = $state(''); let prompt = $state('S1'); let arm = $state('joy_0.7'); let mode = $state<Mode>('matched');
   let sample=$state<number|null>(null);
@@ -79,6 +80,7 @@
         {#if sampled}<label><span class="control-label">PAIRED SAMPLE</span><select aria-label="Paired sample" value={selectedSample??''} onchange={e=>sample=e.currentTarget.value===''?null:Number(e.currentTarget.value)} disabled={!availableSamples.length}><option value="" disabled>Choose sample</option>{#each availableSamples as k}<option value={k}>s{k} · both arms</option>{/each}</select></label>{/if}
         <div class="intervention-detail"><span class="control-label">INJECTION</span><strong class="mono">L24 <span>·</span> {!c?'not loaded':onset===null?'not armed':`from ${onset}`}</strong></div>
       </section>
+      {#if current}{#key `${activeDataset}:${prompt}:${arm}:${mode}:${selectedSample}`}<FullResponse dataset={current.dataset} index={current.index} {prompt} {arm} {mode} sample={selectedSample}/>{/key}{/if}
       {#if current}<p class="prompt-copy"><span>{prompt}</span>{recordedSource?.question ?? current.index.prompts[prompt]}</p>{/if}
       {#if sampled}<section class="sample-context" aria-label="Sample pairing and interpretation"><strong>{reference?`Sample s${reference.sample} · baseline and steered at the same sample${bundle?` · paired seed ${bundle.comparison.baseline.arm.seed}`:''}`:'Choose an exported sample; no cross-sample comparison is inferred.'}</strong><p>Selected exploratory examples. Random pushes can change outcomes too; these examples do not establish an emotion-specific honesty mechanism or a lie detector. Sample numbers here are separate from the historical source episode’s sample.</p>{#if sameSampleControls.length>1}<div class="same-sample-controls"><span>Same-sample fear / random control:</span>{#each sameSampleControls as a}<button aria-pressed={a.name===arm} onclick={()=>arm=a.name}>{armLabel(a)}</button>{/each}</div>{/if}</section>{/if}
       {#if selectedArm?.s !== null && selectedArm?.s !== undefined && selectedArm.s < 0}<p class="signed-note">Counter-steered: negative strength reverses the <code>{selectedArm.kind}</code> direction. It is not a separately learned opposite emotion.</p>{/if}

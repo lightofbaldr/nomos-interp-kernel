@@ -232,6 +232,30 @@ export function relatedScenarios(index: BundleIndex, scenario: Scenario | null):
   if (!scenario?.source) return [];
   return Object.values(index.scenarios ?? {}).filter(s=>s.key!==scenario.key && s.source?.sha256===scenario.source!.sha256);
 }
+
+export type FullResponseTarget =
+  | { ref: ComparisonRef; relation: 'same-scenario' | 'same-source'; reason: null }
+  | { ref: null; relation: null; reason: string };
+
+/** Select exported text only; never substitute another arm, sample or source. */
+export function fullResponseTarget(index: BundleIndex, prompt: string, arm: string, sample: number | null, mode: Mode = 'matched'): FullResponseTarget {
+  const absent=(reason:string):FullResponseTarget=>({ref:null,relation:null,reason});
+  if(!arm || !index.arms.some(a=>a.name===arm))return absent('Select an intervention to read its recorded response.');
+  if(sample===null && index.comparisons.some(r=>r.prompt===prompt && r.sample!==undefined))return absent('Select a paired sample to read its recorded response.');
+  const free=index.comparisons.filter(r=>r.mode==='free' && r.arm===arm && (r.sample??null)===sample);
+  const direct=free.filter(r=>r.prompt===prompt);
+  if(direct.length===1)return {ref:direct[0],relation:'same-scenario',reason:null};
+  // Only a replay may offer a separate answer scenario. A missing free reply
+  // must not be replaced by another free-generation task with different input.
+  const source=mode==='matched'?index.scenarios?.[prompt]?.source:null;
+  const linked=source?free.filter(r=>{
+    const other=index.scenarios?.[r.prompt]?.source;
+    return r.prompt!==prompt && other?.sha256===source.sha256 && other.path===source.path;
+  }):[];
+  if(!direct.length && linked.length===1)return {ref:linked[0],relation:'same-source',reason:null};
+  if(direct.length>1 || linked.length>1)return absent('Several response scenarios match. Select the answer scenario explicitly; none is chosen for you.');
+  return absent('No independent response was exported for this arm and sample. A fixed replay is not a steered reply.');
+}
 export function channelJumps(positions: Position[]): { reasoning: number | null; answer: number | null } {
   // Navigate supplied labels only, never offsets guessed from a scenario's name or reference metadata.
   const first=(channel:string)=>positions.find(p=>p.source==='generated' && p.channel===channel)?.pos ?? null;
