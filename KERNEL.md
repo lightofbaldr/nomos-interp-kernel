@@ -43,7 +43,7 @@ run. It passes not by luck but by arithmetic — see *Correctness by constructio
 ```bash
 git clone https://github.com/lightofbaldr/nomos-interp-kernel.git && cd nomos-interp-kernel
 pixi install
-bash refresh_build.sh            # builds libnomos_kernel.so FOR THIS GPU (arch is baked in)
+bash refresh_build.sh --tokenizer-dir <dir>   # builds libnomos_kernel.so FOR THIS GPU (Gemma 4 by default)
 ./nomos env                      # resolved precision/paths for this machine
 ./nomos bench                    # base decode on the 12-prompt bar (deps: numpy only)
 ./nomos bench --spec             # + DFlash speculative decode with lossless verification

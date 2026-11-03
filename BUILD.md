@@ -33,7 +33,7 @@ prints the exported-symbol count. Verify the build produced a fresh library
 with the full ABI:
 
 ```bash
-nm -D libnomos_kernel.so | grep -c ' T nomos_'   # expect 122 in this repository (85 in the base kernel)
+nm -D libnomos_kernel-muse.so | grep -c ' T nomos_'   # expect 122 for the Muse build here (85 in the base kernel)
 ```
 
 > A ~10-second "build" is an incremental cache hit — confirm the `.so`

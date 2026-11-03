@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Muse-Glimmer-30B (text tower) bf16 safetensors -> our flat fp32 .bin serve dir.
+"""Muse-Glimmer-30B (text tower) bf16 safetensors -> our flat serve dir.
 
-Emits the flat layout the kernel expects; quantize afterwards with the existing
-tools (batch_quantize_q4.sh for the Linears, quantize_embed_nvfp4.py for embed).
+    python3 tools/convert_muse_glimmer.py [--format q4|nvfp4] <hf-dir> <out-dir>
+
+Emits the flat layout the kernel expects. The per-layer Linears are quantized
+inline in the chosen format; norms and the embedding stay fp32 .bin. With
+--format nvfp4 the untied head is ALSO encoded as lm_head_weight.nvfp4: the
+Muse profile's W4A4 loader reads the head from there and fails at init without
+it (the fp32 lm_head_weight.bin is kept beside it).
 Vision tower is IGNORED — this is the text-tower port only.
 
 WHY THIS IS NOT convert_bf16_to_q4.py WITH A FLAG
@@ -30,7 +35,7 @@ The centering in (2) is a SILENT DATA TRANSFORM: the written file no longer
 equals the checkpoint tensor.  That is a deliberate contract, so it is asserted
 below and recorded in the manifest rather than left to a comment.
 """
-import json, os, sys
+import argparse, json, os, sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -89,18 +94,48 @@ def write_f32(path: str, a: np.ndarray) -> None:
     os.replace(path + ".tmp", path)
 
 
-def main() -> None:
-    pos = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if len(pos) < 2:
-        print(__doc__)
-        sys.exit(1)
-    in_dir, out_dir = pos[0], pos[1]
-    fmt = "q4"
-    for a in sys.argv[1:]:
-        if a.startswith("--format"):
-            fmt = a.split("=", 1)[1] if "=" in a else sys.argv[sys.argv.index(a) + 1]
-    if fmt not in ("q4", "nvfp4"):
-        sys.exit(f"FATAL: --format must be q4 or nvfp4, got {fmt!r}")
+def parse_args(argv):
+    """(in_dir, out_dir, fmt). Both `--format nvfp4` and `--format=nvfp4` work; a missing, extra or unknown argument
+    exits here, before anything is created. (The hand-rolled parser this replaces took the space spelling's `nvfp4`
+    as the input directory and the input directory as the output.)"""
+    ap = argparse.ArgumentParser(prog="convert_muse_glimmer.py",
+                                 description="Muse-Glimmer-30B bf16 safetensors -> our flat serve dir.")
+    ap.add_argument("--format", choices=("q4", "nvfp4"), default="q4",
+                    help="q4: GB10 / unified memory; nvfp4: discrete Blackwell, the W4A4 path (default: q4)")
+    ap.add_argument("in_dir", help="the Hugging Face checkpoint directory")
+    ap.add_argument("out_dir", help="the flat output directory")
+    a = ap.parse_args(argv)
+    return a.in_dir, a.out_dir, a.format
+
+
+def write_embed_and_head(out_dir: str, emb: np.ndarray, lm: np.ndarray) -> dict:
+    """The fp32 embedding and UNTIED head, after proving they differ. Returns the manifest entry."""
+    write_f32(os.path.join(out_dir, "embed_tokens_weight.bin"), emb)
+    # Prove they are genuinely distinct before writing two 5.4 GB files that
+    # only differ if the model is really untied.
+    n = min(4096, lm.shape[0])
+    same = np.array_equal(lm[:n], emb[:n])
+    if same:
+        sys.exit("FATAL: lm_head == embed_tokens on the first rows, but config says "
+                 "untied. Refusing to emit a redundant head under a false contract.")
+    a, b = lm[:n].ravel(), emb[:n].ravel()
+    cos = float(a @ b / ((np.linalg.norm(a) * np.linalg.norm(b)) + 1e-9))
+    write_f32(os.path.join(out_dir, "lm_head_weight.bin"), lm)
+    return {"cos_vs_embed_first_rows": round(cos, 6)}
+
+
+def write_head_nvfp4(out_dir: str, lm: np.ndarray, write_nvfp4) -> dict:
+    """lm_head_weight.nvfp4, encoded from lm_head with the existing encoder, atomically. The W4A4 loader reads the
+    untied head from this file (UNTIED_LM_HEAD in lib/model_profiles/muse.mojo, head_stem in lib/gemma4_engine.mojo).
+    Encoding the full head peaks around 28 GiB of RAM (measured on an eighth of its rows, scaled)."""
+    stem = os.path.join(out_dir, "lm_head_weight")
+    write_nvfp4(stem + ".tmp.nvfp4", lm)
+    os.replace(stem + ".tmp.nvfp4", stem + ".nvfp4")
+    return {"nvfp4": "lm_head_weight.nvfp4"}
+
+
+def main(argv=None) -> None:
+    in_dir, out_dir, fmt = parse_args(sys.argv[1:] if argv is None else argv)
     write_nvfp4 = None
     if fmt == "nvfp4":
         # NB: the module exports nvfp4_quantize/write_nvfp4 — there is no `quantize`.
@@ -112,7 +147,8 @@ def main() -> None:
     from safetensors import safe_open
     import torch
 
-    idx = json.load(open(os.path.join(in_dir, "model.safetensors.index.json")))["weight_map"]
+    with open(os.path.join(in_dir, "model.safetensors.index.json")) as f:
+        idx = json.load(f)["weight_map"]
     handles = {}
 
     def T(name: str) -> np.ndarray:
@@ -174,32 +210,24 @@ def main() -> None:
             print(f"  layer {i}/{N_LAYERS}", flush=True)
 
     # ── embeddings + UNTIED head ─────────────────────────────────────────────
-    emb = T("model.language_model.embed_tokens.weight")
-    write_f32(os.path.join(out_dir, "embed_tokens_weight.bin"), emb)
-
     lm_name = "lm_head.weight"
     if lm_name not in idx:
         sys.exit("FATAL: no lm_head.weight -- config says tie_word_embeddings=False, "
                  "so a tied checkpoint means the contract changed. Stop.")
+    emb = T("model.language_model.embed_tokens.weight")
     lm = T(lm_name)
-    # Prove they are genuinely distinct before writing two 5.4 GB files that
-    # only differ if the model is really untied.
-    n = min(4096, lm.shape[0])
-    same = np.array_equal(lm[:n], emb[:n])
-    if same:
-        sys.exit("FATAL: lm_head == embed_tokens on the first rows, but config says "
-                 "untied. Refusing to emit a redundant head under a false contract.")
-    a, b = lm[:n].ravel(), emb[:n].ravel()
-    cos = float(a @ b / ((np.linalg.norm(a) * np.linalg.norm(b)) + 1e-9))
-    report["untied_lm_head"] = {"cos_vs_embed_first_rows": round(cos, 6)}
-    write_f32(os.path.join(out_dir, "lm_head_weight.bin"), lm)
+    report["untied_lm_head"] = write_embed_and_head(out_dir, emb, lm)
+    del emb                                            # 5.4 GB; not needed for the head encode
+    if fmt == "nvfp4":
+        report["untied_lm_head"].update(write_head_nvfp4(out_dir, lm, write_nvfp4))
 
     # ── final norm: RAW, deliberately NOT centered ───────────────────────────
     fn = T("model.language_model.norm.weight")
     write_f32(os.path.join(out_dir, "norm_weight.bin"), fn)
 
     report["source"] = in_dir
-    json.dump(report, open(os.path.join(out_dir, "convert_manifest.json"), "w"), indent=2)
+    with open(os.path.join(out_dir, "convert_manifest.json"), "w") as f:
+        json.dump(report, f, indent=2)
     print(f"\n  done -> {out_dir}")
     print(f"  centered (+1): {report['centered_norms']}  x{N_LAYERS} layers")
     print(f"  final norm centered: {report['final_norm_centered']}  (must be False)")
