@@ -1,12 +1,13 @@
 # Pinned agent package
 
-`glimmer-agent-a287b8c.tgz` is an npm package built by `npm pack` from private
-`lightofbaldr/glimmer-agent`, commit `a287b8c257ad46f9d0350f25487020ecc9e2256d`.
+`glimmer-agent-cb2d4ca.tgz` is the npm package built by `npm pack` from this repository's `glimmer-agent/` folder at
+commit `cb2d4cac9b269ee03aeae116518176e1a055652d` (MIT, Light of Baldr LLC; see `../../glimmer-agent/LICENSE`).
 
-Archive SHA-256: `21571442d1d9d7dcf991fb91bc2c8e51383d6c0d61873708efdb724c75990126`.
-The npm lock also binds SHA-512 integrity and Pi dependencies at 1.3.0.
+Archive SHA-256: `d321dd66772887a1bd4d1ab5ddae927dc670d3ae67ac92bfc47d42c6dfc42adc`. The npm lock also binds its SHA-512
+integrity and the Pi dependencies at 1.3.0. Its `dist/`, `package.json` and `README.md` were checked to be identical to a
+fresh `tsc` build of that commit.
 
-The five modules have unchanged semantics from reviewed `6ea3078`; the successor
-adds ordinary compiled ESM exports and a kernel-launcher pin. The app imports the
-package, not copied or forked provider/extension/bridge source. Update this artifact
-only from a reviewed agent commit. No capture data or model assets are in the archive.
+The app imports the package rather than copying the provider, extension or bridge source. Update this artifact only from
+a reviewed agent commit. No capture data or model assets are in the archive. Earlier archives
+(`a287b8c`, `478f17a`, `0b67613`, `a84c710`) were removed from the tree for the public release; they remain in history
+and in the verification records that name them.

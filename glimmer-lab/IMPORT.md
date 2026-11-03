@@ -2,7 +2,7 @@
 
 This is a **fresh repository**, not a fork or a history transfer. Its initial
 application is the working snapshot of `ports/nomos-muse` in
-`/home/adam/Projects/design-kits`, based on
+`~/Projects/design-kits`, based on
 `ecb0850b8a3af600bf6a8833ccc6739e9d7dde99`.
 
 The source had uncommitted changes. [The per-file manifest](docs/import/snapshot.json)

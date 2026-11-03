@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import os from 'node:os';
 import fs from 'node:fs/promises';
 import {harness,root} from './harness.mjs';
 const h=await harness(),checks=[];
@@ -33,7 +34,7 @@ try{
   await page.setViewportSize({width:1512,height:1120});await page.screenshot({path:root+'evidence/lab-integrated-desktop.png',fullPage:true});
   // Server allowlist and method boundary, without passing hostile text to a shell.
   for(const u of ['/data/nope.json','/data/dataset-1/package.json','/data/dataset-1/%252e%252e/package.json']){
-    const r=await fetch(h.base+u);check(r.status===404,'Unknown local file refused');check(!(await r.text()).includes('/home/adam'),'Refusal reveals no private path');
+    const r=await fetch(h.base+u);check(r.status===404,'Unknown local file refused');check(!(await r.text()).includes(os.homedir()),'Refusal reveals no private path');
   }
   const write=await fetch(h.base+'/data/catalog.json',{method:'POST'});check(write.status===405,'Adapter accepts no writes');
   check(!h.requests.some(u=>/\/api\/nomos\/|\/v1\/|8091/.test(u)),'Recorded navigation makes no model requests');

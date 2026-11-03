@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import {test} from 'node:test';
 import {readFile,writeFile,mkdir,rm} from 'node:fs/promises';
 import {MemoryStorage,BACKGROUND_CONTEXT as ctx} from 'glimmer-agent/pi';
@@ -7,7 +9,7 @@ import {createFileBroker,FILE_BROKER_PATH} from '../../src/lib/server/file-broke
 import {createRuntime} from '../../src/lib/server/pi-runtime.ts';
 import {fileKernel} from '../files/fixture.ts';
 import {until} from '../live/fixture.ts';
-const PREFIX='/home/adam/Projects/nomos-interp-kernel/.pixi/envs/default';
+const PREFIX=(process.env.GLIMMER_MOJO_PREFIX??path.join(os.homedir(),'Projects/nomos-interp-kernel/.pixi/envs/default'));
 
 test('real Pi writes then invokes Mojo; durable output and profile bind the actual fixed capability',async()=>{
   const f=await fileKernel(),files=createFileBroker(f.root+'/sandbox',PREFIX),r=await createRuntime(f.base,new MemoryStorage(),files);

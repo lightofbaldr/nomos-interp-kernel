@@ -1,3 +1,4 @@
+# Modified by Light of Baldr LLC, 2026. See MODIFICATIONS.md.
 [build-system]
 requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"

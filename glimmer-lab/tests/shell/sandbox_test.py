@@ -23,7 +23,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'runtime/files'
 BROKER = SOURCE / 'shell_broker.py'
-PREFIX = '/home/adam/Projects/nomos-interp-kernel/.pixi/envs/default'
+PREFIX = os.environ.get('GLIMMER_MOJO_PREFIX', os.path.expanduser('~/Projects/nomos-interp-kernel/.pixi/envs/default'))
 
 
 def module(name):

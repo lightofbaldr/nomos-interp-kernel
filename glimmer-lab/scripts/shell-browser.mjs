@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import {rm} from 'node:fs/promises';
 import {harness} from './harness.mjs';
 import {agentKernel} from '../tests/agent/fixture.ts';
@@ -7,7 +9,7 @@ import {waitForProfileSettled} from './profile-settled.mjs';
 const f=await agentKernel();let h,page;
 try{
   // Isolated synthetic instance only. The production operator flag stays absent.
-  h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/shell-ui.sqlite',GLIMMER_ENABLE_SANDBOX_SHELL:'1',GLIMMER_MOJO_PREFIX:'/home/adam/Projects/nomos-interp-kernel/.pixi/envs/default',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin});
+  h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/shell-ui.sqlite',GLIMMER_ENABLE_SANDBOX_SHELL:'1',GLIMMER_MOJO_PREFIX:(process.env.GLIMMER_MOJO_PREFIX??path.join(os.homedir(),'Projects/nomos-interp-kernel/.pixi/envs/default')),NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin});
   page=await h.browser.newPage({viewport:{width:1440,height:900}});h.observe(page);page.setDefaultTimeout(20000);
   await page.goto(h.base+'/');const mode=page.getByRole('switch',{name:'Agent mode',exact:true});await until(async()=>await mode.isEnabled());await mode.check();
   // Activation opens the workspace after the checks finish.

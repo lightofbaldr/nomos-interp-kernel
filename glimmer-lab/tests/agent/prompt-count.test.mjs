@@ -7,10 +7,11 @@ import path from 'node:path';
 import os from 'node:os';
 import {fileURLToPath} from 'node:url';
 
-const PYTHON = '/home/adam/Projects/open-webui/.venv/bin/python';
-const TOKENIZER = '/home/adam/nomos_data/muse-glimmer-tokenizer';
-const PROTOCOL = '/home/adam/Projects/nomos-interp-kernel/pyhost/serve_protocol.py';
-const SERVE = '/home/adam/Projects/nomos-interp-kernel/pyhost/serve.py';
+const PYTHON = process.env.GLIMMER_COUNTER_PYTHON ?? path.join(os.homedir(), 'Projects/open-webui/.venv/bin/python');
+const TOKENIZER = process.env.NOMOS_TOKENIZER_DIR ?? path.join(os.homedir(), 'nomos_data/muse-glimmer-tokenizer');
+const KERNEL_DIR = process.env.NOMOS_KERNEL_DIR ?? path.join(os.homedir(), 'Projects/nomos-interp-kernel');
+const PROTOCOL = path.join(KERNEL_DIR, 'pyhost/serve_protocol.py');
+const SERVE = path.join(KERNEL_DIR, 'pyhost/serve.py');
 const COUNTER = fileURLToPath(new URL('../../scripts/agent-prompt-count.py', import.meta.url));
 const ASSETS = ['chat_template.jinja', 'config.json', 'generation_config.json', 'tokenizer.json', 'tokenizer_config.json'];
 const digest = value => createHash('sha256').update(value).digest('hex');

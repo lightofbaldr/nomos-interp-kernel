@@ -44,7 +44,7 @@ class Namespace(unittest.TestCase):
         sentinel.write_text("FAKE PRIVATE OUTSIDE WORK")
         code = f"""import os, pathlib
 assert not pathlib.Path({str(sentinel)!r}).exists()
-for path in ['/home/adam/.env', '/home/adam/.claude', '/run/user/1000', '/dev/nvidia0']:
+for path in [{str(Path.home() / '.env')!r}, {str(Path.home() / '.claude')!r}, '/run/user/1000', '/dev/nvidia0']:
     assert not pathlib.Path(path).exists(), path
 for key in ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'HTTP_PROXY', 'CLAUDECODE']:
     assert key not in os.environ, key

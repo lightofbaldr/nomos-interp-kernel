@@ -7,6 +7,6 @@
 - Geist Variable and Geist Mono Variable 5.3.0 use Fontsource's local font assets and bundled licenses. Browsing never loads Google Fonts/CDN font URLs.
 - Icons are Phosphor Svelte 3.0.1. Supplied children replace AI Elements' default submit icon to keep the app's icon voice consistent.
 - Native, code-rendered concept diagrams and score bars reflect the supplied fixture/record data. The connecting diagram strokes do not represent measured causal edges. No scientific image, car photo, generated person or stock avatar is used.
-- The chat watermark is a transparent, image-tool-derived cutout of Adam's supplied `/home/adam/Downloads/muse.png`. It is decorative only, not a model-state indicator. Original, edited PNG and prompt are recorded in `docs/assets/`; the browser serves a local WebP. This is a supplied brand asset, not an original Nomos mascot; no redistribution/license or Meta endorsement is claimed.
+- The chat watermark is a transparent, image-tool-derived cutout of Adam's supplied `~/Downloads/muse.png`. It is decorative only, not a model-state indicator. Original, edited PNG and prompt are recorded in `docs/assets/`; the browser serves a local WebP. This is a supplied brand asset, not an original Nomos mascot; no redistribution/license or Meta endorsement is claimed.
 
 Muse/Meta styling is inspiration requested by Adam. The app is an independent Nomos prototype, not official Meta UI or endorsed tooling. No remote registry JSON, generated component schemas or browser custom elements are used.

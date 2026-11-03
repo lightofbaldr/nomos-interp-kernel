@@ -30,7 +30,7 @@ hashes in the private session database and preview responses. These are runtime
 data, not committed source. Scrub them before exporting sessions/screenshots.
 `GLIMMER_HARNESS_IMPORT_ROOTS` is operator configuration and must not be committed.
 Mojo test fixtures/runners and verification docs name the local compiler prefix
-`/home/adam/Projects/nomos-interp-kernel/.pixi/envs/default`: specifically
+`~/Projects/nomos-interp-kernel/.pixi/envs/default`: specifically
 `tests/mojo/integration.test.ts`, `tests/mojo/sandbox_test.py`,
 `scripts/mojo-browser.mjs` and `docs/HARNESS-WORKBENCH-C-VERIFICATION.md`.
 The opt-in live runner uses `GLIMMER_MOJO_PREFIX`; retain that operator selection,
@@ -39,7 +39,7 @@ Mojo tool results include that prefix and selected hashes. Vite embeds the app
 build root for trusted broker resolution: rebuild on the target host, and scrub
 runtime data/screenshots rather than treating paths as portable deployment data.
 
-Inventory again at export time with a tracked-file search for `/home/adam`,
+Inventory again at export time with a tracked-file search for the operator's home path,
 `192.168.`, `design-kits`, private hostnames and local data paths. Also check the
 vendored package license/notice files. This checklist is not publication approval.
 

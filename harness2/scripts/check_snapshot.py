@@ -1,9 +1,11 @@
+# Modified by Light of Baldr LLC, 2026. See MODIFICATIONS.md.
 """Verify the fresh root commit against the read-only source tree, without importing refs."""
+import os
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = Path('/home/adam/nomos_data/scratch/harness2-read')
+SOURCE = Path(os.environ.get('HARNESS2_SNAPSHOT_SOURCE', '~/nomos_data/scratch/harness2-read')).expanduser()
 REV = '75f8d20ce2e6688624a4d88bf6b305668d6c6a31'
 
 def git(root, *args):

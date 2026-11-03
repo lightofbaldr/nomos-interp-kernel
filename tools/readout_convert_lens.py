@@ -9,8 +9,8 @@ import sys
 import numpy as np
 import torch
 
-SRC = "/home/adam/Projects/jspace-readout/lenses/glimmer/Muse-Glimmer-30B_jacobian_lens.pt"
-NORM = "/home/adam/nomos_data/muse-glimmer-flat-nvfp4/norm_weight.bin"
+SRC = os.environ.get("READOUT_LENS_SRC", "")  # the Jacobian lens .pt; not distributed here, so set this
+NORM = os.path.expanduser("~/nomos_data/muse-glimmer-flat-nvfp4/norm_weight.bin")
 OUT = os.path.expanduser("~/nomos_data/readout-assets/lens-muse-glimmer")
 D = 6656
 
@@ -32,6 +32,8 @@ def write(path, arr):
 def main(layers):
     os.makedirs(OUT, exist_ok=True)
     man_path = os.path.join(OUT, "manifest.json")
+    if not SRC:
+        sys.exit("Set READOUT_LENS_SRC to the Jacobian lens .pt file.")
     src_sha = sha(SRC)
     man = json.load(open(man_path)) if os.path.exists(man_path) else {
         "kind": "lens", "source": SRC, "source_sha256": src_sha,

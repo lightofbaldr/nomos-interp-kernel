@@ -1,6 +1,6 @@
 {
   "schema": "glimmer-lab.snapshot/1",
-  "source_repo": "/home/adam/Projects/design-kits",
+  "source_repo": "~/Projects/design-kits",
   "source_path": "ports/nomos-muse",
   "base_commit": "ecb0850b8a3af600bf6a8833ccc6739e9d7dde99",
   "snapshot": "current working tree; NOT an exact committed-tree export",

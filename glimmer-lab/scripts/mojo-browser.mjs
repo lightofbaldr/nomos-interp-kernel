@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import {rm} from 'node:fs/promises';
 import {harness} from './harness.mjs';
 import {fileKernel} from '../tests/files/fixture.ts';
 const f=await fileKernel();let h;
 try{
-  h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/mojo-ui.sqlite',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin,GLIMMER_MOJO_PREFIX:'/home/adam/Projects/nomos-interp-kernel/.pixi/envs/default'});
+  h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/mojo-ui.sqlite',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin,GLIMMER_MOJO_PREFIX:(process.env.GLIMMER_MOJO_PREFIX??path.join(os.homedir(),'Projects/nomos-interp-kernel/.pixi/envs/default'))});
   const page=await h.browser.newPage({viewport:{width:1500,height:1100}});h.observe(page);page.setDefaultTimeout(15000);
   await page.goto(h.base+'/preview');await page.getByText('Pi connected',{exact:true}).waitFor();await page.getByRole('tab',{name:'Profile',exact:true}).click();
   await page.getByLabel('Enable tool mojo',{exact:true}).waitFor();assert.equal(await page.getByLabel('Enable tool mojo',{exact:true}).isEnabled(),false);

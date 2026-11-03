@@ -1,4 +1,5 @@
 // Explicit opt-in client. No serve launcher, paid provider, live lab or retries.
+import os from 'node:os';
 import assert from 'node:assert/strict';
 import {spawn,execFileSync} from 'node:child_process';
 import {createServer} from 'node:http';
@@ -16,7 +17,7 @@ assertSupportedRuntime();
 const [mode,out,manifest]=process.argv.slice(2),live=mode==='--live';
 assert.ok(['--fixture','--live'].includes(mode)&&out&&manifest&&process.argv.length===5,'Use --fixture|--live NEW_ABSOLUTE_DIR ABSOLUTE_COUNTER_MANIFEST. Live requires Prime’s exclusive slot.');
 assert.ok(path.isAbsolute(out)&&path.isAbsolute(manifest));
-const upstream=live?'http://127.0.0.1:8091':null,python='/home/adam/Projects/open-webui/.venv/bin/python';
+const upstream=live?'http://127.0.0.1:8091':null,python=(process.env.GLIMMER_COUNTER_PYTHON??path.join(os.homedir(),'Projects/open-webui/.venv/bin/python'));
 const prefix=process.env.GLIMMER_MOJO_PREFIX;assert.ok(prefix&&path.isAbsolute(prefix),'Set the approved compiler prefix.');
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const save=(name,obj)=>writeFile(path.join(out,name),JSON.stringify(obj,null,2)+'\n',{flag:'wx',mode:0o600});
@@ -49,7 +50,7 @@ try{
   const health=async()=>{const r=await fetch(base+'/health',{headers:{Connection:'close'},redirect:'error',signal:AbortSignal.timeout(5000)});assert.equal(r.status,200);const h=await r.json();assert.equal(h.ready,true);assert.equal(h.readout?.supported,true);return h;};
   healthBefore=await health();await pause(100);if(live)noClients();
   const pin='c9dbee66967b58f31a7c27f723c3760da3526ccd0427578e8905b0abb0031c4d';
-  const assets=live?await assetCatalog('/home/adam/nomos_data/readout-assets/registry.json',healthBefore,pin):fixture.assets;
+  const assets=live?await assetCatalog((process.env.NOMOS_READOUT_REGISTRY??path.join(os.homedir(),'nomos_data/readout-assets/registry.json')),healthBefore,pin):fixture.assets;
   assert.equal(assets.supported,true);
   await save('launch.json',{mode,node:process.versions,commit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),
     status:execFileSync('git',['status','--short'],{encoding:'utf8'}),script:sha(await readFile(new URL(import.meta.url))),counter:sha(await readFile('scripts/agent-prompt-count.py')),

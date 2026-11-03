@@ -9,7 +9,7 @@ import sys
 
 import numpy as np
 
-SRC = "/home/adam/nomos_data/emotions/glimmer/sp1/vectors/vectors.npz"
+SRC = os.path.expanduser("~/nomos_data/emotions/glimmer/sp1/vectors/vectors.npz")
 OUT = os.path.expanduser("~/nomos_data/readout-assets/directions-sp1")
 
 

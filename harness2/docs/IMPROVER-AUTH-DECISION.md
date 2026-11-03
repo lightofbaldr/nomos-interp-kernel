@@ -32,7 +32,7 @@ were deleted instead of presenting that route as safe behind a caveat.
 
 The original local evidence remains unchanged:
 
-- Directory: `/home/adam/Projects/harness2/.unlazy/improver-auth-feasibility/`
+- Directory: `~/Projects/harness2/.unlazy/improver-auth-feasibility/`
 - `witness.py`: SHA-256
   `27f1a7869939b37346b785cad5df4c1e55c2a1140fce8e4c50d23829c220939d`
 - `witness.log`: SHA-256

@@ -21,7 +21,7 @@ LAYOUT = readout.Layout(3, 2, 2, 4)        # emotion layers [20, 24, 29]: the st
 STEER_INDEX = 1
 HEADER = {"v": readout.V, "conversation": None, "turn": None, "response_id": "t", "settings": None, "steer": None}
 PROMPT = [1, 2, 3]
-V2 = "/home/adam/nomos_data/emotions/glimmer/wsdiff/discovery1/run-20261024-170208"
+V2 = os.path.expanduser("~/nomos_data/emotions/glimmer/wsdiff/discovery1/run-20261024-170208")
 
 
 class FakeLM:
@@ -410,7 +410,7 @@ class Scenarios(unittest.TestCase):
         self.assertNotIn("G4_upstream_invariance", C.gates(free, {}, LAYOUT, 3, 2, STEER_INDEX))
 
 
-@unittest.skipUnless(os.path.exists("/home/adam/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json"),
+@unittest.skipUnless(os.path.exists(os.path.expanduser("~/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json")),
                      "the recorded lie episodes are absent")
 class LieScenarioBuilder(unittest.TestCase):
     def test_the_replay_and_answer_scenarios_split_the_recorded_ids_at_the_answer(self):
@@ -420,7 +420,7 @@ class LieScenarioBuilder(unittest.TestCase):
         import steerdiff_scenarios as S
         tok = AutoTokenizer.from_pretrained(os.path.expanduser("~/nomos_data/muse-glimmer-tokenizer"))
         protocol = load_serve_protocol(tok, 2)
-        path = "/home/adam/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json"
+        path = os.path.expanduser("~/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json")
         with open(path) as f:
             ep = json.load(f)
         replay, answer = S.lie_scenarios(path, "TATHUGA", tok, protocol, serve._atem_channel, tail=256)
@@ -436,7 +436,7 @@ class LieScenarioBuilder(unittest.TestCase):
 
     def test_the_reason_scenario_starts_at_the_recorded_prompt_and_reasons_freely(self):
         import steerdiff_scenarios as S
-        path = "/home/adam/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json"
+        path = os.path.expanduser("~/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json")
         with open(path) as f:
             kv = json.load(f)["kv"]
         sc = S.reason_scenario(path, "TATHUGA", max_new=4096)
@@ -621,7 +621,7 @@ class ExportScenarios(unittest.TestCase):
 
 
 
-@unittest.skipUnless(os.path.exists("/home/adam/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json"),
+@unittest.skipUnless(os.path.exists(os.path.expanduser("~/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json")),
                      "the recorded lie episodes are absent")
 class ChannelPriming(unittest.TestCase):
     """A run whose prefix reaches past the original prompt labels its tokens as a parser reading the whole recorded
@@ -634,7 +634,7 @@ class ChannelPriming(unittest.TestCase):
         import steerdiff_scenarios as S
         tok = AutoTokenizer.from_pretrained(os.path.expanduser("~/nomos_data/muse-glimmer-tokenizer"))
         protocol = load_serve_protocol(tok, 2)
-        path = "/home/adam/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json"
+        path = os.path.expanduser("~/nomos_data/emotions/glimmer/examples/lies/none/8b241c2db1d5-2.json")
         replay, answer = S.lie_scenarios(path, "TATHUGA", tok, protocol, serve._atem_channel, tail=256)
         P = replay["onset"] + 1
         gen = replay["prompt_ids"][P:] + replay["reference"]
@@ -724,7 +724,7 @@ class Sampled(unittest.TestCase):
 
     def test_the_vendored_sampler_draws_exactly_as_the_examples_sampler(self):
         import steerdiff_sampler as S
-        ref = "/home/adam/Projects/glimmer-emotions-runs/examples-8037a03/examples/sampler.py"
+        ref = os.path.expanduser("~/Projects/glimmer-emotions-runs/examples-8037a03/examples/sampler.py")
         if not os.path.exists(ref):
             self.skipTest("the examples sampler is absent")
         import importlib.util

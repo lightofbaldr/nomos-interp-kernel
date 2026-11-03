@@ -22,7 +22,7 @@ the application, check the toolchain from Profile, then explicitly enable `mojo`
 It is off by default. No compiler is provisioned by the feature. Tested prefix:
 
 ```
-/home/adam/Projects/nomos-interp-kernel/.pixi/envs/default
+~/Projects/nomos-interp-kernel/.pixi/envs/default
 ```
 
 Selected identity hashes used by the real CPU tests:

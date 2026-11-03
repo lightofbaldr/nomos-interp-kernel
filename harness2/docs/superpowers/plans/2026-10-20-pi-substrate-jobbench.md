@@ -365,7 +365,7 @@ def test_pi_agent_dir_links(self):  # source tmp with models.json/auth.json; con
 - [ ] **Step 1: Create the isolated agent dir for real**
 
 Run: `.venv/bin/python -c "from harness2 import install; print(install.pi_agent_dir())"` then `ls -la dependencies/pi/agent`
-Expected: `settings.json`, `models.json -> /home/adam/.pi/agent/models.json`, `auth.json -> …`.
+Expected: `settings.json`, `models.json -> ~/.pi/agent/models.json`, `auth.json -> …`.
 
 - [ ] **Step 2: Resolve the model under isolation**
 
@@ -377,7 +377,7 @@ Expected: exit 0; `smoke.jsonl` has a `read` call on `SKILL.md`, a `bash` call r
 
 - [ ] **Step 4: Check isolation and rendering** — `grep -c '"toolName"' smoke.jsonl` > 0; `.venv/bin/python -c "from harness2.substrate.pi import render_events; print(render_events('smoke.jsonl', obs_trunc=2000, max_chars=10**6))"` reads cleanly (one `[OBSERVATION…]` per tool call, no duplicates). If the real stream shape differs from Task 6's assumptions (e.g. tool results only as `message_end`), fix `render_events` and its unit test.
 
-- [ ] **Step 5: Record the fixture** — copy `smoke.jsonl` to `tests/fixtures/pi_events_smoke.jsonl` after `sed` replacing `/home/adam` with `/home/user` and the temp path with `/tmp/ws`; `grep -i -c "api_key\|bearer" tests/fixtures/pi_events_smoke.jsonl` must be 0. Add `test_render_events_smoke_fixture` asserting `[ACTION] read(` and `rm -rf is not allowed` appear and `stream_usage(...)["settled"]` is True.
+- [ ] **Step 5: Record the fixture** — copy `smoke.jsonl` to `tests/fixtures/pi_events_smoke.jsonl` after `sed` replacing the operator's home path with `/home/user` and the temp path with `/tmp/ws`; `grep -i -c "api_key\|bearer" tests/fixtures/pi_events_smoke.jsonl` must be 0. Add `test_render_events_smoke_fixture` asserting `[ACTION] read(` and `rm -rf is not allowed` appear and `stream_usage(...)["settled"]` is True.
 
 - [ ] **Step 6: Probe session resume for LAB (record only)** — rerun with `--session-dir <dir> --session <file>` and prompt "Say DONE": record in `docs/PI.md` whether JSON-mode resume worked.
 

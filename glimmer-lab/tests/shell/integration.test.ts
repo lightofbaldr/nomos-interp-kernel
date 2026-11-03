@@ -1,4 +1,6 @@
 import test from 'node:test';
+import os from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import {readFile,access,rm} from 'node:fs/promises';
 import {MemoryStorage} from 'glimmer-agent/pi';
@@ -8,7 +10,7 @@ import {createRuntime} from '../../src/lib/server/pi-runtime.ts';
 import {profileAction} from '../../src/lib/server/profile-api.ts';
 import {agentKernel} from '../agent/fixture.ts';
 import {until} from '../live/fixture.ts';
-const PREFIX='/home/adam/Projects/nomos-interp-kernel/.pixi/envs/default';
+const PREFIX=(process.env.GLIMMER_MOJO_PREFIX??path.join(os.homedir(),'Projects/nomos-interp-kernel/.pixi/envs/default'));
 
 test('operator-off shell refuses readiness, execution and a forged profile before creating a workspace',async()=>{
   const f=await agentKernel(),root=f.root+'/sandbox',broker=createFileBroker(root,PREFIX),r=await createRuntime(f.base,new MemoryStorage(),broker);

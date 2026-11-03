@@ -1,7 +1,7 @@
 """Readout spine kernel tests (glimmer-emotions docs/superpowers/specs/2026-10-20-readout-spine-design.md, section 2).
 GPU, with the serve down, on the library the last build recorded. From the worktree root (the plan's test command):
-  read -r SO_SHA256 SO < /home/adam/nomos_data/readout-spine/build/so.sha256 && echo "$SO_SHA256  $SO" | sha256sum -c - &&
-  SO_PATH="$SO" READOUT_SO_SHA256="$SO_SHA256" /home/adam/Projects/glimmer-emotions/scripts/with_serve_down.sh LOG -- \
+  read -r SO_SHA256 SO < ~/nomos_data/readout-spine/build/so.sha256 && echo "$SO_SHA256  $SO" | sha256sum -c - &&
+  SO_PATH="$SO" READOUT_SO_SHA256="$SO_SHA256" ~/Projects/glimmer-emotions/scripts/with_serve_down.sh LOG -- \
     tools/sp1_env.sh pixi run --no-install python3 tools/test_readout.py -v
 tools/sp1_env.sh sets NOMOS_PREFILL_CHUNK=256 and NOMOS_KVSTORE=0; kvsession_testlib.Kernel sets NOMOS_MAX_SEQ=8192.
 The CPU-only classes (BitOracle, BenchGate) never load the library.

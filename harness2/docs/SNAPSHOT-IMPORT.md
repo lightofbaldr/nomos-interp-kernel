@@ -1,7 +1,7 @@
 # Fresh snapshot import — 2026-10-30
 
 Source: Adam's read-only Harness² clone at
-`/home/adam/nomos_data/scratch/harness2-read`, revision
+`~/nomos_data/scratch/harness2-read`, revision
 `75f8d20ce2e6688624a4d88bf6b305668d6c6a31` (138 tracked files).
 The source worktree was clean. Its history included a non-project author identity and
 upstream authors/committers, so no source commits or refs were imported.
@@ -17,3 +17,5 @@ All new commits use the repository-local identity
 `Light of Baldr <oss@lightofbaldr.dev>`. The source clone and Forgejo remain
 read-only. Task data, credentials, runtime installations and run output are not
 part of the snapshot.
+
+_Modified by Light of Baldr LLC, 2026. See ../MODIFICATIONS.md._

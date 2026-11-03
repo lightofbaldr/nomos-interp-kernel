@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import {mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';
 import {harness} from './harness.mjs';
 import {agentKernel} from '../tests/agent/fixture.ts';
 import {until} from '../tests/live/fixture.ts';
 import {waitForProfileSettled} from './profile-settled.mjs';
 const f=await agentKernel();let h,page;
-const database=f.root+'/agent-ui.sqlite',prefix='/home/adam/Projects/nomos-interp-kernel/.pixi/envs/default';
+const database=f.root+'/agent-ui.sqlite',prefix=(process.env.GLIMMER_MOJO_PREFIX??path.join(os.homedir(),'Projects/nomos-interp-kernel/.pixi/envs/default'));
 const get=url=>fetch(url,{headers:{Origin:h.base}});
 try{
   await mkdir(f.root+'/imports/improved/skills/verify',{recursive:true});

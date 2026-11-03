@@ -13,7 +13,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 BROKER = ROOT / 'runtime/files/mojo_broker.py'
-PREFIX = '/home/adam/Projects/nomos-interp-kernel/.pixi/envs/default'
+PREFIX = os.environ.get('GLIMMER_MOJO_PREFIX', os.path.expanduser('~/Projects/nomos-interp-kernel/.pixi/envs/default'))
 
 
 class MojoSandbox(unittest.TestCase):

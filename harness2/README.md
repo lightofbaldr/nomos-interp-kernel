@@ -1,3 +1,5 @@
+> **Modified copy.** This folder is Google's open-source Harness² with changes by Light of Baldr LLC for a Pi + Mojo + Glimmer benchmark. See [MODIFICATIONS.md](MODIFICATIONS.md).
+
 <h3 align="center">
   <img src="assets/Harness2-wordmark.png" alt="Harness²" width="360"><br>
   Recursive Agent Harnessing for an Open World

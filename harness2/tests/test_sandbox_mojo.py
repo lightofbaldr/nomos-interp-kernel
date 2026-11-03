@@ -118,7 +118,7 @@ class SandboxTests(unittest.TestCase):
         sentinel.write_text("sentinel-secret-not-a-real-key")
         code = f"""import os, pathlib, socket
 assert not pathlib.Path({str(sentinel)!r}).exists()
-assert not pathlib.Path('/home/adam/.env').exists()
+assert not pathlib.Path({str(Path.home() / '.env')!r}).exists()
 assert not pathlib.Path('/run/user/1000').exists()
 assert 'META_API_HACKATHON' not in os.environ
 assert 'HTTP_PROXY' not in os.environ

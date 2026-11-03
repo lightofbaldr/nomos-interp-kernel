@@ -2,7 +2,7 @@
 subprocess and the serve runs in this process (fastapi TestClient, daemon mode); real requests carry a `nomos` block.
 The serve is restarted once against the same daemon (review ruling R4).
 The serve must be down; from the worktree root:
-  /home/adam/Projects/glimmer-emotions/scripts/with_serve_down.sh /home/adam/nomos_data/readout-spine/logs/e2e -- \
+  ~/Projects/glimmer-emotions/scripts/with_serve_down.sh ~/nomos_data/readout-spine/logs/e2e -- \
       pixi run --no-install python3 tools/readout_e2e.py
 It uses its own socket and KV store under ~/nomos_data/readout-spine/e2e, never the production ones."""
 import json

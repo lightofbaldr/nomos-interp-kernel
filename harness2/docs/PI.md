@@ -337,3 +337,5 @@ spreadsheet; 59 rubric criteria).
   (the bonus-target change, the severance-versus-walk-away comparison, the five-issue
   executive summary) and lost one (the Board-nomination Good Reason trigger); both missed
   the 30-month severance framing and the market-practice framing of the 280G gross-up.
+
+_Modified by Light of Baldr LLC, 2026. See ../MODIFICATIONS.md._

@@ -1,3 +1,4 @@
+# Modified by Light of Baldr LLC, 2026. See MODIFICATIONS.md.
 """The local OpenAI-compatible judge bridge over `claude -p` and `codex exec`."""
 
 import base64

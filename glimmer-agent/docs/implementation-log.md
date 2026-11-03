@@ -66,4 +66,4 @@ Implementation and verification evidence will be appended per task. GPU work is 
 - Expanded integration docs: independent chats versus the singleton root, lifetime and shutdown, reconnect ordering, report traversal, no duplicate counting, interpretation and deployment limits.
 - Final fresh npm ci, package-hash check, 54/54 CPU tests and typecheck all pass. Acceptance G1-G5 re-executed; G6 uses the successful GPU evidence, G7 the branch/identity/handoff checks. Seven met, zero unmet, zero abandoned.
 - Final source comparison: src/pi.ts, contract.ts, provider.ts, extension.ts and bridge.ts are byte-identical to their reviewed-plan blocks. No code or dependency change since GPU-tested 028f684.
-- Full result: `/home/adam/Desktop/Codex/RESULT-readout-spine-plan3-pi-2026-10-26.md`, sent to Prime (1403). Merge remains pending Prime's review and Adam's OK, not an implementation task.
+- Full result: `~/Desktop/Codex/RESULT-readout-spine-plan3-pi-2026-10-26.md`, sent to Prime (1403). Merge remains pending Prime's review and Adam's OK, not an implementation task.

@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modified by Light of Baldr LLC, 2026. See MODIFICATIONS.md.
 
 """Run one adaptation sweep: every task of a split, domains parallel, tasks in stream order.
 

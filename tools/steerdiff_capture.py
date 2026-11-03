@@ -5,7 +5,7 @@ store. The next token is the argmax (free generation) or the reference run's (ma
 assembled by readout.ReadoutTurn exactly as the serve's base path assembles them, and gates G1-G4, G6 and G7 compare the
 raw record bytes before any difference is shown.
 The serve must be down; from this worktree's root:
-  /home/adam/Projects/glimmer-emotions/scripts/with_serve_down.sh ~/nomos_data/steering-diff/logs/RUN -- \\
+  ~/Projects/glimmer-emotions/scripts/with_serve_down.sh ~/nomos_data/steering-diff/logs/RUN -- \\
       systemd-run --user --wait --collect --pipe -p WorkingDirectory=$PWD -E PATH -E HOME \\
       pixi run --no-install python3 tools/steerdiff_capture.py --out ~/nomos_data/steering-diff/RUN
 It re-executes itself under the Muse launcher's environment (serve_nomos.sh --model muse env) with NOMOS_KVSTORE=0."""
