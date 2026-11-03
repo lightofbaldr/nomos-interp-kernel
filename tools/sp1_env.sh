@@ -7,7 +7,7 @@ export SO_PATH="${SO_PATH:-$PWD/libnomos_kernel-muse.so}" WEIGHTS=~/nomos_data/m
   NOMOS_KV_INT4=0 NOMOS_KV_I4_BLOCK=32 NOMOS_KV_SWA=0 NOMOS_KVSTORE=0 NOMOS_MAX_SEQ=4096 \
   NOMOS_PREFILL_CHUNK=256 NOMOS_BATCHED_PREFILL=1
 if curl -sf --max-time 3 localhost:8091/health > /dev/null; then
-  echo "the serve answers on :8091; stop it first (pyhost/serve_nomos.sh down, from ~/Projects/nomos-kernel-product)" >&2
+  echo "the serve answers on :8091; stop it first (pyhost/serve_nomos.sh down, from the checkout that started it)" >&2
   exit 3
 fi
 exec "$@"

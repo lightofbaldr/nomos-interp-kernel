@@ -4,7 +4,7 @@ From Prime, 2026-10-14; updated 2026-10-15, when the KV session store merged int
 
 Each section is tagged with its status:
 
-- **LIVE**: exists today in `~/Projects/nomos-kernel-product`.
+- **LIVE**: existed then in the Nomos product kernel, a private repository. Its serve, extended with readouts and steering, now ships at this repository's root, in `pyhost/`.
 - **PLANNED**: designed, not built yet. (Everything this document first marked PLANNED landed with the KV session store on 2026-10-15 and is now LIVE.)
 - **OPEN**: will be designed together with the interp kernel. Build the adapter against it, but don't treat it as final.
 
@@ -14,7 +14,7 @@ This document sits beside [INTEGRATION.md](INTEGRATION.md) and does not replace 
 
 ## 1. Chat (LIVE)
 
-**Server.** `nomos-kernel-product/pyhost/serve.py`, started with `pyhost/serve_nomos.sh --model muse up` at `http://<host>:8091`: that is the launcher's default and Adam's host env. (`serve.py` started directly defaults to `:8090`.) The env vars `NOMOS_HOST` and `NOMOS_PORT` change it.
+**Server.** `pyhost/serve.py`, started with `pyhost/serve_nomos.sh --model muse up` at `http://<host>:8091`: that is the launcher's default and Adam's host env. (`serve.py` started directly defaults to `:8090`.) The env vars `NOMOS_HOST` and `NOMOS_PORT` change it.
 
 **Endpoints:**
 - `POST /v1/chat/completions`
