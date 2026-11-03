@@ -1,0 +1,21 @@
+import {json,type RequestEvent} from '@sveltejs/kit';
+import {env} from '$env/dynamic/private';
+import {withService} from '$lib/server/pi-service';
+import {sameOrigin,jsonBody} from '$lib/server/origin';
+import {createImporter,importRoots} from '$lib/server/profile-import';
+import {profileAction} from '$lib/server/profile-api';
+const options={headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}};
+let imports:ReturnType<typeof createImporter>|undefined;
+const importer=()=>imports??=createImporter(importRoots(env.GLIMMER_HARNESS_IMPORT_ROOTS));
+export async function GET({request,url}:RequestEvent){
+  if(!sameOrigin(request,url))return json({error:'Same-origin loopback access required.'},{status:403,...options});
+  try{
+    const id=url.searchParams.get('conversation');if(!id)throw Error('Conversation required.');
+    return await withService(async runtime=>json({profile:await runtime.profile(id),roots:importer().roots(),tools:runtime.toolStatus()},options));
+  }catch(e){return json({error:e instanceof Error?e.message:'Profile unavailable.'},{status:400,...options});}
+}
+export async function POST({request,url}:RequestEvent){
+  if(!sameOrigin(request,url))return json({error:'Same-origin loopback access required.'},{status:403,...options});
+  try{const body=await jsonBody(request,524288);return await withService(async runtime=>json(await profileAction(runtime,importer(),body),options));}
+  catch(e){return json({error:e instanceof Error?e.message:'Profile operation failed.'},{status:400,...options});}
+}

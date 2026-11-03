@@ -1,0 +1,15 @@
+node_modules/
+.svelte-kit/
+build/
+.env
+.env.*
+*.log
+preview/checks/
+.hallmark/
+.unlazy/
+.unlazy-hook-state.json
+/preview/
+/evidence/
+/dist/
+/static/data/
+data-inventory.local.json

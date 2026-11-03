@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+const cwd=new URL('../',import.meta.url).pathname;
+const run=(file,args)=>execFileSync(file,args,{cwd,encoding:'utf8'}).trim();
+const repo=JSON.parse(run('gh',['repo','view','lightofbaldr/glimmer-lab','--json','isPrivate,nameWithOwner']));
+assert.equal(repo.isPrivate,true);assert.equal(repo.nameWithOwner,'lightofbaldr/glimmer-lab');
+const branch='codex/steering-diff';
+const localMain=run('git',['rev-parse','main']);
+const localReview=run('git',['rev-parse',branch]);
+const remoteMain=JSON.parse(run('gh',['api','repos/lightofbaldr/glimmer-lab/git/ref/heads/main'])).object.sha;
+const remoteReview=JSON.parse(run('gh',['api',`repos/lightofbaldr/glimmer-lab/git/ref/heads/${branch}`])).object.sha;
+assert.equal(localMain,remoteMain);assert.equal(localReview,remoteReview);assert.notEqual(localMain,localReview);
+assert.equal(run('git',['merge-base','main',branch]),localMain);
+assert.equal(run('git',['rev-list','--count','main']),'1','Main is only the fresh root import');
+console.log('PRIVATE BRANCHES VERIFIED',localMain,localReview);

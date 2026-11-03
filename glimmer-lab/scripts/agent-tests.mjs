@@ -1,0 +1,12 @@
+import {spawnSync} from 'node:child_process';
+import {mkdirSync,writeFileSync} from 'node:fs';
+import {assertSupportedRuntime} from './runtime.mjs';
+assertSupportedRuntime();
+const result=spawnSync(process.execPath,['--test','--test-concurrency=1','--test-reporter=tap','tests/agent/controls.test.ts','tests/agent/readout-continuity.test.ts','tests/agent/budget.test.ts','tests/shell/integration.test.ts'],{encoding:'utf8',maxBuffer:8*1024*1024,timeout:300000});
+const output=(result.stdout??'')+(result.stderr??'')+(result.error?String(result.error):'');
+mkdirSync('preview/checks',{recursive:true});
+const log=`preview/checks/agent-controls-${new Date().toISOString().replace(/[:.]/g,'-')}.log`;
+writeFileSync(log,JSON.stringify({status:result.status,signal:result.signal})+'\n'+output);
+process.stdout.write(output);console.log('Evidence:',log);
+if(result.status!==0)process.exit(result.status??1);
+console.log('AGENT MODE CONTROLS VERIFIED');

@@ -1,0 +1,115 @@
+import assert from 'node:assert/strict';
+import {harness,root} from './harness.mjs';
+import {fakeKernel,until} from '../tests/live/fixture.ts';
+import {mkdir,writeFile,rm} from 'node:fs/promises';
+const recorded=process.argv.includes('--recorded');
+let f,h,page;const evidence=[];
+try{
+  if(!recorded)f=await fakeKernel();
+  h=await harness(false,f?{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/workspace-ui.sqlite',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin}:{});
+  page=await h.browser.newPage({viewport:{width:1440,height:900},reducedMotion:'reduce'});h.observe(page);page.setDefaultTimeout(15000);
+  if(!recorded){
+    await page.goto(h.base);await page.getByRole('button',{name:'Steering & readouts',exact:true}).waitFor();
+    await until(async()=>await page.getByLabel('Message Muse',{exact:true}).isEnabled());
+    assert.equal(await page.getByText('Explore the demo',{exact:true}).count(),0);
+    assert.equal(await page.getByRole('tab').count(),0,'Minimal chat does not expose the whole workbench');
+    assert.equal(await page.locator('.chat-heading').count(),0,'The redundant conversation heading is removed');
+    assert.equal(await page.getByText('CONVERSATION',{exact:true}).count(),0);
+    assert.equal(await page.getByText('Talk to Glimmer. Inspect the signals behind any saved turn.',{exact:true}).count(),0);
+    const settings=page.locator('.lab-sidebar-bottom').getByRole('button',{name:'Steering & readouts',exact:true});
+    assert.equal(await settings.count(),1,'Settings lives in the sidebar footer');
+    await settings.focus();await settings.press('Enter');
+    await page.getByLabel('Workspace top-16',{exact:true}).check();await page.getByRole('button',{name:'Apply readout settings',exact:true}).click();
+    await page.getByTestId('readout-setting').filter({hasText:'L44, top-16'}).waitFor();await page.getByRole('button',{name:'Close controls',exact:true}).click();
+    await until(async()=>await settings.evaluate(el=>document.activeElement===el));
+    await page.screenshot({path:root+'preview/checks/chat-sidebar-desktop.png'});
+    await page.setViewportSize({width:390,height:844});
+    // Make the drawer's asynchronous close deterministic. No visual motion is
+    // needed: its closing lifecycle must finish before settings opens.
+    await page.addStyleTag({content:'@keyframes drawer-close-test{from{opacity:1}to{opacity:1}}.lab-nav-dialog[data-state="closed"]{animation:drawer-close-test 120ms linear !important}'});
+    const navigation=page.getByRole('button',{name:'Open navigation',exact:true});await navigation.click();
+    await page.getByRole('dialog',{name:'Lab navigation',exact:true}).getByRole('button',{name:'Steering & readouts',exact:true}).click();
+    const controls=page.getByRole('dialog',{name:'Steering & readout capture',exact:true});await controls.waitFor();
+    assert.equal(await page.getByRole('dialog',{name:'Lab navigation',exact:true}).count(),0,'Mobile settings replaces, rather than overlaps, the navigation dialog');
+    assert.ok(await controls.evaluate(el=>el.contains(document.activeElement)),'Settings receives keyboard focus');
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.screenshot({path:root+'preview/checks/chat-sidebar-mobile-controls.png'});
+    await page.keyboard.press('Escape');await controls.waitFor({state:'hidden'});
+    await until(async()=>await navigation.evaluate(el=>document.activeElement===el));
+    await page.screenshot({path:root+'preview/checks/chat-sidebar-mobile.png'});
+    assert.equal(f.requests.length,0,'Opening and closing settings makes no model request');
+    await page.setViewportSize({width:1440,height:900});
+    evidence.push('No conversation heading; sidebar settings opens on desktop and mobile with focus restored and no model request');
+    await page.getByLabel('Message Muse',{exact:true}).fill('A saved question about Canberra');await page.getByRole('button',{name:'Send message',exact:true}).click();
+    await page.getByText('Hello from Pi.',{exact:true}).waitFor();
+    await page.getByRole('link',{name:'Inspect this turn’s workspace →',exact:true}).waitFor();
+    const entry=page.locator('.lab-history a').filter({hasText:'A saved question about Canberra'});await entry.waitFor();
+    const original=await entry.getAttribute('href');
+    await page.screenshot({path:root+'preview/checks/video-chat-fixture.png'});
+    await page.getByRole('link',{name:'Inspect this turn’s workspace →',exact:true}).click();
+    await page.getByRole('region',{name:'Selected token workspace'}).waitFor();
+    assert.equal(await page.locator('.depth-card').count(),1);await page.getByLabel('Word-like only').uncheck();assert.equal(await page.locator('.depth-candidates li').count(),16);
+    await page.getByRole('button',{name:'All positions',exact:true}).click();await page.locator('.word-token[data-pos="0"]').click();
+    assert.match(await page.locator('.depth-card').innerText(),/No workspace readout/);
+    await page.locator('nav[aria-label="Lab pages"]').getByRole('link',{name:'Chat',exact:true}).click();
+    await page.waitForURL(u=>u.pathname==='/');
+    await page.reload();await page.getByText('Hello from Pi.',{exact:true}).waitFor();
+    assert.equal(await page.locator('.lab-history a').filter({hasText:'A saved question about Canberra'}).count(),1);
+    await page.getByRole('button',{name:'New conversation',exact:true}).click();await page.getByRole('heading',{name:/Space to think/}).waitFor();
+    await until(async()=>await page.getByLabel('Message Muse',{exact:true}).isEnabled());
+    assert.equal(await page.getByText('Hello from Pi.',{exact:true}).count(),0);
+    await page.locator(`.lab-history a[href="${original}"]`).click();await page.getByText('Hello from Pi.',{exact:true}).waitFor();
+    await page.locator('nav[aria-label="Lab pages"]').getByRole('link',{name:'Harness workbench',exact:true}).click();
+    await page.getByLabel('Profile instructions').waitFor();await page.getByLabel('Profile instructions').fill('WORKSPACE_TEST_PROFILE');
+    await page.getByRole('button',{name:'Save profile',exact:true}).click();await page.getByText('Profile applied.',{exact:true}).waitFor();
+    await page.locator('.live-inspector').evaluate(el=>el.scrollTop=0);
+    await page.screenshot({path:root+'preview/checks/video-workbench-fixture.png'});
+    await page.reload();await until(async()=>await page.getByLabel('Profile instructions').inputValue()==='WORKSPACE_TEST_PROFILE');
+    await page.getByRole('tab',{name:'Alerts',exact:true}).click();await page.getByRole('region',{name:'Signal alert badges',exact:true}).waitFor();
+    await page.getByRole('tab',{name:'Profile',exact:true}).click();
+    await page.getByRole('button',{name:'Fork at r2',exact:true}).click();
+    await page.waitForURL(u=>u.pathname==='/workbench'&&u.searchParams.get('conversation')!==new URL(original,h.base).searchParams.get('conversation'));
+    await page.reload();await until(async()=>await page.getByLabel('Profile instructions').inputValue()==='WORKSPACE_TEST_PROFILE');
+    await page.locator(`.lab-history a[href="${original}"]`).click();await page.getByText('Hello from Pi.',{exact:true}).waitFor();
+    await page.locator('nav[aria-label="Lab pages"]').getByRole('link',{name:'Chat',exact:true}).click();await page.waitForURL(u=>u.pathname==='/');
+    await page.getByText('Hello from Pi.',{exact:true}).waitFor();
+    assert.equal(f.requests.length,1,'Navigation/reload/history make no model request');evidence.push('Real Pi fixture history, create/reopen/reload, transcript and live workspace');
+  }else{
+    await page.goto(h.base+'/workspace?recording=sietti-base');await page.locator('.word-token').first().waitFor();
+    await page.evaluate(()=>document.fonts.ready);assert.equal(await page.locator('.depth-card').count(),4);
+    const response=await page.request.get(h.base+'/api/recordings?id=sietti-base',{headers:{Origin:h.base}});assert.equal(response.status(),200);
+    const data=await response.json();assert.equal(await page.locator('.word-token').count(),data.records.filter(r=>r.channel==='answer').length);
+    const at=data.records.find(r=>r.channel==='answer'&&(data.labels[r.token]??'').trim().toLowerCase()==='paper')??data.records.find(r=>r.channel==='answer');
+    await page.locator(`.word-token[data-pos="${at.pos}"]`).click();
+    assert.match(await page.locator('.selection-heading').innerText(),new RegExp(`Position ${at.pos} ·`));
+    await page.screenshot({path:root+'preview/checks/video-workspace-word.png'});
+    await page.getByLabel('Word-like only').uncheck();assert.equal(await page.locator('.depth-candidates li').count(),64,'Every supplied candidate at every layer is available');
+    const selected=data.records.find(r=>r.pos===at.pos);
+    for(const layer of data.layers){
+      const actual=await page.getByRole('article',{name:`Workspace layer ${layer}`,exact:true}).locator('.depth-candidates li').allTextContents();
+      const expected=selected.workspace.top[data.layers.indexOf(layer)].map(([id,score],i)=>`${i+1}${data.labels[id]??`#${id} · unknown label`}${score.toFixed(2)}`);
+      assert.deepEqual(actual,expected,`L${layer}: exact raw rank, decoded label and displayed score at consumed position ${at.pos}`);
+    }
+    await page.screenshot({path:root+'preview/checks/video-workspace-raw.png'});
+    await page.getByLabel('Word-like only').check();await page.getByRole('button',{name:'Reasoning',exact:true}).click();
+    await page.screenshot({path:root+'preview/checks/video-workspace-reasoning.png'});
+    await page.getByRole('button',{name:'Next token',exact:true}).click();const next=await page.getByTestId('selected-token').innerText();assert.ok(next.length);
+    await page.locator('.word-token[aria-pressed="true"]').press('ArrowRight');
+    assert.equal(await page.locator('.word-token[aria-pressed="true"]').count(),1);
+    await page.getByLabel('Workspace source').selectOption('sietti-afraid');await page.locator('.workspace-source').getByText('afraid +0.5 · L24',{exact:true}).waitFor();
+    await page.locator('.word-token').first().waitFor();
+    await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.screenshot({path:root+'preview/checks/video-workspace-mobile.png',fullPage:true});
+    await page.locator('.workspace-inspection').scrollIntoViewIfNeeded();
+    await page.screenshot({path:root+'preview/checks/video-workspace-mobile-inspection.png'});
+    await page.getByRole('button',{name:'Open navigation',exact:true}).click();await page.getByRole('dialog').waitFor();await page.keyboard.press('Escape');
+    assert.equal((await fetch(h.base+'/api/recordings?id=../../.env',{headers:{Origin:h.base}})).status,404);
+    assert.equal((await fetch(h.base+'/api/recordings?id=sietti-base',{headers:{Origin:'http://evil.test'}})).status,403);
+    assert.equal((await fetch(h.base+'/api/recordings?id=sietti-base',{method:'POST',headers:{Origin:h.base}})).status,405);
+    assert.ok(!h.requests.some(u=>/8091|\/api\/nomos|\/api\/pi\/annotate/.test(u)));evidence.push('Pinned recording, four depths, all 64 candidates, exact positions, channels, keyboard, mobile');
+  }
+  assert.deepEqual(h.errors,[]);assert.deepEqual(h.external,[]);
+  await mkdir(root+'preview/checks',{recursive:true});await writeFile(root+`preview/checks/video-${recorded?'recorded':'fixture'}.json`,JSON.stringify({pass:true,viewport:[1440,900],evidence,external:h.external},null,2));
+  console.log('WORKSPACE BROWSER VERIFIED',recorded?'recorded':'fixture');
+}catch(e){if(page){console.error((await page.locator('body').innerText()).slice(-5000));await page.screenshot({path:root+'preview/checks/video-failure.png'});}throw e;}
+finally{await h?.close();if(f){await f.close();await rm(f.root,{recursive:true,force:true});}}

@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "id": "nomos-muse",
+  "name": "Muse on Nomos",
+  "summary": "Dark Glimmer chat with streamed answers and reasoning, exact multi-turn history, cancellation and measured KV session-store counters. Workspace/emotion probes and steering remain unconnected; demo/recorded readouts are explicit.",
+  "source": "Original local Nomos interface · Muse/Meta-inspired, not official Meta UI",
+  "goodFor": [
+    "Chat and interpretability interface prototyping",
+    "Kernel telemetry adapter discussions",
+    "Local Meta hackathon UX demonstrations"
+  ],
+  "highlights": [
+    "Local AI Elements message/composer components",
+    "Real streamed Glimmer chat and expandable provider reasoning",
+    "Between-turn RAM/NVMe occupancy and cumulative KV reuse counters",
+    "Supplied Muse mascot as a local, subtle chat watermark",
+    "Emotion-target Dock with persistent on/off preview selections, not applied steering",
+    "Freeze, follow and exact-frame trace inspection",
+    "Concept/layer matrix and signed emotion-concept scores",
+    "Strict client-only trace import/export",
+    "Phone inspection sheet and reduced-motion motion fallback"
+  ],
+  "demoUrl": "http://127.0.0.1:5226/",
+  "featured": false,
+  "preview": {
+    "image": "preview/kernel-chat-desktop.png",
+    "width": 1440,
+    "height": 980
+  },
+  "screenshots": [
+    {
+      "view": "desktop",
+      "name": "conversation",
+      "image": "preview/kernel-chat-desktop.png",
+      "width": 1440,
+      "height": 980
+    },
+    {
+      "view": "desktop",
+      "name": "welcome",
+      "image": "preview/welcome-desktop.png",
+      "width": 1440,
+      "height": 980
+    },
+    {
+      "view": "tablet",
+      "name": "welcome",
+      "image": "preview/kernel-chat-768.png",
+      "width": 768,
+      "height": 844
+    },
+    {
+      "view": "mobile",
+      "name": "welcome",
+      "image": "preview/kernel-chat-375.png",
+      "width": 375,
+      "height": 844
+    },
+    {
+      "view": "mobile",
+      "name": "inspection",
+      "image": "preview/inspection-375.png",
+      "width": 375,
+      "height": 844
+    }
+  ],
+  "provenance": {
+    "source": "Original frontend; component/font attribution in docs/ATTRIBUTION.md",
+    "captureRecord": "preview/checks/kernel-chat.json (actual chat captures); preview/checks/chat.json (CPU fixture layouts)",
+    "packageVersions": "Local package-lock.json and packed vendor artifacts, not another deployment."
+  },
+  "review": {
+    "reviewedAt": "2026-10-16",
+    "summary": "Real chat/reasoning/KV integration plus isolated failure controls for exact history, Stop, malformed/truncated SSE and source separation. Browser layouts and prior demo controls verified. Steering is not applied; no safety or loaded-binary attestation claim.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Workspace/emotion probes and steering are not connected",
+        "detail": "Live chat and server-reported KV counters work. Demo probe values remain synthetic, imported metadata unverified. No safety classifier, probe calibration, steering or loaded-kernel attestation."
+      },
+      {
+        "severity": "low",
+        "title": "Production integration and dependency review remain",
+        "detail": "Local-only proxy: no public authentication, durable chats, automatic recovery, tools or attachments. Historical npm audit reported low-severity entries; no full security/a11y/performance clearance."
+      }
+    ]
+  },
+  "about": {
+    "description": "An independent dark, chat-first interface for Muse on Nomos, using ordinary local Svelte components. A contextual inspector shows concept projections, layers, raw signed emotion-concept scores and trace provenance without claiming that inspection proves safety.",
+    "architecture": "Svelte 5/SvelteKit adapter-node SSR, Tailwind 4 tokens, Bits UI and local AI Elements/Magic/Fancy. Private fixed-upstream proxy streams OpenAI SSE, preserves raw reasoning/answer history and polls actual KV counters between turns. Independent demo/recorded inspection format; no remote component registry.",
+    "limitations": [
+      "Workspace/emotion readouts are unconnected; real chat/health/KV counters are separate.",
+      "Emotion steering controls select UI intent only; no activation vectors or steering transport exist.",
+      "Imported metadata is self-reported, never serving-process attestation.",
+      "Probe scores are not emotion probabilities, feelings, thought transcripts or safety verdicts.",
+      "Live context is in-memory only, bounded to 64 messages/64,000 UTF-16 code units; reload or leaving live mode clears it.",
+      "Reasoning stays on and is sent back verbatim; model text is escaped plain text, not rendered Markdown.",
+      "No kernel/GPU changes, public deployment or external repository push."
+    ],
+    "packages": [
+      {
+        "name": "@fontsource-variable/geist",
+        "version": "5.3.0",
+        "kind": "runtime",
+        "role": "Self-hosted variable conversation/UI font."
+      },
+      {
+        "name": "@fontsource-variable/geist-mono",
+        "version": "5.3.0",
+        "kind": "runtime",
+        "role": "Self-hosted variable readout/coordinate font."
+      },
+      {
+        "name": "@nomos/svelte-ai-elements",
+        "version": "0.1.0",
+        "kind": "runtime",
+        "role": "Local Message, PromptInput and Reasoning Root/Trigger, with actual provider streaming and app-owned transport."
+      },
+      {
+        "name": "@nomos/svelte-fancy",
+        "version": "0.1.0",
+        "kind": "runtime",
+        "role": "Local Letter3DSwap replay-action hover; never mounted under reduced motion."
+      },
+      {
+        "name": "@nomos/svelte-magic",
+        "version": "0.1.0",
+        "kind": "runtime",
+        "role": "Local Dock/DockIcon emotion-target preview, BlurFade welcome reveal and SparklesText model title with reduced-motion safeguards."
+      },
+      {
+        "name": "bits-ui",
+        "version": "2.19.5",
+        "kind": "runtime",
+        "role": "Focus-managed dialogs, mobile inspection sheet, keyboard tabs and emotion Dock toggles/tooltips."
+      },
+      {
+        "name": "phosphor-svelte",
+        "version": "3.0.1",
+        "kind": "runtime",
+        "role": "Consistent Svelte icon system for real actions and readouts."
+      },
+      {
+        "name": "@sveltejs/adapter-node",
+        "version": "5.5.7",
+        "kind": "build",
+        "role": "Standalone Node runtime for local/VM deployment."
+      },
+      {
+        "name": "@sveltejs/kit",
+        "version": "2.70.3",
+        "kind": "build",
+        "role": "SSR shell, app composition and build routing."
+      },
+      {
+        "name": "@sveltejs/vite-plugin-svelte",
+        "version": "7.3.1",
+        "kind": "build",
+        "role": "Svelte compiler/Vite integration."
+      },
+      {
+        "name": "@tailwindcss/vite",
+        "version": "4.3.3",
+        "kind": "build",
+        "role": "Tailwind build pipeline."
+      },
+      {
+        "name": "@types/node",
+        "version": "24.0.0",
+        "kind": "build",
+        "role": "Node tooling type definitions."
+      },
+      {
+        "name": "playwright",
+        "version": "1.58.2",
+        "kind": "build",
+        "role": "Actual Chromium behavioral and viewport checks."
+      },
+      {
+        "name": "svelte",
+        "version": "5.57.2",
+        "kind": "build",
+        "role": "Svelte 5 runes and native component composition."
+      },
+      {
+        "name": "svelte-check",
+        "version": "4.7.6",
+        "kind": "build",
+        "role": "Component/type diagnostics, required zero errors/warnings."
+      },
+      {
+        "name": "tailwindcss",
+        "version": "4.3.3",
+        "kind": "build",
+        "role": "Shared component utility styles and application CSS integration."
+      },
+      {
+        "name": "typescript",
+        "version": "6.0.3",
+        "kind": "build",
+        "role": "Strict local application/trace types."
+      },
+      {
+        "name": "vite",
+        "version": "8.3.3",
+        "kind": "build",
+        "role": "Production asset build."
+      }
+    ]
+  }
+}
