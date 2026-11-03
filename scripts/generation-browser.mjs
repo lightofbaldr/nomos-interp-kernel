@@ -8,6 +8,13 @@ import {consumeChat} from '../src/lib/live.ts';
 const f=await fakeKernel();let h,page;
 const greedy={temperature:0,top_p:1,top_k:0,max_tokens:6144},sampled={temperature:1,top_p:0.95,top_k:64,max_tokens:6144};
 const params=r=>Object.fromEntries(Object.keys(greedy).map(k=>[k,r[k]]));
+async function openSettings(page){
+  const navigation=page.getByRole('button',{name:'Open navigation',exact:true});
+  if(await navigation.isVisible()){
+    await navigation.click();
+    await page.getByRole('dialog',{name:'Lab navigation',exact:true}).getByRole('button',{name:'Steering & readouts',exact:true}).click();
+  }else await page.locator('.lab-sidebar-bottom').getByRole('button',{name:'Steering & readouts',exact:true}).click();
+}
 try{
   h=await harness(false,{NOMOS_API_BASE_URL:f.base,GLIMMER_SESSION_DB:f.root+'/generation-ui.sqlite',NOMOS_READOUT_REGISTRY:f.registry,NOMOS_TOKENIZER_JSON:f.tokenizerPath,NOMOS_TOKENIZER_SHA256:f.tokenizerPin});
   page=await h.browser.newPage({viewport:{width:1440,height:900},reducedMotion:'reduce'});h.observe(page);page.setDefaultTimeout(15000);
@@ -44,7 +51,7 @@ try{
   await page.goto(`${h.base}/?conversation=${a}`);await page.getByText('Stopped at the reply limit, retried.',{exact:true}).waitFor();
   await page.screenshot({path:root+'preview/checks/generation-retry-desktop.png'});
   assert.equal(await toggle.count(),0);
-  await page.getByRole('button',{name:'Steering & readouts',exact:true}).click();await until(async()=>await toggle.isEnabled());
+  await openSettings(page);await until(async()=>await toggle.isEnabled());
   await page.screenshot({path:root+'preview/checks/generation-controls-desktop.png'});
   await page.getByRole('button',{name:'Close controls',exact:true}).click();
   await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -52,7 +59,7 @@ try{
   await page.getByText('The replacement answer.',{exact:true}).scrollIntoViewIfNeeded();
   await page.screenshot({path:root+'preview/checks/generation-retry-mobile.png',fullPage:true});
   assert.equal(await toggle.count(),0,'The compact chat does not expose settings outside its dialog');
-  await page.getByRole('button',{name:'Steering & readouts',exact:true}).click();
+  await openSettings(page);
   const settings=page.getByRole('dialog',{name:'Steering & readout capture',exact:true});await settings.waitFor();
   assert.equal(await settings.getByRole('switch',{name:"Glimmer's sampling",exact:true}).getAttribute('aria-checked'),'true');
   assert.match(await settings.locator('#sampling-cost').innerText(),/Slower.*disables speculative/);
@@ -73,7 +80,7 @@ try{
   }finally{releaseSave();}
   await until(async()=>await page.getByRole('button',{name:'Send message',exact:true}).isEnabled());
   await page.unroute('**/api/pi');await page.getByLabel('Message Muse',{exact:true}).fill('');
-  await page.getByRole('button',{name:'Steering & readouts',exact:true}).click();await until(async()=>await toggle.isEnabled());assert.equal(await toggle.getAttribute('aria-checked'),'false');
+  await openSettings(page);await until(async()=>await toggle.isEnabled());assert.equal(await toggle.getAttribute('aria-checked'),'false');
   await page.getByRole('button',{name:'Close controls',exact:true}).click();
   assert.equal(f.requests.length,2,'Opening settings never generates a reply');
   // No selected conversation: the moved status is inside settings and the
@@ -85,7 +92,7 @@ try{
     await empty.route('**/api/pi*',route=>route.fulfill({json:{...data,conversations:[],autoCreate:false}}));
     await empty.goto(h.base+'/');await empty.getByRole('button',{name:'Start a conversation',exact:true}).waitFor();
     assert.equal(await empty.getByText('No conversation selected',{exact:true}).count(),0);
-    await empty.getByRole('button',{name:'Steering & readouts',exact:true}).click();
+    await openSettings(empty);
     await empty.getByRole('dialog').getByText('No conversation selected',{exact:true}).waitFor();
     const disabled=empty.getByRole('switch',{name:"Glimmer's sampling",exact:true});assert.equal(await disabled.isDisabled(),true);assert.equal(await disabled.getAttribute('aria-checked'),'false');
     assert.deepEqual(emptyWrites,[]);
