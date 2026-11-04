@@ -7,8 +7,9 @@ reads the model's internal state as it generates, and can steer it. On top sit a
 and steering the model as it works as an agent, and an adapter for Google's Harness² that improves the agent's harness
 around frozen weights.
 
-> Meta Global AI Developer Hackathon 2026 · Indie track · Theme: Build for Your World
-> Demo video (3 min): *link added at submission*
+> Meta Global AI Developer Hackathon 2026 · Indie track · Theme: Build for Your World\
+> Demo video (3 min): *link added at submission*\
+> Start here: this README, then the [slide deck](docs/glimmer-lab-deck.pdf) (15 slides, PDF)
 
 ## Why
 
@@ -177,8 +178,8 @@ end to end that way. The recorded pages replay captures that also live outside t
   [glimmer-lab/docs/ATTRIBUTION.md](glimmer-lab/docs/ATTRIBUTION.md) for the UI's components, fonts and icons.
 - **The chat page's watermark** is a cutout of Meta's Muse mascot artwork, which Adam supplied. It and the original
   image in `glimmer-lab/docs/assets/` are Meta's, are not covered by this repository's licenses, and are decorative
-  only. Muse styling is inspiration only. This is an independent project, not an official Meta product or endorsed by
-  Meta.
+  only. The watermark also shows in the deck's cover and Agent mode screenshots. Muse styling is inspiration only.
+  This is an independent project, not an official Meta product or endorsed by Meta.
 - The emotion-concept approach follows Anthropic's research on emotion representations in language models.
 
 **Names used in the notes:** *Gold* is our RTX PRO 4000 workstation; *Spark* is a DGX Spark; *Glimmer* is
